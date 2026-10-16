@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+:root,
+[data-theme="light"] {
+  --bg-base: #ffffff;
+  --bg-subtle: #f7f7f7;
+  --bg-elevated: #fafafa;
+  --bg-sidebar: #fafafa;
+  --bg-active: #e8e8e8;
+  --bg-hover: #ececec;
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #737373;
+  --border-default: #e5e5e5;
+  --border-subtle: #efefef;
+  --overlay: rgba(255, 255, 255, 0.72);
+  --heat-1: #dbeafe;
+  --heat-2: #93c5fd;
+  --heat-3: #3b82f6;
+  --heat-4: #1d4ed8;
+}
+
+[data-theme="dark"] {
+  --bg-base: #000000;
+  --bg-subtle: #0a0a0a;
+  --bg-elevated: #111111;
+  --bg-sidebar: #111111;
+  --bg-active: #1a1a1a;
+  --bg-hover: #1a1a1a;
+  --text-primary: #f5f5f5;
+  --text-secondary: #d4d4d4;
+  --text-tertiary: #a3a3a3;
+  --border-default: #2a2a2a;
+  --border-subtle: #1f1f1f;
+  --overlay: rgba(0, 0, 0, 0.72);
+  --heat-1: #172554;
+  --heat-2: #1e3a8a;
+  --heat-3: #2563eb;
+  --heat-4: #60a5fa;
+}
+
+@theme inline {
+  --color-base: var(--bg-base);
+  --color-subtle: var(--bg-subtle);
+  --color-elevated: var(--bg-elevated);
+  --color-sidebar: var(--bg-sidebar);
+  --color-active: var(--bg-active);
+  --color-hover: var(--bg-hover);
+  --color-ink: var(--text-primary);
+  --color-muted: var(--text-secondary);
+  --color-faint: var(--text-tertiary);
+  --color-line: var(--border-default);
+  --color-line-subtle: var(--border-subtle);
+  --color-overlay: var(--overlay);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+::selection {
+  background: var(--text-primary);
+  color: var(--bg-base);
+}
+
+.rich-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+}
+
+.rich-editor h2 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.rich-editor h3 {
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.rich-editor ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+
+.rich-editor a {
+  text-decoration: underline;
+}
