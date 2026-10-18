@@ -8,12 +8,17 @@ import { accessLabel, MemberDialog } from "@/components/team/member-dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
+import { removeMember } from "@/lib/api";
 import { computeInsights } from "@/lib/insights";
 import { useWorkspace } from "@/lib/workspace";
 
 export default function TeamPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
   const users = useWorkspace((state) => state.users);
   const currentUserId = useWorkspace((state) => state.user?.id);
   const isAdmin = users.find((user) => user.id === currentUserId)?.access === "admin";
@@ -24,6 +29,12 @@ export default function TeamPage() {
   const insights = computeInsights(tasks, projects, activeUsers);
   const maxDone = Math.max(...insights.memberLoad.map((item) => item.done), 1);
   const editing = users.find((user) => user.id === editingId) ?? null;
+  const removingUser = users.find((user) => user.id === removingId) ?? null;
+
+  function askRemove(id: string) {
+    setRemoveError("");
+    setRemovingId(id);
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
@@ -37,7 +48,7 @@ export default function TeamPage() {
         {isAdmin ? (
           <Button onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" />
-            Convidar
+            Convidar para o espaço
           </Button>
         ) : null}
       </div>
@@ -60,13 +71,24 @@ export default function TeamPage() {
                     Configurações
                   </Link>
                 ) : !user.owner && (isAdmin || user.id === currentUserId) ? (
-                  <button
-                    type="button"
-                    onClick={() => setEditingId(user.id)}
-                    className="text-xs text-faint hover:text-ink"
-                  >
-                    Editar
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(user.id)}
+                      className="text-xs text-faint hover:text-ink"
+                    >
+                      Editar
+                    </button>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => askRemove(user.id)}
+                        className="text-xs text-faint hover:text-ink"
+                      >
+                        Remover
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
               <div className="mb-4 h-px bg-line">
@@ -110,7 +132,13 @@ export default function TeamPage() {
                       {user.email} · {user.role} · {accessLabel(user.access)}
                     </p>
                   </div>
-                  <span className="text-xs text-faint">Pendente</span>
+                  <button
+                    type="button"
+                    onClick={() => askRemove(user.id)}
+                    className="text-xs text-faint hover:text-ink"
+                  >
+                    Cancelar
+                  </button>
                 </div>
               </Card>
             ))}
@@ -125,6 +153,49 @@ export default function TeamPage() {
         canEditAccess={Boolean(isAdmin && editing && !editing.owner)}
         requireCurrentPassword={editing?.id === currentUserId}
       />
+      <Dialog
+        open={Boolean(removingUser)}
+        title={removingUser?.membershipStatus === "pending" ? "Cancelar convite" : "Remover da equipe"}
+        onClose={() => {
+          if (!removing) setRemovingId(null);
+        }}
+      >
+        <p className="text-sm leading-6 text-faint">
+          {removingUser?.membershipStatus === "pending"
+            ? `${removingUser.name} deixa de ter o convite para este espaço.`
+            : `${removingUser?.name ?? "Esta pessoa"} sai deste espaço. A conta continua existindo e as tarefas atribuídas ficam sem responsável.`}
+        </p>
+        {removeError ? <p className="mt-3 text-sm text-red-400">{removeError}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={removing}
+            onClick={() => setRemovingId(null)}
+          >
+            Voltar
+          </Button>
+          <Button
+            type="button"
+            disabled={removing || !removingUser}
+            onClick={() => {
+              if (!removingUser) return;
+              setRemoving(true);
+              setRemoveError("");
+              void removeMember(removingUser.id).then((result) => {
+                setRemoving(false);
+                if (!result.ok) {
+                  setRemoveError(result.error);
+                  return;
+                }
+                setRemovingId(null);
+              });
+            }}
+          >
+            {removingUser?.membershipStatus === "pending" ? "Cancelar convite" : "Remover"}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

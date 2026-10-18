@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
@@ -9,7 +10,8 @@ import { TaskList } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { ProjectTimeline } from "@/components/timeline/project-timeline";
 import { Button } from "@/components/ui/button";
-import { addProjectMember, createSection, createTask, renameSection, reorderTasks } from "@/lib/api";
+import { Dialog } from "@/components/ui/dialog";
+import { addProjectMember, createSection, createTask, deleteProject, renameSection, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
 import type { ProjectView, User } from "@/lib/types";
@@ -41,6 +43,10 @@ function ProjectWorkspace() {
   const [draftSection, setDraftSection] = useState<string | null>(null);
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [addMenu, setAddMenu] = useState(false);
+  const [memberOpen, setMemberOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const ignoreSectionBlur = useRef(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
@@ -151,9 +157,6 @@ function ProjectWorkspace() {
               />
               <h1 className="text-lg font-medium text-ink">{project.name}</h1>
             </div>
-            {isAdmin ? (
-              <MemberAdd projectId={project.id} memberIds={project.memberIds} users={users} />
-            ) : null}
             <div className="mt-3 flex gap-1">
               {VIEWS.map((item) => (
                 <button
@@ -173,6 +176,17 @@ function ProjectWorkspace() {
             </div>
           </div>
           {isAdmin ? (
+          <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteError("");
+              setConfirmDelete(true);
+            }}
+            className="text-xs text-faint hover:text-ink"
+          >
+            Excluir projeto
+          </button>
           <div ref={addMenuRef} className="relative">
             <Button
               aria-expanded={addMenu}
@@ -210,8 +224,20 @@ function ProjectWorkspace() {
                 >
                   Sessão
                 </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAddMenu(false);
+                    setMemberOpen(true);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+                >
+                  Membro
+                </button>
               </div>
             ) : null}
+          </div>
           </div>
           ) : null}
         </div>
@@ -368,52 +394,132 @@ function ProjectWorkspace() {
           startEditing={selected.id === freshTaskId}
         />
       ) : null}
+      <MemberDialog
+        open={memberOpen}
+        projectId={project.id}
+        memberIds={project.memberIds}
+        users={users}
+        onClose={() => setMemberOpen(false)}
+      />
+      <Dialog
+        open={confirmDelete}
+        title="Excluir projeto"
+        onClose={() => {
+          if (!deleting) setConfirmDelete(false);
+        }}
+      >
+        <p className="text-sm leading-6 text-faint">
+          {project.name} e todas as tarefas deste projeto serão excluídos.
+        </p>
+        {deleteError ? <p className="mt-3 text-sm text-red-400">{deleteError}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={deleting}
+            onClick={() => setConfirmDelete(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={deleting}
+            onClick={() => {
+              setDeleting(true);
+              setDeleteError("");
+              void deleteProject(project.id).then((result) => {
+                setDeleting(false);
+                if (!result.ok) {
+                  setDeleteError(result.error);
+                  return;
+                }
+                router.push("/projetos");
+              });
+            }}
+          >
+            Excluir
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }
 
-function MemberAdd({
+function MemberDialog({
+  open,
   projectId,
   memberIds,
   users,
+  onClose,
 }: {
+  open: boolean;
   projectId: string;
   memberIds: string[];
   users: User[];
+  onClose: () => void;
 }) {
-  const [userId, setUserId] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const options = users.filter(
     (user) => user.membershipStatus !== "pending" && !memberIds.includes(user.id),
   );
-  if (options.length === 0) return null;
+  const pending = users.filter((user) => user.membershipStatus === "pending");
+
   return (
-    <form
-      className="mt-3 flex items-center gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!userId) return;
-        void addProjectMember(projectId, userId).then(() => setUserId(""));
+    <Dialog
+      open={open}
+      title="Adicionar membro"
+      onClose={() => {
+        if (!busyId) onClose();
       }}
     >
-      <select
-        value={userId}
-        onChange={(event) => setUserId(event.target.value)}
-        className="h-8 rounded-full border border-line bg-base px-3 text-xs text-ink"
-      >
-        <option value="">Adicionar membro</option>
-        {options.map((user) => (
-          <option key={user.id} value={user.id}>
-            {user.name}
-          </option>
-        ))}
-      </select>
-      <button
-        type="submit"
-        disabled={!userId}
-        className="text-xs text-faint hover:text-ink disabled:opacity-40"
-      >
-        Incluir
-      </button>
-    </form>
+      <p className="text-sm leading-6 text-faint">
+        Inclui neste projeto alguém que já faz parte do espaço. O convite da Equipe só entra no
+        espaço e não coloca a pessoa aqui.
+      </p>
+      {options.length > 0 ? (
+        <ul className="mt-4 space-y-2">
+          {options.map((user) => (
+            <li key={user.id} className="flex items-center justify-between gap-3">
+              <span className="min-w-0 truncate text-sm text-ink">{user.name}</span>
+              <button
+                type="button"
+                disabled={busyId !== null}
+                onClick={() => {
+                  setBusyId(user.id);
+                  setError("");
+                  void addProjectMember(projectId, user.id)
+                    .then(() => setBusyId(null))
+                    .catch((reason: unknown) => {
+                      setBusyId(null);
+                      setError(
+                        reason instanceof Error ? reason.message : "Não foi possível incluir esta pessoa.",
+                      );
+                    });
+                }}
+                className="shrink-0 text-xs text-faint hover:text-ink disabled:opacity-40"
+              >
+                {busyId === user.id ? "Incluindo" : "Incluir"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 text-sm leading-6 text-faint">
+          Não há ninguém do espaço fora deste projeto.
+        </p>
+      )}
+      {pending.length > 0 ? (
+        <p className="mt-4 text-sm leading-6 text-faint">
+          {pending.map((user) => user.name).join(", ")} ainda não aceitou o convite do espaço.
+        </p>
+      ) : null}
+      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+      <p className="mt-5 text-sm text-faint">
+        <Link href="/equipe" className="text-ink hover:underline" onClick={onClose}>
+          Convidar para o espaço
+        </Link>
+      </p>
+    </Dialog>
   );
 }

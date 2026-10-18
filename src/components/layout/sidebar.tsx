@@ -5,6 +5,7 @@ import {
   FolderKanban,
   Hash,
   LayoutGrid,
+  ListTodo,
   Moon,
   Settings,
   PanelLeft,
@@ -29,6 +30,7 @@ import { Logo } from "./logo";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
+  { href: "/tarefas", label: "Minhas tarefas", icon: ListTodo },
   { href: "/projetos", label: "Projetos", icon: FolderKanban, match: "/projetos" },
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
   { href: "/tags", label: "Tags", icon: Hash },

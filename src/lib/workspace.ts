@@ -34,8 +34,11 @@ interface WorkspaceState extends WorkspaceData {
   clear: () => void;
   fail: () => void;
   upsertUser: (user: User) => void;
+  removeUser: (id: string) => void;
   upsertProject: (project: Project) => void;
+  removeProject: (id: string) => void;
   upsertTask: (task: Task) => void;
+  removeTask: (id: string) => void;
   upsertTag: (tag: Tag) => void;
   removeTag: (id: string) => void;
   upsertThread: (thread: MessageThread) => void;
@@ -70,11 +73,34 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
         ? state.users.map((item) => (item.id === user.id ? user : item))
         : [...state.users, user].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
     })),
+  removeUser: (id) =>
+    set((state) => ({
+      users: state.users.filter((user) => user.id !== id),
+      projects: state.projects.map((project) => ({
+        ...project,
+        memberIds: project.memberIds.filter((memberId) => memberId !== id),
+      })),
+      tasks: state.tasks.map((task) =>
+        task.assigneeId === id ? { ...task, assigneeId: null } : task,
+      ),
+      threads: state.threads.map((thread) => ({
+        ...thread,
+        participantIds: thread.participantIds.filter((participantId) => participantId !== id),
+      })),
+    })),
   upsertProject: (project) =>
     set((state) => ({
       projects: state.projects.some((item) => item.id === project.id)
         ? state.projects.map((item) => (item.id === project.id ? project : item))
         : [project, ...state.projects],
+    })),
+  removeProject: (id) =>
+    set((state) => ({
+      projects: state.projects.filter((project) => project.id !== id),
+      tasks: state.tasks.filter((task) => task.projectId !== id),
+      threads: state.threads.map((thread) =>
+        thread.projectId === id ? { ...thread, projectId: null } : thread,
+      ),
     })),
   upsertTask: (task) =>
     set((state) => ({
@@ -82,6 +108,21 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
         ? state.tasks.map((item) => (item.id === task.id ? task : item))
         : [task, ...state.tasks],
     })),
+  removeTask: (id) =>
+    set((state) => {
+      const gone = new Set([id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const task of state.tasks) {
+          if (task.parentId && gone.has(task.parentId) && !gone.has(task.id)) {
+            gone.add(task.id);
+            grew = true;
+          }
+        }
+      }
+      return { tasks: state.tasks.filter((task) => !gone.has(task.id)) };
+    }),
   upsertTag: (tag) =>
     set((state) => ({
       tags: state.tags.some((item) => item.id === tag.id)

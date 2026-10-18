@@ -143,6 +143,16 @@ export async function selectWorkspace(workspaceId: string) {
   await loadSession();
 }
 
+export async function deleteWorkspace(workspaceId: string): Promise<Result> {
+  try {
+    await request(`/workspaces/${workspaceId}`, { method: "DELETE" });
+    await loadSession();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 export async function renameWorkspace(name: string) {
   const workspace = await request<{ id: string; name: string }>("/workspaces/current", {
     method: "PATCH",
@@ -165,6 +175,18 @@ export async function acceptInvite(workspaceId: string) {
 export async function declineInvite(workspaceId: string) {
   await request(`/workspaces/${workspaceId}/decline`, { method: "POST" });
   await loadSession();
+}
+
+export async function removeMember(id: string): Promise<Result> {
+  const self = useWorkspace.getState().user?.id === id;
+  try {
+    await request(`/users/${id}`, { method: "DELETE" });
+    if (self) await loadSession();
+    else useWorkspace.getState().removeUser(id);
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
 }
 
 export async function addMember(input: {
@@ -197,6 +219,20 @@ export async function createProject(input: {
   );
   useWorkspace.getState().upsertProject(project);
   return project;
+}
+
+export async function deleteProject(id: string): Promise<Result> {
+  try {
+    await request(`/projects/${id}`, { method: "DELETE" });
+    const state = useWorkspace.getState();
+    for (const task of state.tasks) {
+      if (task.projectId === id) cancelTaskSave(task.id);
+    }
+    state.removeProject(id);
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
 }
 
 export async function createSection(projectId: string, name: string) {
@@ -267,6 +303,14 @@ const taskBuffers = new Map<string, Partial<Task>>();
 const taskTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const taskSnapshots = new Map<string, Task>();
 
+function cancelTaskSave(id: string) {
+  const timer = taskTimers.get(id);
+  if (timer) clearTimeout(timer);
+  taskTimers.delete(id);
+  taskBuffers.delete(id);
+  taskSnapshots.delete(id);
+}
+
 export function updateTask(id: string, patch: Partial<Task>) {
   const state = useWorkspace.getState();
   const current = state.tasks.find((task) => task.id === id);
@@ -301,6 +345,29 @@ export function updateTask(id: string, patch: Partial<Task>) {
         });
     }, 280),
   );
+}
+
+export async function deleteTask(id: string): Promise<Result> {
+  try {
+    await request(`/tasks/${id}`, { method: "DELETE" });
+    const state = useWorkspace.getState();
+    const gone = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const task of state.tasks) {
+        if (task.parentId && gone.has(task.parentId) && !gone.has(task.id)) {
+          gone.add(task.id);
+          grew = true;
+        }
+      }
+    }
+    for (const taskId of gone) cancelTaskSave(taskId);
+    state.removeTask(id);
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
 }
 
 export function setTaskStatus(id: string, status: TaskStatus) {

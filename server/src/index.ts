@@ -17,19 +17,23 @@ import {
   createApiKey,
   createProject,
   createWorkspace,
+  deleteWorkspace,
   createSection,
   createTag,
   createTask,
   createThread,
   declineInvite,
   deleteApiKey,
+  deleteProject,
   deleteTag,
+  deleteTask,
   destroySession,
   listApiKeys,
   listNotifications,
   login,
   markAllNotificationsRead,
   markNotificationRead,
+  removeMember,
   renameSection,
   renameWorkspace,
   reorderTasks,
@@ -181,6 +185,14 @@ app.patch("/workspaces/current", async (c) => {
   return c.json(await renameWorkspace(await actorOf(c), body.name));
 });
 
+app.delete("/workspaces/:id", async (c) => {
+  const actor = await actorOf(c);
+  const id = c.req.param("id");
+  const result = await deleteWorkspace(actor, id);
+  if (!actor.apiKeyId && actor.workspaceId === id) writeWorkspace(c, result.nextWorkspaceId);
+  return c.json({ ok: true });
+});
+
 app.post("/workspaces/:id/accept", async (c) => {
   const actor = await actorOf(c);
   const id = c.req.param("id");
@@ -211,6 +223,11 @@ app.post("/users", async (c) => {
     await c.req.json(),
   );
   return c.json(await addMember(await actorOf(c), body));
+});
+
+app.delete("/users/:id", async (c) => {
+  await removeMember(await actorOf(c), c.req.param("id"));
+  return c.json({ ok: true });
 });
 
 app.patch("/users/:id", async (c) => {
@@ -258,6 +275,11 @@ app.patch("/projects/:id/sections", async (c) => {
   return c.json({ name });
 });
 
+app.delete("/projects/:id", async (c) => {
+  await deleteProject(await actorOf(c), c.req.param("id"));
+  return c.json({ ok: true });
+});
+
 app.post("/projects/:id/members", async (c) => {
   const body = parse(z.object({ userId: z.string() }), await c.req.json());
   return c.json(await addProjectMember(await actorOf(c), c.req.param("id"), body.userId));
@@ -300,9 +322,17 @@ app.patch("/tasks/:id", async (c) => {
   return c.json(await updateTask(await actorOf(c), c.req.param("id"), body));
 });
 
+app.delete("/tasks/:id", async (c) => {
+  await deleteTask(await actorOf(c), c.req.param("id"));
+  return c.json({ ok: true });
+});
+
 app.post("/tasks/:id/subtasks", async (c) => {
-  const body = parse(z.object({ title: z.string() }), await c.req.json());
-  return c.json(await addSubtask(await actorOf(c), c.req.param("id"), body.title));
+  const body = parse(
+    z.object({ title: z.string(), dueDate: z.string().nullable().optional() }),
+    await c.req.json(),
+  );
+  return c.json(await addSubtask(await actorOf(c), c.req.param("id"), body.title, body.dueDate));
 });
 
 app.post("/tasks/:id/comments", async (c) => {

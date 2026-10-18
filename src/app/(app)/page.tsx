@@ -1,9 +1,9 @@
 "use client";
 
-import { endOfWeek, format, startOfDay } from "date-fns";
+import { endOfWeek, format, startOfDay, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { Heatmap } from "@/components/insights/heatmap";
 import { TagChip } from "@/components/ui/badge";
@@ -22,9 +22,11 @@ export default function OverviewPage() {
   const insights = computeInsights(tasks, projects, users);
   const tags = useWorkspace((state) => state.tags);
   const firstName = user?.name.split(" ")[0] ?? "equipe";
+  const [showAllWeek, setShowAllWeek] = useState(false);
   const weekPosts = useMemo(() => {
     const today = startOfDay(new Date());
-    const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+    const weekEnd = startOfDay(endOfWeek(today, { weekStartsOn: 1 }));
     return tasks
       .filter((task) => {
         if (
@@ -36,10 +38,11 @@ export default function OverviewPage() {
           return false;
         }
         const due = startOfDay(parseDate(task.dueDate));
-        return due <= weekEnd;
+        return due >= weekStart && due <= weekEnd;
       })
       .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
   }, [tasks]);
+  const visibleWeekPosts = showAllWeek ? weekPosts : weekPosts.slice(0, 10);
   const upcomingDates = useMemo(() => {
     const today = startOfDay(new Date());
     const year = today.getFullYear();
@@ -92,15 +95,26 @@ export default function OverviewPage() {
       </Card>
 
       <Card className="mb-6 border-none">
-        <div className="mb-5 flex items-center justify-between">
+        <div className="mb-5 flex items-center justify-between gap-3">
           <p className="text-sm text-faint">Saindo esta semana</p>
-          <span className="text-xs text-faint">{weekPosts.length}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-faint">{weekPosts.length}</span>
+            {weekPosts.length > 10 ? (
+              <button
+                type="button"
+                onClick={() => setShowAllWeek((open) => !open)}
+                className="text-xs text-faint hover:text-ink"
+              >
+                {showAllWeek ? "Mostrar menos" : "Ver todas"}
+              </button>
+            ) : null}
+          </div>
         </div>
         {weekPosts.length === 0 ? (
-          <p className="text-sm text-faint">Nenhum post com saída até domingo.</p>
+          <p className="text-sm text-faint">Nenhum post saindo esta semana.</p>
         ) : (
           <div className="space-y-1">
-            {weekPosts.map((task) => {
+            {visibleWeekPosts.map((task) => {
               const project = projects.find((item) => item.id === task.projectId);
               const assignee = users.find((item) => item.id === task.assigneeId);
               const tag = tags.find((item) => item.id === task.tagIds[0]);

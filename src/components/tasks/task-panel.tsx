@@ -7,7 +7,9 @@ import { RichText } from "@/components/ui/rich-text";
 import { StatusDot, TagChip } from "@/components/ui/badge";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { SubtaskMark } from "@/components/tasks/task-list";
-import { addComment, addSubtask, setTaskStatus, updateTask } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { addComment, addSubtask, deleteTask, setTaskStatus, updateTask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import { PRIORITY_META, PRIORITY_ORDER } from "@/lib/priority";
@@ -151,6 +153,9 @@ export function TaskPanel({
   const [comment, setComment] = useState("");
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const { isAdmin, canWrite } = useAccess();
 
   useEffect(() => {
@@ -468,7 +473,65 @@ export function TaskPanel({
           </form>
           ) : null}
         </div>
+
+        {isAdmin ? (
+          <div className="border-t border-line-subtle pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError("");
+                setConfirmDelete(true);
+              }}
+              className="text-xs text-faint hover:text-ink"
+            >
+              Excluir tarefa
+            </button>
+          </div>
+        ) : null}
       </div>
+      <Dialog
+        open={confirmDelete}
+        title="Excluir tarefa"
+        onClose={() => {
+          if (!deleting) setConfirmDelete(false);
+        }}
+      >
+        <p className="text-sm leading-6 text-faint">
+          {subtasks.length > 0
+            ? `${task.title} será excluída, junto com as subtarefas.`
+            : `${task.title} será excluída.`}
+        </p>
+        {deleteError ? <p className="mt-3 text-sm text-red-400">{deleteError}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={deleting}
+            onClick={() => setConfirmDelete(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={deleting}
+            onClick={() => {
+              setDeleting(true);
+              setDeleteError("");
+              void deleteTask(task.id).then((result) => {
+                setDeleting(false);
+                if (!result.ok) {
+                  setDeleteError(result.error);
+                  return;
+                }
+                setConfirmDelete(false);
+                onClose();
+              });
+            }}
+          >
+            Excluir
+          </Button>
+        </div>
+      </Dialog>
     </aside>
   );
 }

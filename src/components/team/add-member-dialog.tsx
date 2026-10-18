@@ -27,7 +27,11 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
   }
 
   return (
-    <Dialog open={open} title="Convidar pessoa" onClose={close}>
+    <Dialog open={open} title="Convidar para o espaço" onClose={close}>
+      <p className="mb-4 text-sm leading-6 text-faint">
+        Este convite só entra no espaço de trabalho. Depois que a pessoa aceitar, inclua ela no
+        projeto em Adicionar → Membro.
+      </p>
       <form
         className="space-y-4"
         onSubmit={(event) => {

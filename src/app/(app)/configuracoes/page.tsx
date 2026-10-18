@@ -5,17 +5,19 @@ import { CreateWorkspaceDialog } from "@/components/layout/create-workspace-dial
 import { MemberForm } from "@/components/team/member-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ApiKeysCard } from "@/components/settings/api-keys";
-import { createMcpServer, deleteMcpServer, renameWorkspace, updateMcpServer } from "@/lib/api";
+import { createMcpServer, deleteMcpServer, deleteWorkspace, renameWorkspace, updateMcpServer } from "@/lib/api";
 import { usePrefs } from "@/lib/prefs";
-import type { McpTransport } from "@/lib/types";
+import type { McpTransport, WorkspaceMembership } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
 
 export default function SettingsPage() {
   const servers = usePrefs((state) => state.mcpServers);
   const current = useWorkspace((state) => state.user);
   const workspace = useWorkspace((state) => state.workspace);
+  const workspaces = useWorkspace((state) => state.workspaces);
   const [workspaceName, setWorkspaceName] = useState(workspace?.name ?? "");
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspaceSaved, setWorkspaceSaved] = useState(false);
@@ -25,6 +27,9 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<WorkspaceMembership | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     setWorkspaceName(workspace?.name ?? "");
@@ -36,8 +41,43 @@ export default function SettingsPage() {
       <section className="mb-10">
         <h2 className="text-sm text-ink">Espaços</h2>
         <p className="mt-1 mb-4 text-sm text-faint">
-          Cada espaço tem a própria equipe, projetos e convites.
+          Cada espaço tem a própria equipe, projetos e convites. Um administrador pode excluir o
+          espaço e tudo que está nele.
         </p>
+        {workspaces.length > 0 ? (
+          <div className="mb-4 space-y-3">
+            {workspaces.map((item) => (
+              <Card key={item.id} className="border-none">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-ink">{item.name}</p>
+                    <p className="mt-1 text-xs text-faint">
+                      {item.id === workspace?.id
+                        ? item.access === "admin"
+                          ? "Espaço atual · administrador"
+                          : "Espaço atual"
+                        : item.access === "admin"
+                          ? "Administrador"
+                          : "Membro"}
+                    </p>
+                  </div>
+                  {item.access === "admin" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteError("");
+                        setPendingDelete(item);
+                      }}
+                      className="shrink-0 text-xs text-faint hover:text-ink"
+                    >
+                      Excluir
+                    </button>
+                  ) : null}
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : null}
         <Button type="button" onClick={() => setCreating(true)}>
           Novo espaço
         </Button>
@@ -208,6 +248,48 @@ export default function SettingsPage() {
       )}
       <ApiKeysCard />
       <CreateWorkspaceDialog open={creating} onClose={() => setCreating(false)} />
+      <Dialog
+        open={pendingDelete !== null}
+        title="Excluir espaço"
+        onClose={() => {
+          if (!deleting) setPendingDelete(null);
+        }}
+      >
+        <p className="text-sm leading-6 text-faint">
+          {pendingDelete?.name} será excluído, junto com projetos, tarefas, mensagens e a equipe
+          deste espaço.
+        </p>
+        {deleteError ? <p className="mt-3 text-sm text-red-400">{deleteError}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={deleting}
+            onClick={() => setPendingDelete(null)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={deleting || !pendingDelete}
+            onClick={() => {
+              if (!pendingDelete) return;
+              setDeleting(true);
+              setDeleteError("");
+              void deleteWorkspace(pendingDelete.id).then((result) => {
+                setDeleting(false);
+                if (!result.ok) {
+                  setDeleteError(result.error);
+                  return;
+                }
+                setPendingDelete(null);
+              });
+            }}
+          >
+            Excluir
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

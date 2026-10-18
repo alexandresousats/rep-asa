@@ -16,7 +16,9 @@ import {
 
 export type Actor = PublicUser & {
   workspaceId: string | null;
+  workspaceName: string | null;
   owner: boolean;
+  apiKeyId?: string;
 };
 
 const taskInclude = {
@@ -35,24 +37,32 @@ type ProjectRow = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
 async function actorFrom(user: User, preferredWorkspaceId: string | null): Promise<Actor> {
   const memberships = await prisma.workspaceMember.findMany({
     where: { userId: user.id, status: "active" },
+    include: { workspace: true },
     orderBy: { createdAt: "asc" },
   });
+  const chosen = preferredWorkspaceId
+    ? memberships.find((item) => item.workspaceId === preferredWorkspaceId)
+    : undefined;
   const current =
-    memberships.find((item) => item.workspaceId === preferredWorkspaceId) ??
+    chosen ??
+    memberships.find((item) => item.owner) ??
+    memberships.find((item) => item.access === "admin") ??
     memberships[0] ??
     null;
+  const access = current?.owner ? "admin" : (current?.access ?? "leitura");
   const view: MembershipView | null = current
     ? {
         role: current.role,
-        access: current.access,
+        access,
         owner: current.owner,
         status: current.status,
       }
     : null;
   return {
     ...publicUser(user, view),
-    access: view?.access ?? "leitura",
+    access,
     workspaceId: current?.workspaceId ?? null,
+    workspaceName: current?.workspace.name ?? null,
     owner: current?.owner ?? false,
   };
 }
@@ -81,7 +91,8 @@ export async function actorFromApiKey(secret: string) {
     where: { id: key.id },
     data: { lastUsedAt: new Date() },
   });
-  return actorFrom(key.user, null);
+  const actor = await actorFrom(key.user, key.workspaceId);
+  return { ...actor, apiKeyId: key.id };
 }
 
 export async function createSession(userId: string) {
@@ -586,6 +597,54 @@ export async function selectWorkspace(actor: Actor, workspaceId: string) {
   }
 }
 
+export async function listWorkspaces(actor: Actor) {
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { userId: actor.id, status: "active" },
+    include: { workspace: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return {
+    currentWorkspaceId: actor.workspaceId,
+    workspaces: memberships.map((item) => ({
+      id: item.workspace.id,
+      name: item.workspace.name,
+      role: item.role,
+      access: item.access,
+      owner: item.owner,
+      current: item.workspace.id === actor.workspaceId,
+    })),
+  };
+}
+
+export async function selectApiKeyWorkspace(actor: Actor, workspaceId: string) {
+  if (!actor.apiKeyId) throw new ApiError(400, "Esta sessão não usa uma chave de API.");
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: actor.id } },
+    include: { workspace: true },
+  });
+  if (!membership || membership.status !== "active") {
+    throw new ApiError(404, "Espaço não encontrado.");
+  }
+  await prisma.apiKey.update({
+    where: { id: actor.apiKeyId },
+    data: { workspaceId },
+  });
+  actor.workspaceId = workspaceId;
+  actor.workspaceName = membership.workspace.name;
+  actor.access = membership.owner ? "admin" : membership.access;
+  actor.role = membership.role;
+  actor.owner = membership.owner;
+  actor.membershipStatus = membership.status;
+  return {
+    id: membership.workspace.id,
+    name: membership.workspace.name,
+    role: membership.role,
+    access: membership.access,
+    owner: membership.owner,
+    current: true,
+  };
+}
+
 export async function renameWorkspace(actor: Actor, name: string) {
   assertAdmin(actor);
   const trimmed = name.trim();
@@ -596,6 +655,33 @@ export async function renameWorkspace(actor: Actor, name: string) {
     data: { name: trimmed },
   });
   return { id: workspace.id, name: workspace.name };
+}
+
+export async function deleteWorkspace(actor: Actor, workspaceId: string) {
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: actor.id } },
+  });
+  if (!membership || membership.status !== "active") {
+    throw new ApiError(404, "Espaço não encontrado.");
+  }
+  if (!membership.owner && membership.access !== "admin") {
+    throw new ApiError(403, "Só um administrador pode fazer isso.");
+  }
+  const wasCurrent = actor.workspaceId === workspaceId;
+  await prisma.workspace.delete({ where: { id: workspaceId } });
+  if (!wasCurrent) return { nextWorkspaceId: actor.workspaceId };
+  const next = await prisma.workspaceMember.findFirst({
+    where: { userId: actor.id, status: "active" },
+    orderBy: { createdAt: "asc" },
+  });
+  const nextWorkspaceId = next?.workspaceId ?? null;
+  if (actor.apiKeyId) {
+    await prisma.apiKey.update({
+      where: { id: actor.apiKeyId },
+      data: { workspaceId: nextWorkspaceId },
+    });
+  }
+  return { nextWorkspaceId };
 }
 
 async function loadProjects(actor: Actor) {
@@ -698,6 +784,61 @@ export async function addProjectMember(actor: Actor, projectId: string, userId: 
   }
   const next = await visibleProject(actor, projectId);
   return publicProject(next);
+}
+
+export async function deleteProject(actor: Actor, id: string) {
+  assertAdmin(actor);
+  const project = await visibleProject(actor, id);
+  await prisma.$transaction([
+    prisma.thread.updateMany({ where: { projectId: project.id }, data: { projectId: null } }),
+    prisma.project.delete({ where: { id: project.id } }),
+  ]);
+}
+
+export async function deleteTask(actor: Actor, id: string) {
+  assertAdmin(actor);
+  const task = await visibleTask(actor, id);
+  await prisma.task.delete({ where: { id: task.id } });
+}
+
+export async function removeMember(actor: Actor, userId: string) {
+  assertAdmin(actor);
+  const workspaceId = actor.workspaceId!;
+  const membership = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId } },
+  });
+  if (!membership) throw new ApiError(404, "Pessoa não encontrada neste espaço.");
+  if (membership.owner) throw new ApiError(400, "O dono do espaço não pode ser removido.");
+
+  const projects = await prisma.project.findMany({
+    where: { workspaceId },
+    select: { id: true },
+  });
+  const threads = await prisma.thread.findMany({
+    where: { workspaceId },
+    select: { id: true },
+  });
+  const projectIds = projects.map((project) => project.id);
+  const threadIds = threads.map((thread) => thread.id);
+
+  await prisma.$transaction([
+    prisma.task.updateMany({
+      where: { projectId: { in: projectIds }, assigneeId: userId },
+      data: { assigneeId: null },
+    }),
+    prisma.projectMember.deleteMany({ where: { userId, projectId: { in: projectIds } } }),
+    prisma.threadParticipant.deleteMany({ where: { userId, threadId: { in: threadIds } } }),
+    prisma.notification.deleteMany({
+      where: { userId, workspaceId, type: "workspace_invite" },
+    }),
+    prisma.apiKey.updateMany({
+      where: { userId, workspaceId },
+      data: { workspaceId: null },
+    }),
+    prisma.workspaceMember.delete({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    }),
+  ]);
 }
 
 async function loadTasks(actor: Actor) {
@@ -879,11 +1020,20 @@ export async function updateTask(
   return publicTask(saved);
 }
 
-export async function addSubtask(actor: Actor, taskId: string, title: string) {
+export async function addSubtask(
+  actor: Actor,
+  taskId: string,
+  title: string,
+  dueDate?: string | null,
+) {
   assertWritable(actor);
   const parent = await visibleTask(actor, taskId);
   const trimmed = title.trim();
   if (!trimmed) throw new ApiError(400, "Informe o título.");
+  const due = dueDate?.trim() || null;
+  if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) {
+    throw new ApiError(400, "Informe a data no formato AAAA-MM-DD.");
+  }
   const assigneeId = parent.assigneeId ?? actor.id;
   const task = await prisma.task.create({
     data: {
@@ -892,8 +1042,8 @@ export async function addSubtask(actor: Actor, taskId: string, title: string) {
       title: trimmed,
       description: "",
       assigneeId,
-      dueDate: null,
-      startDate: null,
+      dueDate: due,
+      startDate: due,
       priority: "media",
       status: "todo",
       section: parent.section,

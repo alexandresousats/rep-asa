@@ -19,8 +19,12 @@ export function SearchDialog({
 
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return { projects: projects.slice(0, 4), tasks: [] };
+    const pages = [{ href: "/tarefas", label: "Minhas tarefas" }].filter((page) =>
+      page.label.toLowerCase().includes(term),
+    );
+    if (!term) return { pages: [], projects: projects.slice(0, 4), tasks: [] };
     return {
+      pages,
       projects: projects.filter((project) =>
         project.name.toLowerCase().includes(term),
       ),
@@ -59,6 +63,16 @@ export function SearchDialog({
           />
         </label>
         <div className="max-h-80 overflow-y-auto px-2 pb-2">
+          {results.pages.map((page) => (
+            <button
+              key={page.href}
+              type="button"
+              onClick={() => go(page.href)}
+              className="block w-full truncate rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+            >
+              {page.label}
+            </button>
+          ))}
           {results.projects.map((project) => (
             <button
               key={project.id}
@@ -83,7 +97,9 @@ export function SearchDialog({
               {task.title}
             </button>
           ))}
-          {results.projects.length === 0 && results.tasks.length === 0 ? (
+          {results.pages.length === 0 &&
+          results.projects.length === 0 &&
+          results.tasks.length === 0 ? (
             <p className="px-3 py-4 text-sm text-faint">Nenhum resultado.</p>
           ) : null}
         </div>
