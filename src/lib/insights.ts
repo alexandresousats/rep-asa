@@ -74,7 +74,10 @@ export function computeInsights(
 
   const projectProgress = projects.map((project) => {
     const items = tasks.filter(
-      (task) => task.projectId === project.id && !task.id.startsWith("hist-"),
+      (task) =>
+        task.projectId === project.id &&
+        !task.id.startsWith("hist-") &&
+        !task.parentId,
     );
     const done = items.filter((task) => task.status === "done").length;
     return {

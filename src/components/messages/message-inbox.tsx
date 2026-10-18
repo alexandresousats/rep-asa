@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { sendMessage } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { useAccess } from "@/lib/workspace";
 import type { Message, MessageThread, User } from "@/lib/types";
 
 export function MessageInbox({
@@ -23,6 +24,7 @@ export function MessageInbox({
   onSelect: (id: string) => void;
 }) {
   const [body, setBody] = useState("");
+  const { canWrite } = useAccess();
   const active = threads.find((thread) => thread.id === activeId) ?? threads[0];
   const threadMessages = messages.filter((message) => message.threadId === active?.id);
 
@@ -63,7 +65,7 @@ export function MessageInbox({
                 const author = users.find((user) => user.id === message.authorId);
                 return (
                   <div key={message.id} className="flex gap-3">
-                    <Avatar initials={author?.initials ?? "?"} />
+                    <Avatar initials={author?.initials ?? "?"} src={author?.avatar} name={author?.name} />
                     <div>
                       <p className="text-xs text-faint">
                         {author?.name} ·{" "}
@@ -77,12 +79,13 @@ export function MessageInbox({
                 );
               })}
             </div>
+            {canWrite ? (
             <form
               className="flex gap-2 border-t border-line-subtle p-4"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!body.trim() || !active) return;
-                sendMessage(active.id, body);
+                void sendMessage(active.id, body);
                 setBody("");
               }}
             >
@@ -94,6 +97,7 @@ export function MessageInbox({
               />
               <Button type="submit">Enviar</Button>
             </form>
+            ) : null}
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-faint">

@@ -26,12 +26,13 @@ export default function SignupPage() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          const result = signup({ name, email, password });
-          if (!result.ok) {
-            setError(result.error);
-            return;
-          }
-          router.replace("/");
+          void signup({ name, email, password }).then((result) => {
+            if (!result.ok) {
+              setError(result.error);
+              return;
+            }
+            router.replace("/");
+          });
         }}
       >
         <Input

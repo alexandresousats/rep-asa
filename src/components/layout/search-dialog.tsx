@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useAppStore } from "@/lib/store";
+import { useWorkspace } from "@/lib/workspace";
 
 export function SearchDialog({
   open,
@@ -14,8 +14,8 @@ export function SearchDialog({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const projects = useAppStore((state) => state.projects);
-  const tasks = useAppStore((state) => state.tasks);
+  const projects = useWorkspace((state) => state.projects);
+  const tasks = useWorkspace((state) => state.tasks);
 
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();

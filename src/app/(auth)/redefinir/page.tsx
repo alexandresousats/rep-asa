@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { requestReset } from "@/lib/api";
 
 export default function ResetRequestPage() {
-  const [email, setEmail] = useState("alexandre@asa.app");
+  const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [link, setLink] = useState("");
 
@@ -23,14 +23,15 @@ export default function ResetRequestPage() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          const result = requestReset(email);
-          if (!result.ok) {
-            setError(result.error);
-            setLink("");
-            return;
-          }
-          setError("");
-          setLink(`/redefinir/nova?token=${result.token}`);
+          void requestReset(email).then((result) => {
+            if (!result.ok) {
+              setError(result.error);
+              setLink("");
+              return;
+            }
+            setError("");
+            setLink(`/redefinir/nova?token=${result.token}`);
+          });
         }}
       >
         <Input

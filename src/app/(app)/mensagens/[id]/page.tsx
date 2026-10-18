@@ -3,19 +3,19 @@
 import { useParams, useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { MessageInbox } from "@/components/messages/message-inbox";
-import { useAppStore } from "@/lib/store";
+import { useWorkspace } from "@/lib/workspace";
 
 export default function MessageThreadPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const allThreads = useAppStore((state) => state.threads);
+  const allThreads = useWorkspace((state) => state.threads);
   const threads = useMemo(
     () =>
       [...allThreads].sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)),
     [allThreads],
   );
-  const messages = useAppStore((state) => state.messages);
-  const users = useAppStore((state) => state.users);
+  const messages = useWorkspace((state) => state.messages);
+  const users = useWorkspace((state) => state.users);
 
   return (
     <MessageInbox

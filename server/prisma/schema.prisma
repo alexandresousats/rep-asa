@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccessLevel {
+  admin
+  editor
+  leitura
+}
+
+enum Priority {
+  baixa
+  media
+  alta
+  urgente
+}
+
+enum TaskStatus {
+  todo
+  doing
+  done
+}
+
+model User {
+  id           String      @id
+  name         String
+  email        String      @unique
+  passwordHash String
+  initials     String
+  role         String
+  access       AccessLevel
+  avatar       String?     @db.Text
+  master       Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+
+  sessions      Session[]
+  resetTokens   ResetToken[]
+  ownedProjects Project[]        @relation("ProjectOwner")
+  memberships   ProjectMember[]
+  assignedTasks Task[]           @relation("Assignee")
+  comments      Comment[]
+  messages      Message[]
+  threads       ThreadParticipant[]
+  notifications Notification[]
+  apiKeys       ApiKey[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ResetToken {
+  id        String   @id
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LoginAttempt {
+  id        String   @id
+  email     String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
+model Project {
+  id          String   @id
+  name        String
+  color       String
+  description String   @db.Text
+  ownerId     String
+  createdAt   String
+  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members     ProjectMember[]
+  sections    Section[]
+  tasks       Task[]
+  threads     Thread[]
+}
+
+model ProjectMember {
+  projectId String
+  userId    String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+}
+
+model Section {
+  id        String  @id
+  projectId String
+  name      String
+  position  Int
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+}
+
+model Task {
+  id          String     @id
+  projectId   String
+  title       String
+  description String     @default("") @db.Text
+  assigneeId  String?
+  dueDate     String?
+  startDate   String?
+  priority    Priority   @default(media)
+  status      TaskStatus @default(todo)
+  section     String
+  order       Int        @default(0)
+  parentId    String?
+  completedAt String?
+  createdAt   String
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee    User?      @relation("Assignee", fields: [assigneeId], references: [id])
+  parent      Task?      @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Task[]     @relation("Subtasks")
+  tags        TaskTag[]
+  comments    Comment[]
+
+  @@index([projectId])
+  @@index([assigneeId])
+}
+
+model Tag {
+  id    String    @id
+  name  String
+  color String
+  tasks TaskTag[]
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+}
+
+model Comment {
+  id        String @id
+  taskId    String
+  authorId  String
+  body      String @db.Text
+  createdAt String
+  task      Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    User   @relation(fields: [authorId], references: [id])
+
+  @@index([taskId])
+}
+
+model Thread {
+  id            String   @id
+  title         String
+  projectId     String?
+  lastMessageAt String
+  project       Project? @relation(fields: [projectId], references: [id])
+  participants  ThreadParticipant[]
+  messages      Message[]
+}
+
+model ThreadParticipant {
+  threadId String
+  userId   String
+  thread   Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id        String @id
+  threadId  String
+  authorId  String
+  body      String @db.Text
+  createdAt String
+  thread    Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author    User   @relation(fields: [authorId], references: [id])
+
+  @@index([threadId])
+}
+
+model Notification {
+  id        String    @id
+  userId    String
+  type      String
+  title     String
+  body      String
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model ApiKey {
+  id         String    @id
+  userId     String
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

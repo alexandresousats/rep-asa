@@ -20,6 +20,7 @@ export function CreateProjectDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [color, setColor] = useState(COLORS[0]);
+  const [error, setError] = useState("");
 
   return (
     <Dialog open={open} title="Novo projeto" onClose={onClose}>
@@ -27,11 +28,15 @@ export function CreateProjectDialog({
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          const project = createProject({ name, description, color });
-          setName("");
-          setDescription("");
-          onClose();
-          onCreated?.(project.id);
+          void createProject({ name, description, color })
+            .then((project) => {
+              setName("");
+              setDescription("");
+              setError("");
+              onClose();
+              onCreated?.(project.id);
+            })
+            .catch((reason: Error) => setError(reason.message));
         }}
       >
         <Input
@@ -60,6 +65,7 @@ export function CreateProjectDialog({
             />
           ))}
         </div>
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar

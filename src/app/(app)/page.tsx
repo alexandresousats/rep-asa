@@ -10,24 +10,27 @@ import { TagChip } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatDay, parseDate } from "@/lib/dates";
 import { computeInsights } from "@/lib/insights";
-import { useAppStore } from "@/lib/store";
+import { useWorkspace } from "@/lib/workspace";
 
 export default function OverviewPage() {
-  const user = useAppStore((state) =>
-    state.users.find((item) => item.id === state.currentUserId),
-  );
-  const tasks = useAppStore((state) => state.tasks);
-  const projects = useAppStore((state) => state.projects);
-  const users = useAppStore((state) => state.users);
+  const user = useWorkspace((state) => state.user);
+  const tasks = useWorkspace((state) => state.tasks);
+  const projects = useWorkspace((state) => state.projects);
+  const users = useWorkspace((state) => state.users);
   const insights = computeInsights(tasks, projects, users);
-  const tags = useAppStore((state) => state.tags);
+  const tags = useWorkspace((state) => state.tags);
   const firstName = user?.name.split(" ")[0] ?? "equipe";
   const weekPosts = useMemo(() => {
     const today = startOfDay(new Date());
     const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
     return tasks
       .filter((task) => {
-        if (task.id.startsWith("hist-") || task.status === "done" || !task.dueDate) {
+        if (
+          task.id.startsWith("hist-") ||
+          task.parentId ||
+          task.status === "done" ||
+          !task.dueDate
+        ) {
           return false;
         }
         const due = startOfDay(parseDate(task.dueDate));
@@ -40,7 +43,12 @@ export default function OverviewPage() {
     const year = today.getFullYear();
     return tasks
       .filter((task) => {
-        if (task.id.startsWith("hist-") || task.status === "done" || !task.dueDate) {
+        if (
+          task.id.startsWith("hist-") ||
+          task.parentId ||
+          task.status === "done" ||
+          !task.dueDate
+        ) {
           return false;
         }
         if (task.priority !== "alta" && task.priority !== "urgente") return false;
@@ -230,10 +238,9 @@ export default function OverviewPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <QuickLink href="/projetos" title="Projetos" text="Criar e acompanhar entregas." />
         <QuickLink href="/calendario" title="Calendário" text="Ver o mês da equipe." />
-        <QuickLink href="/mensagens" title="Mensagens" text="Falar com o time." />
       </div>
     </div>
   );

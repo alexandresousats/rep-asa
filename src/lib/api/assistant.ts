@@ -1,15 +1,15 @@
 import { addDays, startOfDay } from "date-fns";
 import { formatDay, parseDate } from "../dates";
 import { computeInsights } from "../insights";
-import { useAppStore } from "../store";
+import { useWorkspace } from "../workspace";
 
 function visibleTasks() {
-  return useAppStore.getState().tasks.filter((task) => !task.id.startsWith("hist-"));
+  return useWorkspace.getState().tasks.filter((task) => !task.id.startsWith("hist-"));
 }
 
 export function askAssistant(prompt: string) {
   const query = prompt.toLowerCase();
-  const { users, projects } = useAppStore.getState();
+  const { users, projects } = useWorkspace.getState();
   const tasks = visibleTasks();
   const today = startOfDay(new Date());
   const weekEnd = addDays(today, 7);
@@ -52,7 +52,7 @@ export function askAssistant(prompt: string) {
     query.includes("equipe") ||
     query.includes("streak")
   ) {
-    const insights = computeInsights(useAppStore.getState().tasks, projects, users, today);
+    const insights = computeInsights(useWorkspace.getState().tasks, projects, users, today);
     return [
       `A equipe concluiu ${insights.totalCompleted} entregas no histórico.`,
       `Mês mais ativo: ${insights.mostActiveMonth}.`,

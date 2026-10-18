@@ -36,7 +36,7 @@ export function MonthCalendar({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <h2 className="min-w-48 text-center text-sm capitalize text-ink">
+          <h2 className="min-w-48 text-center text-base capitalize text-ink">
             {format(month, "MMMM 'de' yyyy", { locale: ptBR })}
           </h2>
           <button
@@ -50,7 +50,7 @@ export function MonthCalendar({
         <button
           type="button"
           onClick={() => onMonthChange(startOfToday())}
-          className="rounded-full border border-line px-3 py-1 text-xs text-faint hover:text-ink"
+          className="rounded-full border border-line px-3 py-1 text-sm text-faint hover:text-ink"
         >
           Hoje
         </button>
@@ -60,7 +60,7 @@ export function MonthCalendar({
         {WEEKDAYS.map((day) => (
           <div
             key={day}
-            className="border-b border-r border-line px-3 py-2 text-xs text-faint"
+            className="border-b border-r border-line px-3 py-2 text-sm text-faint"
           >
             {day}
           </div>
@@ -79,9 +79,9 @@ export function MonthCalendar({
             >
               <div
                 className={cn(
-                  "mb-2 text-xs text-faint",
+                  "mb-2 text-sm text-faint",
                   isSameDate(day, today) &&
-                    "inline-flex h-5 w-5 items-center justify-center rounded-full bg-ink text-base",
+                    "inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-base",
                 )}
               >
                 {format(day, "d")}
@@ -95,7 +95,8 @@ export function MonthCalendar({
                       type="button"
                       onClick={() => onSelect(task.id)}
                       className={cn(
-                        "block w-full truncate rounded-md px-2 py-1 text-left text-[11px] text-ink",
+                        "block w-full truncate rounded-md px-2 py-1 text-left text-sm text-ink",
+                        task.status === "done" && "opacity-50",
                         selectedId === task.id && "ring-1 ring-ink",
                       )}
                       style={{

@@ -5,8 +5,8 @@ import {
   FolderKanban,
   Hash,
   LayoutGrid,
-  MessageSquare,
   Moon,
+  Settings,
   PanelLeft,
   Search,
   Sparkles,
@@ -20,16 +20,17 @@ import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { logout } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { useAppStore } from "@/lib/store";
+import { useWorkspace } from "@/lib/workspace";
+import { NotificationBell } from "./notifications";
 import { Logo } from "./logo";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
   { href: "/projetos", label: "Projetos", icon: FolderKanban, match: "/projetos" },
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
-  { href: "/mensagens", label: "Mensagens", icon: MessageSquare, match: "/mensagens" },
   { href: "/tags", label: "Tags", icon: Hash },
   { href: "/equipe", label: "Equipe", icon: Users },
+  { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 export function Sidebar({
@@ -49,9 +50,7 @@ export function Sidebar({
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme !== "light";
-  const user = useAppStore((state) =>
-    state.users.find((item) => item.id === state.currentUserId),
-  );
+  const user = useWorkspace((state) => state.user);
 
   return (
     <aside
@@ -75,6 +74,7 @@ export function Sidebar({
           <Logo />
         </span>
         <div className={cn("flex items-center", collapsed && "w-full flex-col items-center")}>
+          <NotificationBell collapsed={collapsed} />
           <button
             type="button"
             aria-label="Pesquisar"
@@ -183,7 +183,7 @@ export function Sidebar({
             collapsed ? "h-9 w-9 justify-center" : "px-2 py-2",
           )}
         >
-          <Avatar initials={user?.initials ?? "AS"} />
+          <Avatar initials={user?.initials ?? "AS"} src={user?.avatar} name={user?.name} />
           <div
             className={cn(
               "min-w-0 flex-1 items-center gap-3 overflow-hidden transition-all duration-300",
@@ -192,13 +192,12 @@ export function Sidebar({
           >
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-ink">{user?.name ?? "ASA"}</p>
-              <p className="text-xs text-faint">Premium</p>
+              <p className="truncate text-xs text-faint">{user?.role ?? "Membro"}</p>
             </div>
             <button
               type="button"
               onClick={() => {
-                logout();
-                router.replace("/login");
+                void logout().then(() => router.replace("/login"));
               }}
               className="text-[11px] text-faint hover:text-ink"
             >

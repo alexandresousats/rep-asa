@@ -9,8 +9,8 @@ import { login } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("alexandre@asa.app");
-  const [password, setPassword] = useState("asa123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   return (
@@ -25,12 +25,13 @@ export default function LoginPage() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          const result = login(email, password);
-          if (!result.ok) {
-            setError(result.error);
-            return;
-          }
-          router.replace("/");
+          void login(email, password).then((result) => {
+            if (!result.ok) {
+              setError(result.error);
+              return;
+            }
+            router.replace("/");
+          });
         }}
       >
         <Input

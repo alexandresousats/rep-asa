@@ -3,18 +3,22 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { Logo } from "@/components/layout/logo";
-import { useAppStore } from "@/lib/store";
+import { useWorkspace } from "@/lib/workspace";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const hasHydrated = useAppStore((state) => state.hasHydrated);
-  const currentUserId = useAppStore((state) => state.currentUserId);
+  const ready = useWorkspace((state) => state.ready);
+  const user = useWorkspace((state) => state.user);
 
   useEffect(() => {
-    if (hasHydrated && currentUserId) {
+    if (ready && user) {
       router.replace("/");
     }
-  }, [hasHydrated, currentUserId, router]);
+  }, [ready, user, router]);
+
+  if (!ready) {
+    return <div className="min-h-screen bg-base" />;
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-base px-6 py-16">

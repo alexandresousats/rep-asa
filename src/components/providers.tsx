@@ -2,19 +2,32 @@
 
 import { ThemeProvider } from "next-themes";
 import { useEffect } from "react";
-import { useAppStore } from "@/lib/store";
+import { loadSession, refreshNotifications } from "@/lib/api";
+import { usePrefs } from "@/lib/prefs";
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const setHasHydrated = useAppStore((state) => state.setHasHydrated);
+  const setHasHydrated = usePrefs((state) => state.setHasHydrated);
 
   useEffect(() => {
-    if (useAppStore.persist.hasHydrated()) {
+    if (usePrefs.persist.hasHydrated()) {
       setHasHydrated(true);
     }
-    const unsub = useAppStore.persist.onFinishHydration(() => {
+    const unsub = usePrefs.persist.onFinishHydration(() => {
       setHasHydrated(true);
     });
-    return unsub;
+    void loadSession();
+    const timer = window.setInterval(() => {
+      void refreshNotifications();
+    }, 20000);
+    function onFocus() {
+      void refreshNotifications();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => {
+      unsub();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [setHasHydrated]);
 
   return (

@@ -1,0 +1,35 @@
+import "dotenv/config";
+import bcrypt from "bcryptjs";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  const existing = await prisma.user.count();
+  if (existing > 0) {
+    console.log("Banco já tem usuários. Nenhum dado de demonstração foi inserido.");
+    return;
+  }
+
+  await prisma.user.create({
+    data: {
+      id: "u1",
+      name: "Alexandre Sousa",
+      email: "alexandre@asa.app",
+      passwordHash: await bcrypt.hash("asa123", 10),
+      initials: "AS",
+      role: "Direção",
+      access: "admin",
+      master: true,
+    },
+  });
+  console.log("Conta administrador criada: alexandre@asa.app");
+}
+
+main()
+  .then(() => prisma.$disconnect())
+  .catch(async (error) => {
+    console.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  });

@@ -2,28 +2,31 @@
 
 import { useMemo, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
-import { TaskPanel } from "@/components/tasks/task-panel";
-import { useAppStore } from "@/lib/store";
+import { TaskViewer } from "@/components/tasks/task-panel";
+import { usePrefs } from "@/lib/prefs";
+import { useWorkspace } from "@/lib/workspace";
 
 export default function CalendarPage() {
   const [month, setMonth] = useState(new Date(2026, 9, 1));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const allTasks = useAppStore((state) => state.tasks);
+  const allTasks = useWorkspace((state) => state.tasks);
   const tasks = useMemo(
     () => allTasks.filter((task) => !task.id.startsWith("hist-")),
     [allTasks],
   );
-  const users = useAppStore((state) => state.users);
-  const tags = useAppStore((state) => state.tags);
-  const projects = useAppStore((state) => state.projects);
+  const users = useWorkspace((state) => state.users);
+  const tags = useWorkspace((state) => state.tags);
+  const projects = useWorkspace((state) => state.projects);
+  const taskView = usePrefs((state) => state.taskView);
+  const setTaskView = usePrefs((state) => state.setTaskView);
   const selected = useMemo(
     () => tasks.find((task) => task.id === selectedId) ?? null,
     [tasks, selectedId],
   );
 
   return (
-    <div className="flex min-h-full">
-      <div className="min-w-0 flex-1 p-6">
+    <div className="flex h-full min-h-0 overflow-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-6">
         <h1 className="mb-6 text-2xl font-medium tracking-tight text-ink">
           Calendário
         </h1>
@@ -37,35 +40,17 @@ export default function CalendarPage() {
         />
       </div>
       {selected ? (
-        <div className="hidden shrink-0 lg:block">
-          <TaskPanel
-            resizable
-            task={selected}
-            users={users}
-            tags={tags}
-            projects={projects}
-            onClose={() => setSelectedId(null)}
-          />
-        </div>
-      ) : null}
-
-      {selected ? (
-        <div className="fixed inset-0 z-30 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setSelectedId(null)}
-          />
-          <div className="absolute inset-y-0 right-0 w-full max-w-md">
-            <TaskPanel
-              task={selected}
-              users={users}
-              tags={tags}
-              projects={projects}
-              onClose={() => setSelectedId(null)}
-            />
-          </div>
-        </div>
+        <TaskViewer
+          task={selected}
+          users={users}
+          tags={tags}
+          projects={projects}
+          mode={taskView}
+          onModeChange={setTaskView}
+          onClose={() => setSelectedId(null)}
+          subtasks={tasks.filter((task) => task.parentId === selected.id)}
+          onOpenSubtask={setSelectedId}
+        />
       ) : null}
     </div>
   );

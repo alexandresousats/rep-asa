@@ -21,12 +21,12 @@
 }
 
 [data-theme="dark"] {
-  --bg-base: #000000;
+  --bg-base: #151515;
   --bg-subtle: #0a0a0a;
-  --bg-elevated: #111111;
+  --bg-elevated: #1a1a1a;
   --bg-sidebar: #111111;
   --bg-active: #1a1a1a;
-  --bg-hover: #1a1a1a;
+  --bg-hover: #222222;
   --text-primary: #f5f5f5;
   --text-secondary: #d4d4d4;
   --text-tertiary: #a3a3a3;
@@ -104,4 +104,72 @@ body {
 
 .rich-editor a {
   text-decoration: underline;
+}
+
+@keyframes panel-reveal {
+  from {
+    grid-template-columns: 0fr;
+  }
+  to {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel-reveal {
+  grid-template-columns: 0fr;
+  animation: panel-reveal 300ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.overlay-in {
+  animation: overlay-in 200ms ease-out;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-in {
+  animation: modal-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.drawer-in {
+  animation: drawer-in 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-reveal,
+  .overlay-in,
+  .modal-in,
+  .drawer-in {
+    animation: none;
+  }
+
+  .panel-reveal {
+    grid-template-columns: 1fr;
+  }
 }

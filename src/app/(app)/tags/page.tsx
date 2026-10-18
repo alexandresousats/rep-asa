@@ -6,13 +6,14 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TagChip } from "@/components/ui/badge";
 import { createTag, deleteTag, updateTag } from "@/lib/api";
-import { useAppStore } from "@/lib/store";
+import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const COLORS = ["#8b5cf6", "#ec4899", "#eab308", "#3b82f6", "#f97316", "#34d399"];
 
 export default function TagsPage() {
-  const tags = useAppStore((state) => state.tags);
-  const allTasks = useAppStore((state) => state.tasks);
+  const tags = useWorkspace((state) => state.tags);
+  const allTasks = useWorkspace((state) => state.tasks);
+  const { isAdmin } = useAccess();
   const tasks = useMemo(
     () => allTasks.filter((task) => !task.id.startsWith("hist-")),
     [allTasks],
@@ -23,6 +24,7 @@ export default function TagsPage() {
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
       <h1 className="mb-8 text-2xl font-medium tracking-tight text-ink">Tags</h1>
+      {isAdmin ? (
       <Card className="mb-6">
         <form
           className="flex flex-col gap-4 md:flex-row md:items-end"
@@ -57,6 +59,7 @@ export default function TagsPage() {
           <Button type="submit">Criar</Button>
         </form>
       </Card>
+      ) : null}
 
       <div className="space-y-3">
         {tags.map((tag) => {
@@ -67,6 +70,7 @@ export default function TagsPage() {
                 <TagChip name={tag.name} color={tag.color} />
                 <span className="text-xs text-faint">{count} tarefas</span>
               </div>
+              {isAdmin ? (
               <div className="flex items-center gap-2">
                 <input
                   value={tag.name}
@@ -81,6 +85,7 @@ export default function TagsPage() {
                   Remover
                 </button>
               </div>
+              ) : null}
             </Card>
           );
         })}

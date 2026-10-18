@@ -26,12 +26,13 @@ function ResetForm() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          const result = confirmReset(token, password);
-          if (!result.ok) {
-            setError(result.error);
-            return;
-          }
-          router.replace("/login");
+          void confirmReset(token, password).then((result) => {
+            if (!result.ok) {
+              setError(result.error);
+              return;
+            }
+            router.replace("/login");
+          });
         }}
       >
         <Input
