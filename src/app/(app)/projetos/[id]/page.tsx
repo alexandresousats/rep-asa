@@ -1,10 +1,11 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
+import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
 import { TaskKanban } from "@/components/tasks/task-kanban";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
@@ -45,6 +46,7 @@ function ProjectWorkspace() {
   const [addMenu, setAddMenu] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editingInfo, setEditingInfo] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const ignoreSectionBlur = useRef(false);
@@ -156,6 +158,16 @@ function ProjectWorkspace() {
                 style={{ backgroundColor: project.color }}
               />
               <h1 className="text-lg font-medium text-ink">{project.name}</h1>
+              {isAdmin ? (
+                <button
+                  type="button"
+                  aria-label="Editar projeto"
+                  onClick={() => setEditingInfo(true)}
+                  className="rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
+                >
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+                </button>
+              ) : null}
             </div>
             <div className="mt-3 flex gap-1">
               {VIEWS.map((item) => (
@@ -393,6 +405,9 @@ function ProjectWorkspace() {
           onOpenSubtask={(id) => setQuery({ task: id })}
           startEditing={selected.id === freshTaskId}
         />
+      ) : null}
+      {editingInfo ? (
+        <EditProjectDialog project={project} onClose={() => setEditingInfo(false)} />
       ) : null}
       <MemberDialog
         open={memberOpen}

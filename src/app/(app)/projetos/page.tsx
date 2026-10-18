@@ -1,10 +1,11 @@
 "use client";
 
-import { LayoutGrid, List, Plus } from "lucide-react";
+import { LayoutGrid, List, Pencil, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
+import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,6 +17,7 @@ import type { Project, Task, User } from "@/lib/types";
 export default function ProjectsPage() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Project | null>(null);
   const projects = useWorkspace((state) => state.projects);
   const allTasks = useWorkspace((state) => state.tasks);
   const users = useWorkspace((state) => state.users);
@@ -71,11 +73,16 @@ export default function ProjectsPage() {
         </div>
       </div>
       {layout === "list" ? (
-        <ProjectList rows={rows} />
+        <ProjectList rows={rows} canEdit={isAdmin} onEdit={setEditing} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((row) => (
-            <ProjectCard key={row.project.id} {...row} />
+            <ProjectCard
+              key={row.project.id}
+              {...row}
+              canEdit={isAdmin}
+              onEdit={() => setEditing(row.project)}
+            />
           ))}
         </div>
       )}
@@ -84,6 +91,9 @@ export default function ProjectsPage() {
         onClose={() => setOpen(false)}
         onCreated={(id) => router.push(`/projetos/${id}`)}
       />
+      {editing ? (
+        <EditProjectDialog project={editing} onClose={() => setEditing(null)} />
+      ) : null}
     </div>
   );
 }
@@ -120,21 +130,26 @@ function ProjectCard({
   items,
   done,
   members,
+  canEdit,
+  onEdit,
 }: {
   project: Project;
   items: Task[];
   done: number;
   members: User[];
+  canEdit: boolean;
+  onEdit: () => void;
 }) {
   return (
     <Link href={`/projetos/${project.id}`} className="block h-full">
       <Card className="h-full border-none hover:bg-hover">
-        <div className="mb-4 flex items-center gap-2">
+        <div className="mb-4 flex items-start gap-2">
           <span
-            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
             style={{ backgroundColor: project.color }}
           />
-          <h2 className="text-sm text-ink">{project.name}</h2>
+          <h2 className="min-w-0 flex-1 text-sm text-ink">{project.name}</h2>
+          {canEdit ? <EditButton onEdit={onEdit} /> : null}
         </div>
         <p className="mb-6 text-sm leading-6 text-faint">{project.description}</p>
         <div className="flex items-center justify-between gap-3 text-xs text-faint">
@@ -150,6 +165,8 @@ function ProjectCard({
 
 function ProjectList({
   rows,
+  canEdit,
+  onEdit,
 }: {
   rows: {
     project: Project;
@@ -157,6 +174,8 @@ function ProjectList({
     done: number;
     members: User[];
   }[];
+  canEdit: boolean;
+  onEdit: (project: Project) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-[20px] border border-line">
@@ -179,6 +198,7 @@ function ProjectList({
                   style={{ backgroundColor: project.color }}
                 />
                 <h2 className="truncate text-sm text-ink">{project.name}</h2>
+                {canEdit ? <EditButton onEdit={() => onEdit(project)} /> : null}
               </div>
               <p className="mt-1 truncate pl-[18px] text-xs text-faint">
                 {project.description}
@@ -192,6 +212,23 @@ function ProjectList({
         ))}
       </div>
     </div>
+  );
+}
+
+function EditButton({ onEdit }: { onEdit: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Editar projeto"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onEdit();
+      }}
+      className="shrink-0 rounded-full p-1 text-faint hover:bg-base hover:text-ink"
+    >
+      <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+    </button>
   );
 }
 

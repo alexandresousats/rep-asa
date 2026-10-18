@@ -22,6 +22,7 @@ import {
   createTag,
   createTask,
   createThread,
+  updateProject,
   declineInvite,
   deleteApiKey,
   deleteProject,
@@ -261,6 +262,18 @@ app.post("/projects", async (c) => {
     await c.req.json(),
   );
   return c.json(await createProject(await actorOf(c), body));
+});
+
+app.patch("/projects/:id", async (c) => {
+  const body = parse(
+    z.object({
+      name: z.string().optional(),
+      description: z.string().optional(),
+      color: z.string().optional(),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await updateProject(await actorOf(c), c.req.param("id"), body));
 });
 
 app.post("/projects/:id/sections", async (c) => {

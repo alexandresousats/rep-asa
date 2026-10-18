@@ -722,6 +722,33 @@ export async function createProject(
   return publicProject(project);
 }
 
+export async function updateProject(
+  actor: Actor,
+  id: string,
+  input: { name?: string; description?: string; color?: string },
+) {
+  assertAdmin(actor);
+  const project = await visibleProject(actor, id);
+  const data: { name?: string; description?: string; color?: string } = {};
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) throw new ApiError(400, "Informe o nome do projeto.");
+    data.name = name;
+  }
+  if (input.description !== undefined) data.description = input.description.trim();
+  if (input.color !== undefined) {
+    const color = input.color.trim();
+    if (!color) throw new ApiError(400, "Informe a cor do projeto.");
+    data.color = color;
+  }
+  const next = await prisma.project.update({
+    where: { id: project.id },
+    data,
+    include: projectInclude,
+  });
+  return publicProject(next);
+}
+
 export async function createSection(actor: Actor, projectId: string, name: string) {
   assertAdmin(actor);
   const project = await visibleProject(actor, projectId);

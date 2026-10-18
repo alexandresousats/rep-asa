@@ -221,6 +221,18 @@ export async function createProject(input: {
   return project;
 }
 
+export async function updateProject(
+  id: string,
+  input: { name: string; description: string; color: string },
+) {
+  const project = await request<ReturnType<typeof useWorkspace.getState>["projects"][number]>(
+    `/projects/${id}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+  useWorkspace.getState().upsertProject(project);
+  return project;
+}
+
 export async function deleteProject(id: string): Promise<Result> {
   try {
     await request(`/projects/${id}`, { method: "DELETE" });
