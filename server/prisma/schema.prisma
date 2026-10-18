@@ -13,6 +13,11 @@ enum AccessLevel {
   leitura
 }
 
+enum MemberStatus {
+  pending
+  active
+}
+
 enum Priority {
   baixa
   media
@@ -38,16 +43,48 @@ model User {
   master       Boolean     @default(false)
   createdAt    DateTime    @default(now())
 
-  sessions      Session[]
-  resetTokens   ResetToken[]
-  ownedProjects Project[]        @relation("ProjectOwner")
-  memberships   ProjectMember[]
-  assignedTasks Task[]           @relation("Assignee")
-  comments      Comment[]
-  messages      Message[]
-  threads       ThreadParticipant[]
+  sessions         Session[]
+  resetTokens      ResetToken[]
+  ownedProjects    Project[]           @relation("ProjectOwner")
+  memberships      ProjectMember[]
+  workspaceMembers WorkspaceMember[]   @relation("WorkspaceMembers")
+  sentInvites      WorkspaceMember[]   @relation("InvitedBy")
+  assignedTasks    Task[]              @relation("Assignee")
+  comments         Comment[]
+  messages         Message[]
+  threads          ThreadParticipant[]
+  notifications    Notification[]
+  apiKeys          ApiKey[]
+}
+
+model Workspace {
+  id        String   @id
+  name      String
+  createdAt DateTime @default(now())
+
+  members       WorkspaceMember[]
+  projects      Project[]
+  tags          Tag[]
+  threads       Thread[]
   notifications Notification[]
-  apiKeys       ApiKey[]
+}
+
+model WorkspaceMember {
+  workspaceId String
+  userId      String
+  access      AccessLevel
+  status      MemberStatus @default(pending)
+  role        String
+  owner       Boolean      @default(false)
+  invitedById String?
+  createdAt   DateTime     @default(now())
+  acceptedAt  DateTime?
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User         @relation("WorkspaceMembers", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User?        @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@id([workspaceId, userId])
+  @@index([userId])
 }
 
 model Session {
@@ -78,17 +115,21 @@ model LoginAttempt {
 }
 
 model Project {
-  id          String   @id
+  id          String    @id
   name        String
   color       String
-  description String   @db.Text
+  description String    @db.Text
   ownerId     String
+  workspaceId String
   createdAt   String
-  owner       User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  owner       User      @relation("ProjectOwner", fields: [ownerId], references: [id])
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members     ProjectMember[]
   sections    Section[]
   tasks       Task[]
   threads     Thread[]
+
+  @@index([workspaceId])
 }
 
 model ProjectMember {
@@ -138,10 +179,14 @@ model Task {
 }
 
 model Tag {
-  id    String    @id
-  name  String
-  color String
-  tasks TaskTag[]
+  id          String    @id
+  name        String
+  color       String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks       TaskTag[]
+
+  @@index([workspaceId])
 }
 
 model TaskTag {
@@ -166,13 +211,17 @@ model Comment {
 }
 
 model Thread {
-  id            String   @id
+  id            String    @id
   title         String
   projectId     String?
+  workspaceId   String
   lastMessageAt String
-  project       Project? @relation(fields: [projectId], references: [id])
+  project       Project?  @relation(fields: [projectId], references: [id])
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   participants  ThreadParticipant[]
   messages      Message[]
+
+  @@index([workspaceId])
 }
 
 model ThreadParticipant {
@@ -198,15 +247,17 @@ model Message {
 }
 
 model Notification {
-  id        String    @id
-  userId    String
-  type      String
-  title     String
-  body      String
-  href      String?
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String     @id
+  userId      String
+  workspaceId String?
+  type        String
+  title       String
+  body        String
+  href        String?
+  readAt      DateTime?
+  createdAt   DateTime   @default(now())
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
 }

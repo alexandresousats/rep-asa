@@ -19,7 +19,9 @@ export default function TeamPage() {
   const isAdmin = users.find((user) => user.id === currentUserId)?.access === "admin";
   const tasks = useWorkspace((state) => state.tasks);
   const projects = useWorkspace((state) => state.projects);
-  const insights = computeInsights(tasks, projects, users);
+  const activeUsers = users.filter((user) => user.membershipStatus !== "pending");
+  const pendingUsers = users.filter((user) => user.membershipStatus === "pending");
+  const insights = computeInsights(tasks, projects, activeUsers);
   const maxDone = Math.max(...insights.memberLoad.map((item) => item.done), 1);
   const editing = users.find((user) => user.id === editingId) ?? null;
 
@@ -35,7 +37,7 @@ export default function TeamPage() {
         {isAdmin ? (
           <Button onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" />
-            Adicionar pessoa
+            Convidar
           </Button>
         ) : null}
       </div>
@@ -53,11 +55,11 @@ export default function TeamPage() {
                     {user.role} · {accessLabel(user.access)}
                   </p>
                 </div>
-                {user.master && user.id === currentUserId ? (
+                {user.owner && user.id === currentUserId ? (
                   <Link href="/configuracoes" className="text-xs text-faint hover:text-ink">
                     Configurações
                   </Link>
-                ) : !user.master && (isAdmin || user.id === currentUserId) ? (
+                ) : !user.owner && (isAdmin || user.id === currentUserId) ? (
                   <button
                     type="button"
                     onClick={() => setEditingId(user.id)}
@@ -91,12 +93,36 @@ export default function TeamPage() {
           );
         })}
       </div>
+      {isAdmin && pendingUsers.length > 0 ? (
+        <section className="mt-10">
+          <h2 className="text-sm text-ink">Convites pendentes</h2>
+          <p className="mt-1 mb-4 text-sm text-faint">
+            Essas pessoas só entram no espaço depois de aceitar a notificação.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {pendingUsers.map((user) => (
+              <Card key={user.id}>
+                <div className="flex items-center gap-3">
+                  <Avatar initials={user.initials} src={user.avatar} name={user.name} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-ink">{user.name}</p>
+                    <p className="truncate text-xs text-faint">
+                      {user.email} · {user.role} · {accessLabel(user.access)}
+                    </p>
+                  </div>
+                  <span className="text-xs text-faint">Pendente</span>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <AddMemberDialog open={open} onClose={() => setOpen(false)} />
       <MemberDialog
         user={editing}
         open={Boolean(editing)}
         onClose={() => setEditingId(null)}
-        canEditAccess={isAdmin}
+        canEditAccess={Boolean(isAdmin && editing && !editing.owner)}
         requireCurrentPassword={editing?.id === currentUserId}
       />
     </div>

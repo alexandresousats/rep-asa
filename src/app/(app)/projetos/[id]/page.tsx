@@ -382,7 +382,9 @@ function MemberAdd({
   users: User[];
 }) {
   const [userId, setUserId] = useState("");
-  const options = users.filter((user) => !memberIds.includes(user.id));
+  const options = users.filter(
+    (user) => user.membershipStatus !== "pending" && !memberIds.includes(user.id),
+  );
   if (options.length === 0) return null;
   return (
     <form

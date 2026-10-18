@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { CreateWorkspaceDialog } from "@/components/layout/create-workspace-dialog";
 import { MemberForm } from "@/components/team/member-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ApiKeysCard } from "@/components/settings/api-keys";
-import { createMcpServer, deleteMcpServer, updateMcpServer } from "@/lib/api";
+import { createMcpServer, deleteMcpServer, renameWorkspace, updateMcpServer } from "@/lib/api";
 import { usePrefs } from "@/lib/prefs";
 import type { McpTransport } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
@@ -14,20 +15,76 @@ import { useWorkspace } from "@/lib/workspace";
 export default function SettingsPage() {
   const servers = usePrefs((state) => state.mcpServers);
   const current = useWorkspace((state) => state.user);
+  const workspace = useWorkspace((state) => state.workspace);
+  const [workspaceName, setWorkspaceName] = useState(workspace?.name ?? "");
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [workspaceSaved, setWorkspaceSaved] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState<McpTransport>("http");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    setWorkspaceName(workspace?.name ?? "");
+  }, [workspace?.name]);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-8">
       <h1 className="mb-8 text-2xl font-medium tracking-tight text-ink">Configurações</h1>
-      {current?.master ? (
+      <section className="mb-10">
+        <h2 className="text-sm text-ink">Espaços</h2>
+        <p className="mt-1 mb-4 text-sm text-faint">
+          Cada espaço tem a própria equipe, projetos e convites.
+        </p>
+        <Button type="button" onClick={() => setCreating(true)}>
+          Novo espaço
+        </Button>
+      </section>
+      {current?.access === "admin" && workspace ? (
         <section className="mb-10">
-          <h2 className="text-sm text-ink">Administrador</h2>
+          <h2 className="text-sm text-ink">Espaço de trabalho</h2>
           <p className="mt-1 mb-4 text-sm text-faint">
-            Nome, avatar, e-mail, senha e cargo da conta principal.
+            Nome visível para quem faz parte deste espaço.
+          </p>
+          <Card className="border-none">
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setWorkspaceSaved(false);
+                if (!workspaceName.trim()) {
+                  setWorkspaceError("Informe o nome do espaço.");
+                  return;
+                }
+                void renameWorkspace(workspaceName)
+                  .then(() => {
+                    setWorkspaceError("");
+                    setWorkspaceSaved(true);
+                  })
+                  .catch(() => setWorkspaceError("Não foi possível salvar o nome."));
+              }}
+            >
+              <Input
+                label="Nome do espaço"
+                value={workspaceName}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+              />
+              {workspaceError ? <p className="text-sm text-red-400">{workspaceError}</p> : null}
+              {workspaceSaved ? <p className="text-sm text-faint">Espaço atualizado.</p> : null}
+              <div className="flex justify-end">
+                <Button type="submit">Salvar</Button>
+              </div>
+            </form>
+          </Card>
+        </section>
+      ) : null}
+      {current ? (
+        <section className="mb-10">
+          <h2 className="text-sm text-ink">Perfil</h2>
+          <p className="mt-1 mb-4 text-sm text-faint">
+            Nome, avatar, e-mail, senha e cargo da sua conta.
           </p>
           <Card className="border-none">
             <MemberForm user={current} canEditAccess={false} requireCurrentPassword />
@@ -150,6 +207,7 @@ export default function SettingsPage() {
         </div>
       )}
       <ApiKeysCard />
+      <CreateWorkspaceDialog open={creating} onClose={() => setCreating(false)} />
     </div>
   );
 }

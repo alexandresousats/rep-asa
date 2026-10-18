@@ -21,6 +21,21 @@ async function main() {
       role: "Direção",
       access: "admin",
       master: true,
+      workspaceMembers: {
+        create: {
+          workspace: {
+            create: {
+              id: "w1",
+              name: "Espaço de Alexandre",
+            },
+          },
+          access: "admin",
+          status: "active",
+          role: "Direção",
+          owner: true,
+          acceptedAt: new Date(),
+        },
+      },
     },
   });
   console.log("Conta administrador criada: alexandre@asa.app");

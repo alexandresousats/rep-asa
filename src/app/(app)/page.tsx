@@ -16,7 +16,9 @@ export default function OverviewPage() {
   const user = useWorkspace((state) => state.user);
   const tasks = useWorkspace((state) => state.tasks);
   const projects = useWorkspace((state) => state.projects);
-  const users = useWorkspace((state) => state.users);
+  const users = useWorkspace((state) => state.users).filter(
+    (person) => person.membershipStatus !== "pending",
+  );
   const insights = computeInsights(tasks, projects, users);
   const tags = useWorkspace((state) => state.tags);
   const firstName = user?.name.split(" ")[0] ?? "equipe";

@@ -9,10 +9,16 @@ import type {
   Tag,
   Task,
   User,
+  WorkspaceInfo,
+  WorkspaceInvite,
+  WorkspaceMembership,
 } from "./types";
 
 export interface WorkspaceData {
   user: User | null;
+  workspace: WorkspaceInfo | null;
+  workspaces: WorkspaceMembership[];
+  invites: WorkspaceInvite[];
   users: User[];
   projects: Project[];
   tasks: Task[];
@@ -39,6 +45,9 @@ interface WorkspaceState extends WorkspaceData {
 
 const empty: WorkspaceData = {
   user: null,
+  workspace: null,
+  workspaces: [],
+  invites: [],
   users: [],
   projects: [],
   tasks: [],

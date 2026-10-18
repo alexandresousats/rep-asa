@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { useWorkspace } from "@/lib/workspace";
+import { PendingInvites } from "./pending-invites";
 import { SearchDialog } from "./search-dialog";
 import { Sidebar } from "./sidebar";
 
@@ -13,6 +14,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const ready = useWorkspace((state) => state.ready);
   const user = useWorkspace((state) => state.user);
+  const workspace = useWorkspace((state) => state.workspace);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -93,7 +95,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Search className="h-4 w-4" strokeWidth={1.5} />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {workspace ? children : <PendingInvites />}
+        </div>
       </div>
 
       <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />

@@ -3,7 +3,12 @@
 import { Bell } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { markAllNotificationsRead, markNotificationRead } from "@/lib/api";
+import {
+  acceptInvite,
+  declineInvite,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/lib/workspace";
 
@@ -63,24 +68,51 @@ export function NotificationBell({ collapsed = false }: { collapsed?: boolean })
             <p className="px-2 py-6 text-center text-sm text-faint">Nada por aqui.</p>
           ) : (
             <div className="max-h-80 space-y-1 overflow-y-auto">
-              {items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    void markNotificationRead(item.id);
-                    setOpen(false);
-                    if (item.href) router.push(item.href);
-                  }}
-                  className={cn(
-                    "block w-full rounded-xl px-3 py-2 text-left hover:bg-hover",
-                    !item.readAt && "bg-base",
-                  )}
-                >
-                  <p className="text-sm text-ink">{item.title}</p>
-                  <p className="mt-1 text-xs leading-5 text-faint">{item.body}</p>
-                </button>
-              ))}
+              {items.map((item) =>
+                item.type === "workspace_invite" && item.workspaceId && !item.readAt ? (
+                  <div key={item.id} className="rounded-xl bg-base px-3 py-2">
+                    <p className="text-sm text-ink">{item.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-faint">{item.body}</p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void acceptInvite(item.workspaceId as string).then(() => setOpen(false));
+                        }}
+                        className="rounded-full bg-ink px-3 py-1 text-xs text-base"
+                      >
+                        Aceitar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void declineInvite(item.workspaceId as string);
+                        }}
+                        className="rounded-full px-3 py-1 text-xs text-faint hover:text-ink"
+                      >
+                        Recusar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      void markNotificationRead(item.id);
+                      setOpen(false);
+                      if (item.href) router.push(item.href);
+                    }}
+                    className={cn(
+                      "block w-full rounded-xl px-3 py-2 text-left hover:bg-hover",
+                      !item.readAt && "bg-base",
+                    )}
+                  >
+                    <p className="text-sm text-ink">{item.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-faint">{item.body}</p>
+                  </button>
+                ),
+              )}
             </div>
           )}
         </div>

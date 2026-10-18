@@ -69,7 +69,9 @@ export function TaskColumnFilters({
         <Option selected={filters.assignees.includes(NONE)} onClick={() => toggleAssignee(NONE)}>
           <span className="text-muted">Sem responsável</span>
         </Option>
-        {users.map((user) => (
+        {users
+          .filter((user) => user.membershipStatus !== "pending")
+          .map((user) => (
           <Option
             key={user.id}
             selected={filters.assignees.includes(user.id)}

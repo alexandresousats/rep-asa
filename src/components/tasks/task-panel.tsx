@@ -267,7 +267,9 @@ export function TaskPanel({
             className="w-full bg-transparent text-ink outline-none disabled:text-ink"
           >
             <option value="">Sem responsável</option>
-            {users.map((user) => (
+            {users
+              .filter((user) => user.membershipStatus !== "pending")
+              .map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
               </option>

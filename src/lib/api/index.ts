@@ -16,6 +16,9 @@ export async function loadSession() {
   try {
     const data = await request<{
       user: User;
+      workspace: ReturnType<typeof useWorkspace.getState>["workspace"];
+      workspaces: ReturnType<typeof useWorkspace.getState>["workspaces"];
+      invites: ReturnType<typeof useWorkspace.getState>["invites"];
       users: User[];
       projects: ReturnType<typeof useWorkspace.getState>["projects"];
       tasks: Task[];
@@ -127,10 +130,47 @@ export async function updateUser(
   }
 }
 
+export async function createWorkspace(name: string) {
+  await request<{ id: string; name: string }>("/workspaces", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  await loadSession();
+}
+
+export async function selectWorkspace(workspaceId: string) {
+  await request(`/workspaces/${workspaceId}/select`, { method: "POST" });
+  await loadSession();
+}
+
+export async function renameWorkspace(name: string) {
+  const workspace = await request<{ id: string; name: string }>("/workspaces/current", {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+  const state = useWorkspace.getState();
+  useWorkspace.setState({
+    workspace: state.workspace ? { ...state.workspace, name: workspace.name } : null,
+    workspaces: state.workspaces.map((item) =>
+      item.id === workspace.id ? { ...item, name: workspace.name } : item,
+    ),
+  });
+}
+
+export async function acceptInvite(workspaceId: string) {
+  await request(`/workspaces/${workspaceId}/accept`, { method: "POST" });
+  await loadSession();
+}
+
+export async function declineInvite(workspaceId: string) {
+  await request(`/workspaces/${workspaceId}/decline`, { method: "POST" });
+  await loadSession();
+}
+
 export async function addMember(input: {
   name: string;
   email: string;
-  password: string;
+  password?: string;
   role: string;
   access: User["access"];
 }): Promise<{ ok: true; user: User } | { ok: false; error: string }> {

@@ -12,6 +12,13 @@ import type {
   User,
 } from "@prisma/client";
 
+export type MembershipView = {
+  role: string;
+  access: User["access"];
+  owner: boolean;
+  status: "pending" | "active";
+};
+
 export type PublicUser = {
   id: string;
   name: string;
@@ -21,18 +28,22 @@ export type PublicUser = {
   access: User["access"];
   avatar: string | null;
   master: boolean;
+  owner: boolean;
+  membershipStatus: "pending" | "active" | null;
 };
 
-export function publicUser(user: User): PublicUser {
+export function publicUser(user: User, membership?: MembershipView | null): PublicUser {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     initials: user.initials,
-    role: user.role,
-    access: user.access,
+    role: membership?.role ?? user.role,
+    access: membership?.access ?? user.access,
     avatar: user.avatar,
-    master: user.master,
+    master: false,
+    owner: membership?.owner ?? false,
+    membershipStatus: membership?.status ?? null,
   };
 }
 
@@ -102,6 +113,7 @@ export function publicNotification(item: Notification) {
     title: item.title,
     body: item.body,
     href: item.href,
+    workspaceId: item.workspaceId,
     readAt: item.readAt ? item.readAt.toISOString() : null,
     createdAt: item.createdAt.toISOString(),
   };

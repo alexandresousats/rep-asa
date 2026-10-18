@@ -15,14 +15,35 @@ export interface User {
   access: AccessLevel;
   avatar?: string | null;
   master?: boolean;
+  owner?: boolean;
+  membershipStatus?: "pending" | "active" | null;
+}
+
+export interface WorkspaceInfo {
+  id: string;
+  name: string;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  name: string;
+  access: AccessLevel;
+}
+
+export interface WorkspaceInvite {
+  workspaceId: string;
+  workspaceName: string;
+  role: string;
+  access: AccessLevel;
 }
 
 export interface AppNotification {
   id: string;
-  type: "task_assigned" | "comment" | "project_member" | "message";
+  type: "task_assigned" | "comment" | "project_member" | "message" | "workspace_invite";
   title: string;
   body: string;
   href: string | null;
+  workspaceId: string | null;
   readAt: string | null;
   createdAt: string;
 }

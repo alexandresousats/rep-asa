@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   actorFromApiKey,
   actorFromSession,
+  acceptInvite,
   addComment,
   addMember,
   addProjectMember,
@@ -15,10 +16,12 @@ import {
   confirmReset,
   createApiKey,
   createProject,
+  createWorkspace,
   createSection,
   createTag,
   createTask,
   createThread,
+  declineInvite,
   deleteApiKey,
   deleteTag,
   destroySession,
@@ -28,8 +31,10 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   renameSection,
+  renameWorkspace,
   reorderTasks,
   requestReset,
+  selectWorkspace,
   sendMessage,
   signup,
   updateTag,
@@ -70,15 +75,28 @@ function parse<T>(schema: z.ZodType<T>, value: unknown) {
 }
 
 const COOKIE = "asa_session";
+const WORKSPACE_COOKIE = "asa_workspace";
 
-function writeSession(c: Parameters<typeof setCookie>[0], token: string) {
-  setCookie(c, COOKIE, token, {
+function cookieOptions(maxAge: number) {
+  return {
     httpOnly: true,
-    sameSite: "Lax",
+    sameSite: "Lax" as const,
     secure: process.env.COOKIE_SECURE === "1",
     path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
+    maxAge,
+  };
+}
+
+function writeSession(c: Parameters<typeof setCookie>[0], token: string) {
+  setCookie(c, COOKIE, token, cookieOptions(60 * 60 * 24 * 30));
+}
+
+function writeWorkspace(c: Parameters<typeof setCookie>[0], workspaceId: string | null) {
+  if (!workspaceId) {
+    deleteCookie(c, WORKSPACE_COOKIE, { path: "/" });
+    return;
+  }
+  setCookie(c, WORKSPACE_COOKIE, workspaceId, cookieOptions(60 * 60 * 24 * 30));
 }
 
 async function actorOf(c: Parameters<typeof getCookie>[0]): Promise<Actor> {
@@ -89,7 +107,7 @@ async function actorOf(c: Parameters<typeof getCookie>[0]): Promise<Actor> {
   }
   const token = getCookie(c, COOKIE);
   if (token) {
-    const actor = await actorFromSession(token);
+    const actor = await actorFromSession(token, getCookie(c, WORKSPACE_COOKIE) ?? null);
     if (actor) return actor;
   }
   throw new ApiError(401, "Sessão expirada.");
@@ -104,6 +122,7 @@ app.post("/auth/signup", async (c) => {
   );
   const result = await signup(body);
   writeSession(c, result.token);
+  writeWorkspace(c, result.workspaceId);
   return c.json({ user: result.user });
 });
 
@@ -114,6 +133,7 @@ app.post("/auth/login", async (c) => {
   );
   const result = await login(body.email, body.password);
   writeSession(c, result.token);
+  writeWorkspace(c, result.workspaceId);
   return c.json({ user: result.user });
 });
 
@@ -121,6 +141,7 @@ app.post("/auth/logout", async (c) => {
   const token = getCookie(c, COOKIE);
   if (token) await destroySession(token);
   deleteCookie(c, COOKIE, { path: "/" });
+  deleteCookie(c, WORKSPACE_COOKIE, { path: "/" });
   return c.json({ ok: true });
 });
 
@@ -140,6 +161,39 @@ app.post("/auth/reset/confirm", async (c) => {
 
 app.get("/bootstrap", async (c) => c.json(await bootstrap(await actorOf(c))));
 
+app.post("/workspaces", async (c) => {
+  const body = parse(z.object({ name: z.string() }), await c.req.json());
+  const workspace = await createWorkspace(await actorOf(c), body.name);
+  writeWorkspace(c, workspace.id);
+  return c.json(workspace);
+});
+
+app.post("/workspaces/:id/select", async (c) => {
+  const actor = await actorOf(c);
+  const id = c.req.param("id");
+  await selectWorkspace(actor, id);
+  writeWorkspace(c, id);
+  return c.json({ ok: true });
+});
+
+app.patch("/workspaces/current", async (c) => {
+  const body = parse(z.object({ name: z.string() }), await c.req.json());
+  return c.json(await renameWorkspace(await actorOf(c), body.name));
+});
+
+app.post("/workspaces/:id/accept", async (c) => {
+  const actor = await actorOf(c);
+  const id = c.req.param("id");
+  await acceptInvite(actor, id);
+  if (!actor.workspaceId) writeWorkspace(c, id);
+  return c.json({ ok: true });
+});
+
+app.post("/workspaces/:id/decline", async (c) => {
+  await declineInvite(await actorOf(c), c.req.param("id"));
+  return c.json({ ok: true });
+});
+
 app.get("/users", async (c) => {
   const { listUsers } = await import("./domain");
   return c.json(await listUsers(await actorOf(c)));
@@ -150,7 +204,7 @@ app.post("/users", async (c) => {
     z.object({
       name: z.string(),
       email: z.string(),
-      password: z.string(),
+      password: z.string().optional(),
       role: z.string(),
       access,
     }),

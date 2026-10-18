@@ -27,12 +27,18 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
   }
 
   return (
-    <Dialog open={open} title="Nova pessoa" onClose={close}>
+    <Dialog open={open} title="Convidar pessoa" onClose={close}>
       <form
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          void addMember({ name, email, password, role, access }).then((result) => {
+          void addMember({
+            name,
+            email,
+            password: password.trim() || undefined,
+            role,
+            access,
+          }).then((result) => {
             if (!result.ok) {
               setError(result.error);
               return;
@@ -60,6 +66,7 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
           type="password"
           value={password}
           autoComplete="new-password"
+          placeholder="Obrigatória se a pessoa ainda não tem conta"
           onChange={(event) => setPassword(event.target.value)}
         />
         <Input label="Cargo" value={role} onChange={(event) => setRole(event.target.value)} />
@@ -82,7 +89,7 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
           <Button type="button" variant="ghost" onClick={close}>
             Cancelar
           </Button>
-          <Button type="submit">Adicionar</Button>
+          <Button type="submit">Convidar</Button>
         </div>
       </form>
     </Dialog>

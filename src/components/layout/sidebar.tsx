@@ -8,19 +8,22 @@ import {
   Moon,
   Settings,
   PanelLeft,
+  Plus,
   Search,
   Sparkles,
   Sun,
   Users,
 } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
-import { logout } from "@/lib/api";
+import { logout, selectWorkspace } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/lib/workspace";
+import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { NotificationBell } from "./notifications";
 import { Logo } from "./logo";
 
@@ -51,6 +54,9 @@ export function Sidebar({
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme !== "light";
   const user = useWorkspace((state) => state.user);
+  const workspace = useWorkspace((state) => state.workspace);
+  const workspaces = useWorkspace((state) => state.workspaces);
+  const [creating, setCreating] = useState(false);
 
   return (
     <aside
@@ -93,6 +99,51 @@ export function Sidebar({
           </button>
         </div>
       </div>
+
+      {!collapsed ? (
+        <div className="mb-4 space-y-2 px-1">
+          {workspace && workspaces.length > 1 ? (
+            <label className="block">
+              <span className="sr-only">Espaço de trabalho</span>
+              <select
+                value={workspace.id}
+                onChange={(event) => {
+                  void selectWorkspace(event.target.value);
+                }}
+                className="h-9 w-full truncate rounded-full border border-line bg-base px-3 text-xs text-ink"
+              >
+                {workspaces.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="truncate px-3 text-xs text-faint">
+              {workspace?.name ?? "Sem espaço"}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="flex w-full items-center gap-2 rounded-full px-3 py-2 text-sm text-muted hover:bg-hover hover:text-ink"
+          >
+            <Plus className="h-4 w-4" strokeWidth={1.5} />
+            Novo espaço
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          title="Novo espaço"
+          aria-label="Novo espaço"
+          onClick={() => setCreating(true)}
+          className="mb-4 flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink"
+        >
+          <Plus className="h-4 w-4" strokeWidth={1.5} />
+        </button>
+      )}
 
       <nav className={cn("flex flex-1 flex-col gap-1", collapsed && "w-full items-center")}>
         {NAV.map((item) => {
@@ -206,6 +257,7 @@ export function Sidebar({
           </div>
         </div>
       </div>
+      <CreateWorkspaceDialog open={creating} onClose={() => setCreating(false)} />
     </aside>
   );
 }
