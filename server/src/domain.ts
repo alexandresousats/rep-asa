@@ -787,6 +787,44 @@ export async function renameSection(actor: Actor, projectId: string, from: strin
   return trimmed;
 }
 
+export async function deleteSection(actor: Actor, projectId: string, name: string) {
+  assertAdmin(actor);
+  const project = await visibleProject(actor, projectId);
+  if (project.sections.length <= 1) {
+    throw new ApiError(400, "O projeto precisa de pelo menos uma sessão.");
+  }
+  const ordered = [...project.sections].sort((a, b) => a.position - b.position);
+  const index = ordered.findIndex((section) => section.name === name);
+  if (index < 0) throw new ApiError(404, "Sessão não encontrada.");
+  const current = ordered[index];
+  const fallback = ordered[index - 1] ?? ordered[index + 1];
+  await prisma.$transaction([
+    prisma.task.updateMany({
+      where: { projectId, section: name },
+      data: { section: fallback.name },
+    }),
+    prisma.section.delete({ where: { id: current.id } }),
+  ]);
+  return fallback.name;
+}
+
+export async function reorderSections(actor: Actor, projectId: string, names: string[]) {
+  assertAdmin(actor);
+  const project = await visibleProject(actor, projectId);
+  const known = new Map(project.sections.map((section) => [section.name, section]));
+  if (names.length !== known.size || names.some((name) => !known.has(name))) {
+    throw new ApiError(400, "A ordem das sessões está incompleta.");
+  }
+  await prisma.$transaction(
+    names.map((name, position) =>
+      prisma.section.update({
+        where: { id: known.get(name)!.id },
+        data: { position },
+      }),
+    ),
+  );
+}
+
 export async function addProjectMember(actor: Actor, projectId: string, userId: string) {
   assertAdmin(actor);
   const project = await visibleProject(actor, projectId);

@@ -19,6 +19,8 @@ import {
   createWorkspace,
   deleteWorkspace,
   createSection,
+  deleteSection,
+  reorderSections,
   createTag,
   createTask,
   createThread,
@@ -286,6 +288,18 @@ app.patch("/projects/:id/sections", async (c) => {
   const body = parse(z.object({ from: z.string(), to: z.string() }), await c.req.json());
   const name = await renameSection(await actorOf(c), c.req.param("id"), body.from, body.to);
   return c.json({ name });
+});
+
+app.delete("/projects/:id/sections", async (c) => {
+  const body = parse(z.object({ name: z.string() }), await c.req.json());
+  const fallback = await deleteSection(await actorOf(c), c.req.param("id"), body.name);
+  return c.json({ fallback });
+});
+
+app.post("/projects/:id/sections/reorder", async (c) => {
+  const body = parse(z.object({ names: z.array(z.string()) }), await c.req.json());
+  await reorderSections(await actorOf(c), c.req.param("id"), body.names);
+  return c.json({ ok: true });
 });
 
 app.delete("/projects/:id", async (c) => {

@@ -2,6 +2,7 @@
 
 import {
   CalendarDays,
+  ChartColumn,
   FolderKanban,
   Hash,
   LayoutGrid,
@@ -30,6 +31,7 @@ import { Logo } from "./logo";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
+  { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/tarefas", label: "Minhas tarefas", icon: ListTodo },
   { href: "/projetos", label: "Projetos", icon: FolderKanban, match: "/projetos" },
   { href: "/calendario", label: "Calendário", icon: CalendarDays },

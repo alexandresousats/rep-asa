@@ -283,6 +283,47 @@ export async function renameSection(projectId: string, from: string, to: string)
   return data.name;
 }
 
+export async function deleteSection(
+  projectId: string,
+  name: string,
+): Promise<{ ok: true; fallback: string } | { ok: false; error: string }> {
+  try {
+    const data = await request<{ fallback: string }>(`/projects/${projectId}/sections`, {
+      method: "DELETE",
+      body: JSON.stringify({ name }),
+    });
+    const state = useWorkspace.getState();
+    const current = state.projects.find((project) => project.id === projectId);
+    if (current) {
+      state.upsertProject({
+        ...current,
+        sections: (current.sections ?? []).filter((section) => section !== name),
+      });
+    }
+    for (const task of useWorkspace.getState().tasks) {
+      if (task.projectId === projectId && task.section === name) {
+        useWorkspace.getState().upsertTask({ ...task, section: data.fallback });
+      }
+    }
+    return { ok: true, fallback: data.fallback };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export function reorderSections(projectId: string, names: string[]) {
+  const state = useWorkspace.getState();
+  const current = state.projects.find((project) => project.id === projectId);
+  if (!current) return;
+  state.upsertProject({ ...current, sections: names });
+  void request(`/projects/${projectId}/sections/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ names }),
+  }).catch(() => {
+    void loadSession();
+  });
+}
+
 export async function addProjectMember(projectId: string, userId: string) {
   const project = await request<ReturnType<typeof useWorkspace.getState>["projects"][number]>(
     `/projects/${projectId}/members`,

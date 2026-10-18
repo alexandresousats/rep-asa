@@ -1,6 +1,6 @@
 export type Priority = "baixa" | "media" | "alta" | "urgente";
 export type TaskStatus = "todo" | "doing" | "done";
-export type ProjectView = "lista" | "cronograma" | "calendario" | "kanban";
+export type ProjectView = "lista" | "cronograma" | "calendario" | "kanban" | "painel";
 export type ProjectsLayout = "grid" | "list";
 export type TaskViewMode = "sidebar" | "modal";
 export type AccessLevel = "admin" | "editor" | "leitura";

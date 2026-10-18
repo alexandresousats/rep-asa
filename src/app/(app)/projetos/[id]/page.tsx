@@ -9,10 +9,12 @@ import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
 import { TaskKanban } from "@/components/tasks/task-kanban";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
+import { ProjectPanel } from "@/components/projects/project-panel";
 import { ProjectTimeline } from "@/components/timeline/project-timeline";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { addProjectMember, createSection, createTask, deleteProject, renameSection, reorderTasks } from "@/lib/api";
+import { SectionBar } from "@/components/projects/section-bar";
+import { addProjectMember, createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
 import type { ProjectView, User } from "@/lib/types";
@@ -23,6 +25,7 @@ const VIEWS: { id: ProjectView; label: string }[] = [
   { id: "kanban", label: "Kanban" },
   { id: "cronograma", label: "Cronograma" },
   { id: "calendario", label: "Calendário" },
+  { id: "painel", label: "Painel" },
 ];
 
 export default function ProjectPage() {
@@ -41,15 +44,13 @@ function ProjectWorkspace() {
   const [freshTaskId, setFreshTaskId] = useState<string | null>(null);
   const [localTask, setLocalTask] = useState<string | null>(null);
   const [pickedSection, setPickedSection] = useState<string | null>(null);
-  const [draftSection, setDraftSection] = useState<string | null>(null);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [pendingSection, setPendingSection] = useState(false);
   const [addMenu, setAddMenu] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingInfo, setEditingInfo] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const ignoreSectionBlur = useRef(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
   const projects = useWorkspace((state) => state.projects);
@@ -115,26 +116,6 @@ function ProjectWorkspace() {
     pickedSection && sections.includes(pickedSection) ? pickedSection : sections[0];
   const listed = tasks.filter((task) => task.section === activeSection);
 
-  function commitSection(name: string) {
-    const trimmed = name.trim();
-    setDraftSection(null);
-    if (!trimmed) return;
-    void createSection(current.id, trimmed)
-      .then((created) => {
-        if (created) setPickedSection(created);
-      })
-      .catch(() => undefined);
-  }
-
-  function commitRename(from: string, name: string) {
-    setEditingSection(null);
-    void renameSection(current.id, from, name)
-      .then((next) => {
-        if (next) setPickedSection(next);
-      })
-      .catch(() => undefined);
-  }
-
   function addTask(section = activeSection) {
     void createTask({
       projectId: current.id,
@@ -169,7 +150,7 @@ function ProjectWorkspace() {
                 </button>
               ) : null}
             </div>
-            <div className="mt-3 flex gap-1">
+            <div className="mt-3 flex flex-wrap gap-1">
               {VIEWS.map((item) => (
                 <button
                   key={item.id}
@@ -229,7 +210,7 @@ function ProjectWorkspace() {
                   role="menuitem"
                   onClick={() => {
                     setAddMenu(false);
-                    setDraftSection("");
+                    setPendingSection(true);
                     if (view !== "lista") setQuery({ view: "lista" });
                   }}
                   className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
@@ -257,88 +238,16 @@ function ProjectWorkspace() {
         <div className={cn("min-h-0 flex-1", view === "kanban" || view === "cronograma" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
         {view === "lista" ? (
           <>
-            <div className="flex items-center gap-1 overflow-x-auto px-6 pt-4">
-              {sections.map((section) =>
-                editingSection === section ? (
-                  <form
-                    key={section}
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      commitRename(
-                        section,
-                        event.currentTarget.querySelector("input")?.value ?? "",
-                      );
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      defaultValue={section}
-                      aria-label="Título da sessão"
-                      onFocus={(event) => event.currentTarget.select()}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Escape") return;
-                        event.preventDefault();
-                        ignoreSectionBlur.current = true;
-                        setEditingSection(null);
-                      }}
-                      onBlur={(event) => {
-                        if (ignoreSectionBlur.current) {
-                          ignoreSectionBlur.current = false;
-                          return;
-                        }
-                        commitRename(section, event.currentTarget.value);
-                      }}
-                      className="h-7 w-36 rounded-full bg-elevated px-3 text-xs text-ink outline-none"
-                    />
-                  </form>
-                ) : (
-                  <button
-                    key={section}
-                    type="button"
-                    onClick={() => setPickedSection(section)}
-                    onDoubleClick={() => {
-                      if (isAdmin) setEditingSection(section);
-                    }}
-                    className={cn(
-                      "shrink-0 rounded-full px-3 py-1 text-xs",
-                      section === activeSection
-                        ? "bg-elevated text-ink"
-                        : "text-faint hover:text-ink",
-                    )}
-                  >
-                    {section}
-                  </button>
-                ),
-              )}
-              {draftSection !== null ? (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    commitSection(
-                      event.currentTarget.querySelector("input")?.value ?? "",
-                    );
-                  }}
-                >
-                  <input
-                    autoFocus
-                    value={draftSection}
-                    onChange={(event) => setDraftSection(event.target.value)}
-                    onBlur={(event) => commitSection(event.currentTarget.value)}
-                    placeholder="Nova sessão"
-                    className="h-7 w-36 rounded-full bg-elevated px-3 text-xs text-ink outline-none placeholder:text-faint"
-                  />
-                </form>
-              ) : isAdmin ? (
-                <button
-                  type="button"
-                  aria-label="Nova sessão"
-                  onClick={() => setDraftSection("")}
-                  className="rounded-full p-1 text-faint hover:text-ink"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
+            <SectionBar
+              projectId={current.id}
+              sections={sections}
+              active={activeSection}
+              accent={project.color}
+              canManage={isAdmin}
+              onSelect={setPickedSection}
+              pendingDraft={pendingSection}
+              onDraftOpened={() => setPendingSection(false)}
+            />
             <div className="overflow-x-auto">
               <TaskList
                 tasks={listed}
@@ -375,6 +284,17 @@ function ProjectWorkspace() {
               onSelect={(id) => setQuery({ task: id })}
             />
           </div>
+        ) : null}
+
+        {view === "painel" ? (
+          <ProjectPanel
+            tasks={tasks}
+            users={users}
+            tags={tags}
+            sections={sections}
+            accent={project.color}
+            onSelect={(id) => setQuery({ task: id })}
+          />
         ) : null}
 
         {view === "kanban" ? (
