@@ -87,6 +87,13 @@ export interface Comment {
   createdAt: string;
 }
 
+export interface TaskAttachment {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -103,6 +110,8 @@ export interface Task {
   parentId?: string | null;
   subtasks: Subtask[];
   comments: Comment[];
+  followerIds?: string[];
+  attachments?: TaskAttachment[];
   completedAt: string | null;
   createdAt: string;
 }

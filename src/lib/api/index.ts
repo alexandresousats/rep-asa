@@ -85,15 +85,13 @@ export async function logout() {
   useWorkspace.getState().clear();
 }
 
-export async function requestReset(
-  email: string,
-): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+export async function requestReset(email: string): Promise<Result> {
   try {
-    const data = await request<{ token: string }>("/auth/reset", {
+    await request("/auth/reset", {
       method: "POST",
       body: JSON.stringify({ email }),
     });
-    return { ok: true, token: data.token };
+    return { ok: true };
   } catch (error) {
     return fail(error);
   }
@@ -446,6 +444,40 @@ export async function addComment(taskId: string, body: string) {
   const task = await request<Task>(`/tasks/${taskId}/comments`, {
     method: "POST",
     body: JSON.stringify({ body }),
+  });
+  useWorkspace.getState().upsertTask(task);
+  return task;
+}
+
+export async function setTaskFollow(taskId: string, follow: boolean) {
+  const task = await request<Task>(`/tasks/${taskId}/follow`, {
+    method: "POST",
+    body: JSON.stringify({ follow }),
+  });
+  useWorkspace.getState().upsertTask(task);
+  return task;
+}
+
+export async function uploadAttachment(taskId: string, file: File) {
+  const body = new FormData();
+  body.set("file", file);
+  const res = await fetch(`/api/tasks/${taskId}/attachments`, {
+    method: "POST",
+    body,
+    credentials: "include",
+  });
+  const text = await res.text();
+  const data = text ? (JSON.parse(text) as Task & { error?: string }) : null;
+  if (!res.ok || !data) {
+    throw new ApiError(res.status, data?.error ?? "Não foi possível enviar o arquivo.");
+  }
+  useWorkspace.getState().upsertTask(data);
+  return data;
+}
+
+export async function removeAttachment(taskId: string, attachmentId: string) {
+  const task = await request<Task>(`/tasks/${taskId}/attachments/${attachmentId}`, {
+    method: "DELETE",
   });
   useWorkspace.getState().upsertTask(task);
   return task;

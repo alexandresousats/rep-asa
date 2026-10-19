@@ -64,7 +64,12 @@ export function publicProject(
 }
 
 export function publicTask(
-  task: Task & { tags: Pick<TaskTag, "tagId">[]; comments: Comment[] },
+  task: Task & {
+    tags: Pick<TaskTag, "tagId">[];
+    comments: Comment[];
+    followers?: { userId: string }[];
+    attachments?: { id: string; name: string; mime: string; size: number }[];
+  },
 ) {
   return {
     id: task.id,
@@ -87,6 +92,14 @@ export function publicTask(
       body: comment.body,
       createdAt: comment.createdAt,
     })),
+    followerIds: task.followers?.map((follower) => follower.userId) ?? [],
+    attachments:
+      task.attachments?.map((file) => ({
+        id: file.id,
+        name: file.name,
+        mime: file.mime,
+        size: file.size,
+      })) ?? [],
     completedAt: task.completedAt,
     createdAt: task.createdAt,
   };

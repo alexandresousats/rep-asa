@@ -9,7 +9,7 @@ import { requestReset } from "@/lib/api";
 export default function ResetRequestPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
-  const [link, setLink] = useState("");
+  const [sent, setSent] = useState(false);
 
   return (
     <div>
@@ -26,11 +26,11 @@ export default function ResetRequestPage() {
           void requestReset(email).then((result) => {
             if (!result.ok) {
               setError(result.error);
-              setLink("");
+              setSent(false);
               return;
             }
             setError("");
-            setLink(`/redefinir/nova?token=${result.token}`);
+            setSent(true);
           });
         }}
       >
@@ -46,13 +46,9 @@ export default function ResetRequestPage() {
           Enviar link
         </Button>
       </form>
-      {link ? (
+      {sent ? (
         <p className="mt-6 text-center text-sm text-muted">
-          Sem e-mail real nesta fase. Use{" "}
-          <Link href={link} className="text-ink underline">
-            este link
-          </Link>
-          .
+          Se este e-mail tiver conta, enviamos o link.
         </p>
       ) : null}
       <p className="mt-6 text-center text-sm text-faint">

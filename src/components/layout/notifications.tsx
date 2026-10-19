@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -54,7 +55,15 @@ export function NotificationBell({ collapsed = false }: { collapsed?: boolean })
         >
           <div className="mb-1 flex items-center justify-between px-2 py-1">
             <p className="text-sm text-ink">Notificações</p>
-            {unread > 0 ? (
+            <div className="flex items-center gap-2">
+              <Link
+                href="/caixa"
+                onClick={() => setOpen(false)}
+                className="text-xs text-faint hover:text-ink"
+              >
+                Ver tudo
+              </Link>
+              {unread > 0 ? (
               <button
                 type="button"
                 onClick={() => void markAllNotificationsRead()}
@@ -63,6 +72,7 @@ export function NotificationBell({ collapsed = false }: { collapsed?: boolean })
                 Marcar lidas
               </button>
             ) : null}
+            </div>
           </div>
           {items.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-faint">Nada por aqui.</p>

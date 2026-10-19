@@ -1,8 +1,12 @@
 import bcrypt from "bcryptjs";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { Prisma, Task, User } from "@prisma/client";
 import { hashesEqual, initialsFrom, randomToken, sha256, todayISO, uid } from "./crypto";
 import { prisma } from "./db";
 import { ApiError } from "./errors";
+import { publish } from "./events";
+import { sendMail } from "./mail";
 import {
   publicNotification,
   publicProject,
@@ -24,6 +28,8 @@ export type Actor = PublicUser & {
 const taskInclude = {
   tags: { select: { tagId: true } },
   comments: { orderBy: { createdAt: "asc" as const } },
+  followers: { select: { userId: true } },
+  attachments: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.TaskInclude;
 
 const projectInclude = {
@@ -33,6 +39,20 @@ const projectInclude = {
 
 type TaskRow = Prisma.TaskGetPayload<{ include: typeof taskInclude }>;
 type ProjectRow = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
+
+async function rememberFollower(taskId: string, userId: string | null | undefined) {
+  if (!userId) return;
+  await prisma.taskFollower.upsert({
+    where: { taskId_userId: { taskId, userId } },
+    create: { taskId, userId },
+    update: {},
+  });
+}
+
+function publishTask(actor: Actor, task: TaskRow) {
+  if (!actor.workspaceId) return;
+  publish({ workspaceId: actor.workspaceId, kind: "task", task: publicTask(task) });
+}
 
 async function actorFrom(user: User, preferredWorkspaceId: string | null): Promise<Actor> {
   const memberships = await prisma.workspaceMember.findMany({
@@ -146,9 +166,8 @@ async function activeMemberIds(actor: Actor) {
   return rows.map((row) => row.userId);
 }
 
-function taskFilter(actor: Actor, projectIds: string[]): Prisma.TaskWhereInput {
-  if (actor.access === "admin") return { projectId: { in: projectIds } };
-  return { projectId: { in: projectIds }, assigneeId: actor.id };
+function taskFilter(_actor: Actor, projectIds: string[]): Prisma.TaskWhereInput {
+  return { projectId: { in: projectIds } };
 }
 
 async function loadTask(id: string) {
@@ -169,9 +188,6 @@ async function visibleTask(actor: Actor, id: string) {
     where: { projectId_userId: { projectId: task.projectId, userId: actor.id } },
   });
   if (!member) throw new ApiError(404, "Tarefa não encontrada.");
-  if (actor.access !== "admin" && task.assigneeId !== actor.id) {
-    throw new ApiError(404, "Tarefa não encontrada.");
-  }
   return task;
 }
 
@@ -207,6 +223,11 @@ async function notify(input: {
       body: input.body,
       href: input.href ?? null,
     },
+  });
+  publish({
+    workspaceId: input.workspaceId ?? null,
+    kind: "notification",
+    userId: input.userId,
   });
 }
 
@@ -280,8 +301,9 @@ export async function login(email: string, password: string) {
 
 export async function requestReset(email: string) {
   const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
   const user = await prisma.user.findUnique({ where: { email: normalized } });
-  if (!user) throw new ApiError(400, "Não encontramos uma conta com este e-mail.");
+  if (!user) return;
   const token = randomToken();
   await prisma.resetToken.create({
     data: {
@@ -291,7 +313,17 @@ export async function requestReset(email: string) {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     },
   });
-  return { token };
+  const origin = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const link = `${origin}/redefinir/nova?token=${token}`;
+  try {
+    await sendMail({
+      to: user.email,
+      subject: "Redefinir senha do ASA",
+      text: `Use este link para escolher uma nova senha. Ele vale por 1 hora.\n\n${link}`,
+    });
+  } catch (error) {
+    console.error("[mail] falha ao enviar redefinição", error);
+  }
 }
 
 export async function confirmReset(token: string, password: string) {
@@ -861,9 +893,14 @@ export async function deleteProject(actor: Actor, id: string) {
 }
 
 export async function deleteTask(actor: Actor, id: string) {
-  assertAdmin(actor);
+  assertWritable(actor);
   const task = await visibleTask(actor, id);
+  const files = task.attachments.map((file) => file.id);
   await prisma.task.delete({ where: { id: task.id } });
+  await Promise.all(files.map((fileId) => removeStoredFile(fileId)));
+  if (actor.workspaceId) {
+    publish({ workspaceId: actor.workspaceId, kind: "task-removed", taskId: task.id });
+  }
 }
 
 export async function removeMember(actor: Actor, userId: string) {
@@ -935,7 +972,7 @@ export async function createTask(
     section?: string;
   },
 ) {
-  assertAdmin(actor);
+  assertWritable(actor);
   const project = await visibleProject(actor, input.projectId);
   const title = input.title.trim();
   if (!title) throw new ApiError(400, "Informe o título.");
@@ -981,14 +1018,20 @@ export async function createTask(
       title: "Nova tarefa",
       body: `${actor.name} atribuiu “${task.title}” a você.`,
       href: `/projetos/${task.projectId}?task=${task.id}`,
+      workspaceId: actor.workspaceId,
     });
   }
-  return publicTask(task);
+  await rememberFollower(task.id, assigneeId);
+  const saved = await loadTask(task.id);
+  if (!saved) throw new ApiError(404, "Tarefa não encontrada.");
+  publishTask(actor, saved);
+  return publicTask(saved);
 }
 
 const editorFields = new Set([
   "title",
   "description",
+  "assigneeId",
   "dueDate",
   "startDate",
   "priority",
@@ -1046,7 +1089,6 @@ export async function updateTask(
     data.section = patch.section;
   }
   if (patch.assigneeId !== undefined && patch.assigneeId !== task.assigneeId) {
-    assertAdmin(actor);
     if (patch.assigneeId) {
       const member = await prisma.projectMember.findUnique({
         where: { projectId_userId: { projectId: task.projectId, userId: patch.assigneeId } },
@@ -1080,9 +1122,15 @@ export async function updateTask(
       title: "Tarefa atribuída",
       body: `${actor.name} atribuiu “${saved.title}” a você.`,
       href: `/projetos/${saved.projectId}?task=${saved.id}`,
+      workspaceId: actor.workspaceId,
     });
   }
-  return publicTask(saved);
+  if (patch.assigneeId && patch.assigneeId !== task.assigneeId) {
+    await rememberFollower(saved.id, patch.assigneeId);
+  }
+  const fresh = (await loadTask(saved.id)) ?? saved;
+  publishTask(actor, fresh);
+  return publicTask(fresh);
 }
 
 export async function addSubtask(
@@ -1126,7 +1174,10 @@ export async function addSubtask(
       href: `/projetos/${task.projectId}?task=${task.id}`,
     });
   }
-  return publicTask(task);
+  const saved = await loadTask(task.id);
+  if (!saved) throw new ApiError(404, "Tarefa não encontrada.");
+  publishTask(actor, saved);
+  return publicTask(saved);
 }
 
 export async function addComment(actor: Actor, taskId: string, body: string) {
@@ -1143,18 +1194,121 @@ export async function addComment(actor: Actor, taskId: string, body: string) {
       createdAt: new Date().toISOString(),
     },
   });
-  if (task.assigneeId && task.assigneeId !== actor.id) {
+  await rememberFollower(taskId, actor.id);
+  const members = await prisma.projectMember.findMany({
+    where: { projectId: task.projectId },
+    include: { user: true },
+  });
+  const mentioned = mentionIds(
+    text,
+    members.map((member) => member.user),
+  );
+  const followers = await prisma.taskFollower.findMany({
+    where: { taskId },
+    select: { userId: true },
+  });
+  const recipients = new Set<string>([
+    ...mentioned,
+    ...followers.map((follower) => follower.userId),
+  ]);
+  recipients.delete(actor.id);
+  for (const userId of recipients) {
+    const cited = mentioned.includes(userId);
     await notify({
-      userId: task.assigneeId,
-      type: "comment",
-      title: "Novo comentário",
-      body: `${actor.name} comentou em “${task.title}”.`,
+      userId,
+      type: cited ? "mention" : "comment",
+      title: cited ? "Menção" : "Novo comentário",
+      body: cited
+        ? `${actor.name} mencionou você em “${task.title}”.`
+        : `${actor.name} comentou em “${task.title}”.`,
       href: `/projetos/${task.projectId}?task=${task.id}`,
+      workspaceId: actor.workspaceId,
     });
   }
   const saved = await loadTask(taskId);
   if (!saved) throw new ApiError(404, "Tarefa não encontrada.");
+  publishTask(actor, saved);
   return publicTask(saved);
+}
+
+const attachmentDir = path.join(process.cwd(), "server/data/attachments");
+
+async function removeStoredFile(id: string) {
+  await unlink(path.join(attachmentDir, id)).catch(() => undefined);
+}
+
+function mentionIds(text: string, people: { id: string; name: string }[]) {
+  const found: string[] = [];
+  let rest = text;
+  const sorted = [...people].sort((a, b) => b.name.length - a.name.length);
+  for (const person of sorted) {
+    const needle = `@${person.name}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(needle, "i");
+    if (!pattern.test(rest)) continue;
+    found.push(person.id);
+    rest = rest.replace(pattern, " ");
+  }
+  return found;
+}
+
+export async function setTaskFollow(actor: Actor, taskId: string, follow: boolean) {
+  const task = await visibleTask(actor, taskId);
+  if (follow) await rememberFollower(task.id, actor.id);
+  else {
+    await prisma.taskFollower.deleteMany({ where: { taskId: task.id, userId: actor.id } });
+  }
+  const saved = await loadTask(task.id);
+  if (!saved) throw new ApiError(404, "Tarefa não encontrada.");
+  publishTask(actor, saved);
+  return publicTask(saved);
+}
+
+export async function addAttachment(
+  actor: Actor,
+  taskId: string,
+  file: { name: string; type: string; size: number; bytes: Buffer },
+) {
+  assertWritable(actor);
+  const task = await visibleTask(actor, taskId);
+  if (file.size <= 0) throw new ApiError(400, "Envie um arquivo.");
+  if (file.size > 10 * 1024 * 1024) throw new ApiError(400, "O arquivo passa de 10 MB.");
+  const id = uid("file");
+  await mkdir(attachmentDir, { recursive: true });
+  await writeFile(path.join(attachmentDir, id), file.bytes);
+  await prisma.attachment.create({
+    data: {
+      id,
+      taskId: task.id,
+      name: file.name.trim().slice(0, 180) || "arquivo",
+      mime: file.type || "application/octet-stream",
+      size: file.size,
+    },
+  });
+  const saved = await loadTask(task.id);
+  if (!saved) throw new ApiError(404, "Tarefa não encontrada.");
+  publishTask(actor, saved);
+  return publicTask(saved);
+}
+
+export async function removeAttachment(actor: Actor, taskId: string, attachmentId: string) {
+  assertWritable(actor);
+  const task = await visibleTask(actor, taskId);
+  const file = task.attachments.find((item) => item.id === attachmentId);
+  if (!file) throw new ApiError(404, "Arquivo não encontrado.");
+  await prisma.attachment.delete({ where: { id: file.id } });
+  await removeStoredFile(file.id);
+  const saved = await loadTask(task.id);
+  if (!saved) throw new ApiError(404, "Tarefa não encontrada.");
+  publishTask(actor, saved);
+  return publicTask(saved);
+}
+
+export async function readAttachment(actor: Actor, taskId: string, attachmentId: string) {
+  const task = await visibleTask(actor, taskId);
+  const file = task.attachments.find((item) => item.id === attachmentId);
+  if (!file) throw new ApiError(404, "Arquivo não encontrado.");
+  const bytes = await readFile(path.join(attachmentDir, file.id));
+  return file && { ...file, bytes };
 }
 
 export async function reorderTasks(actor: Actor, ids: string[]) {

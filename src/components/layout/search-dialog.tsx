@@ -20,7 +20,9 @@ export function SearchDialog({
   const results = useMemo(() => {
     const term = query.trim().toLowerCase();
     const pages = [
+      { href: "/caixa", label: "Caixa de entrada" },
       { href: "/insights", label: "Insights" },
+      { href: "/mensagens", label: "Mensagens" },
       { href: "/tarefas", label: "Minhas tarefas" },
     ].filter((page) => page.label.toLowerCase().includes(term));
     if (!term) return { pages: [], projects: projects.slice(0, 4), tasks: [] };

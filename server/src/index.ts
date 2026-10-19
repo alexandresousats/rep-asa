@@ -3,11 +3,14 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { subscribe } from "./events";
 import {
   actorFromApiKey,
   actorFromSession,
   acceptInvite,
+  addAttachment,
   addComment,
   addMember,
   addProjectMember,
@@ -24,6 +27,7 @@ import {
   createTag,
   createTask,
   createThread,
+  setTaskFollow,
   updateProject,
   declineInvite,
   deleteApiKey,
@@ -36,6 +40,8 @@ import {
   login,
   markAllNotificationsRead,
   markNotificationRead,
+  readAttachment,
+  removeAttachment,
   removeMember,
   renameSection,
   renameWorkspace,
@@ -154,7 +160,8 @@ app.post("/auth/logout", async (c) => {
 
 app.post("/auth/reset", async (c) => {
   const body = parse(z.object({ email: z.string() }), await c.req.json());
-  return c.json(await requestReset(body.email));
+  await requestReset(body.email);
+  return c.json({ ok: true });
 });
 
 app.post("/auth/reset/confirm", async (c) => {
@@ -365,6 +372,78 @@ app.post("/tasks/:id/subtasks", async (c) => {
 app.post("/tasks/:id/comments", async (c) => {
   const body = parse(z.object({ body: z.string() }), await c.req.json());
   return c.json(await addComment(await actorOf(c), c.req.param("id"), body.body));
+});
+
+app.post("/tasks/:id/follow", async (c) => {
+  const body = parse(z.object({ follow: z.boolean() }), await c.req.json());
+  return c.json(await setTaskFollow(await actorOf(c), c.req.param("id"), body.follow));
+});
+
+app.post("/tasks/:id/attachments", async (c) => {
+  const body = await c.req.parseBody();
+  const file = body.file;
+  if (!(file instanceof File)) throw new ApiError(400, "Envie um arquivo.");
+  const bytes = Buffer.from(await file.arrayBuffer());
+  return c.json(
+    await addAttachment(await actorOf(c), c.req.param("id"), {
+      name: file.name,
+      type: file.type,
+      size: bytes.byteLength,
+      bytes,
+    }),
+  );
+});
+
+app.get("/tasks/:id/attachments/:attachmentId", async (c) => {
+  const file = await readAttachment(
+    await actorOf(c),
+    c.req.param("id"),
+    c.req.param("attachmentId"),
+  );
+  const name = file.name.replace(/["\r\n]/g, "");
+  return c.body(file.bytes, 200, {
+    "content-type": file.mime || "application/octet-stream",
+    "content-disposition": `attachment; filename="${name}"`,
+  });
+});
+
+app.delete("/tasks/:id/attachments/:attachmentId", async (c) => {
+  return c.json(
+    await removeAttachment(await actorOf(c), c.req.param("id"), c.req.param("attachmentId")),
+  );
+});
+
+app.get("/events", async (c) => {
+  const actor = await actorOf(c);
+  c.header("Cache-Control", "no-cache, no-transform");
+  c.header("X-Accel-Buffering", "no");
+  return streamSSE(c, async (stream) => {
+    let open = true;
+    await stream.writeSSE({ event: "ping", data: "1" });
+    const stop = subscribe((event) => {
+      if (!open) return;
+      if (event.kind === "notification") {
+        if (event.userId !== actor.id) return;
+      } else if (!actor.workspaceId || event.workspaceId !== actor.workspaceId) {
+        return;
+      }
+      void stream.writeSSE({ data: JSON.stringify(event) });
+    });
+    stream.onAbort(() => {
+      open = false;
+      stop();
+    });
+    try {
+      while (open) {
+        await stream.sleep(15000);
+        if (!open) break;
+        await stream.writeSSE({ event: "ping", data: "1" });
+      }
+    } finally {
+      open = false;
+      stop();
+    }
+  });
 });
 
 app.post("/tasks/reorder", async (c) => {

@@ -1,8 +1,7 @@
 "use client";
 
-import { startOfDay } from "date-fns";
+import { endOfWeek, startOfDay } from "date-fns";
 import { Check } from "lucide-react";
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { SubtaskMark } from "@/components/tasks/task-list";
@@ -51,7 +50,6 @@ export default function MyTasksPage() {
     () => mine.filter((task) => task.status === "done"),
     [mine],
   );
-  const visible = scope === "done" ? doneTasks : openTasks;
   const today = startOfDay(new Date());
   const overdue = openTasks.filter((task) => {
     if (!task.dueDate) return false;
@@ -59,34 +57,33 @@ export default function MyTasksPage() {
   }).length;
 
   const groups = useMemo(() => {
-    const byProject = new Map<string, Task[]>();
-    for (const task of visible) {
-      const list = byProject.get(task.projectId) ?? [];
-      list.push(task);
-      byProject.set(task.projectId, list);
+    if (scope === "done") {
+      return doneTasks.length
+        ? [{ id: "done", name: "Concluídas", href: null as string | null, rows: nestAssigned(doneTasks, scope) }]
+        : [];
     }
-
-    const ordered = [
-      ...projects.map((project) => project.id),
-      ...[...byProject.keys()].filter(
-        (id) => !projects.some((project) => project.id === id),
-      ),
+    const buckets = [
+      { id: "overdue", name: "Atrasadas" },
+      { id: "today", name: "Hoje" },
+      { id: "week", name: "Esta semana" },
+      { id: "later", name: "Depois" },
+      { id: "none", name: "Sem data" },
     ];
-
-    return ordered.flatMap((projectId) => {
-      const items = byProject.get(projectId);
+    const todayKey = startOfDay(new Date());
+    const weekEnd = startOfDay(endOfWeek(todayKey, { weekStartsOn: 1 }));
+    const placed = new Map<string, Task[]>();
+    for (const task of openTasks) {
+      const id = dueBucket(task, todayKey, weekEnd);
+      const list = placed.get(id) ?? [];
+      list.push(task);
+      placed.set(id, list);
+    }
+    return buckets.flatMap((bucket) => {
+      const items = placed.get(bucket.id);
       if (!items?.length) return [];
-      const project = projects.find((item) => item.id === projectId);
-      return [
-        {
-          id: projectId,
-          name: project?.name ?? "Projeto",
-          color: project?.color ?? "#64748b",
-          rows: nestAssigned(items, scope),
-        },
-      ];
+      return [{ id: bucket.id, name: bucket.name, href: null as string | null, rows: nestAssigned(items, scope) }];
     });
-  }, [projects, scope, visible]);
+  }, [doneTasks, openTasks, scope]);
 
   const selected = useMemo(
     () => tasks.find((task) => task.id === selectedId) ?? null,
@@ -148,16 +145,7 @@ export default function MyTasksPage() {
               {groups.map((group) => (
                 <section key={group.id}>
                   <div className="mb-2 flex items-center justify-between gap-3 px-2">
-                    <Link
-                      href={`/projetos/${group.id}`}
-                      className="flex min-w-0 items-center gap-2 text-sm text-ink hover:opacity-80"
-                    >
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: group.color }}
-                      />
-                      <span className="truncate">{group.name}</span>
-                    </Link>
+                    <p className="text-sm text-ink">{group.name}</p>
                     <span className="text-xs text-faint">{group.rows.length}</span>
                   </div>
                   <div>
@@ -221,15 +209,16 @@ export default function MyTasksPage() {
                               </span>
                               {parent || task.status === "doing" || task.section ? (
                                 <span className="mt-0.5 block truncate text-xs text-faint">
-                                  {parent ? `Subtarefa de ${parent.title}` : null}
-                                  {parent && (task.status === "doing" || task.section)
-                                    ? " · "
-                                    : null}
-                                  {task.status === "doing" ? "Em andamento" : null}
-                                  {task.status === "doing" && task.section ? " · " : null}
-                                  {task.section}
+                                  {projects.find((item) => item.id === task.projectId)?.name}
+                                  {parent ? ` · Subtarefa de ${parent.title}` : null}
+                                  {task.status === "doing" ? " · Em andamento" : null}
+                                  {task.section ? ` · ${task.section}` : null}
                                 </span>
-                              ) : null}
+                              ) : (
+                                <span className="mt-0.5 block truncate text-xs text-faint">
+                                  {projects.find((item) => item.id === task.projectId)?.name}
+                                </span>
+                              )}
                             </span>
                           </span>
                           {taskTags.length > 0 ? (
@@ -275,6 +264,15 @@ export default function MyTasksPage() {
       ) : null}
     </div>
   );
+}
+
+function dueBucket(task: Task, today: Date, weekEnd: Date) {
+  if (!task.dueDate) return "none";
+  const due = startOfDay(parseDate(task.dueDate));
+  if (due < today) return "overdue";
+  if (due.getTime() === today.getTime()) return "today";
+  if (due <= weekEnd) return "week";
+  return "later";
 }
 
 function nestAssigned(items: Task[], scope: Scope) {

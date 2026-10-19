@@ -7,7 +7,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
 import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
 import { TaskKanban } from "@/components/tasks/task-kanban";
-import { TaskList } from "@/components/tasks/task-list";
+import { GroupedTaskList } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { ProjectPanel } from "@/components/projects/project-panel";
 import { ProjectTimeline } from "@/components/timeline/project-timeline";
@@ -40,11 +40,12 @@ function ProjectWorkspace() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [month, setMonth] = useState(new Date(2026, 9, 1));
+  const [month, setMonth] = useState(() => new Date());
   const [freshTaskId, setFreshTaskId] = useState<string | null>(null);
   const [localTask, setLocalTask] = useState<string | null>(null);
   const [pickedSection, setPickedSection] = useState<string | null>(null);
   const [pendingSection, setPendingSection] = useState(false);
+  const [listDraft, setListDraft] = useState<string | null>(null);
   const [addMenu, setAddMenu] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -114,7 +115,6 @@ function ProjectWorkspace() {
   const sections = current.sections?.length ? current.sections : ["Geral"];
   const activeSection =
     pickedSection && sections.includes(pickedSection) ? pickedSection : sections[0];
-  const listed = tasks.filter((task) => task.section === activeSection);
 
   function addTask(section = activeSection) {
     void createTask({
@@ -168,8 +168,9 @@ function ProjectWorkspace() {
               ))}
             </div>
           </div>
-          {isAdmin ? (
+          {canWrite ? (
           <div className="flex items-center gap-3">
+          {isAdmin ? (
           <button
             type="button"
             onClick={() => {
@@ -180,6 +181,7 @@ function ProjectWorkspace() {
           >
             Excluir projeto
           </button>
+          ) : null}
           <div ref={addMenuRef} className="relative">
             <Button
               aria-expanded={addMenu}
@@ -199,35 +201,43 @@ function ProjectWorkspace() {
                   role="menuitem"
                   onClick={() => {
                     setAddMenu(false);
+                    if (view === "lista") {
+                      setListDraft(activeSection);
+                      return;
+                    }
                     addTask();
                   }}
                   className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
                 >
                   Tarefa
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setAddMenu(false);
-                    setPendingSection(true);
-                    if (view !== "lista") setQuery({ view: "lista" });
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                >
-                  Sessão
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setAddMenu(false);
-                    setMemberOpen(true);
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                >
-                  Membro
-                </button>
+                {isAdmin ? (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAddMenu(false);
+                        setPendingSection(true);
+                        if (view !== "lista") setQuery({ view: "lista" });
+                      }}
+                      className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      Sessão
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAddMenu(false);
+                        setMemberOpen(true);
+                      }}
+                      className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      Membro
+                    </button>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -237,28 +247,35 @@ function ProjectWorkspace() {
 
         <div className={cn("min-h-0 flex-1", view === "kanban" || view === "cronograma" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
         {view === "lista" ? (
-          <>
-            <SectionBar
+          <div className="overflow-x-auto">
+            <GroupedTaskList
               projectId={current.id}
               sections={sections}
-              active={activeSection}
-              accent={project.color}
-              canManage={isAdmin}
-              onSelect={setPickedSection}
-              pendingDraft={pendingSection}
-              onDraftOpened={() => setPendingSection(false)}
+              tasks={tasks}
+              users={users}
+              tags={tags}
+              selectedId={selectedId}
+              onSelect={(id) => setQuery({ task: id })}
+              onReorder={canWrite ? reorderTasks : undefined}
+              draftSection={listDraft}
+              onDraftSection={setListDraft}
+              sectionDraft={pendingSection}
+              onSectionDraftOpened={() => setPendingSection(false)}
             />
-            <div className="overflow-x-auto">
-              <TaskList
-                tasks={listed}
-                users={users}
-                tags={tags}
-                selectedId={selectedId}
-                onSelect={(id) => setQuery({ task: id })}
-                onReorder={canWrite ? reorderTasks : undefined}
-              />
-            </div>
-          </>
+          </div>
+        ) : null}
+
+        {view === "cronograma" || view === "calendario" ? (
+          <SectionBar
+            projectId={current.id}
+            sections={sections}
+            active={activeSection}
+            accent={project.color}
+            canManage={isAdmin}
+            onSelect={setPickedSection}
+            pendingDraft={pendingSection}
+            onDraftOpened={() => setPendingSection(false)}
+          />
         ) : null}
 
         {view === "cronograma" ? (
@@ -305,7 +322,7 @@ function ProjectWorkspace() {
             tags={tags}
             selectedId={selectedId}
             onSelect={(id) => setQuery({ task: id })}
-            onCreate={isAdmin ? addTask : () => undefined}
+            onCreate={canWrite ? addTask : () => undefined}
             draggable={canWrite}
           />
         ) : null}

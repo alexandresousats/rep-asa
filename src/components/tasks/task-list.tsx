@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, GripVertical } from "lucide-react";
-import { useState } from "react";
+import { Check, ChevronDown, GripVertical, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { TagChip } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
@@ -9,7 +9,7 @@ import { formatDay } from "@/lib/dates";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { TaskColumnFilters } from "@/components/tasks/task-filters";
-import { setTaskStatus, updateTask } from "@/lib/api";
+import { createSection, createTask, setTaskStatus, updateTask } from "@/lib/api";
 import { useAccess } from "@/lib/workspace";
 import { EMPTY_FILTERS, filterTasks, isFiltering, type TaskFilterState } from "@/lib/task-filters";
 import type { Project, Tag, Task, User } from "@/lib/types";
@@ -30,6 +30,10 @@ export function TaskList({
   selectedId,
   onSelect,
   onReorder,
+  showHeader = true,
+  filters: controlledFilters,
+  onFiltersChange,
+  emptyLabel = "Nenhuma tarefa nesta sessão.",
 }: {
   tasks: Task[];
   users: User[];
@@ -38,11 +42,17 @@ export function TaskList({
   selectedId?: string | null;
   onSelect: (id: string) => void;
   onReorder?: (ids: string[]) => void;
+  showHeader?: boolean;
+  filters?: TaskFilterState;
+  onFiltersChange?: (filters: TaskFilterState) => void;
+  emptyLabel?: string;
 }) {
   const { canWrite } = useAccess();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
+  const [localFilters, setLocalFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
+  const filters = controlledFilters ?? localFilters;
+  const setFilters = onFiltersChange ?? setLocalFilters;
   const filtering = isFiltering(filters);
   const visible = filterTasks(tasks, filters, "tree");
   const people = users
@@ -71,13 +81,15 @@ export function TaskList({
 
   return (
     <div className="min-w-[640px]">
-      <div className="grid grid-cols-[1fr_180px_140px_150px] gap-3 border-b border-line-subtle px-4 py-3 text-xs text-faint">
-        <span>Nome</span>
-        <TaskColumnFilters users={people} filters={filters} onChange={setFilters} />
-      </div>
+      {showHeader ? (
+        <div className="sticky top-0 z-10 grid grid-cols-[1fr_180px_140px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
+          <span>Nome</span>
+          <TaskColumnFilters users={people} filters={filters} onChange={setFilters} />
+        </div>
+      ) : null}
       {rows.length === 0 ? (
         <p className="px-4 py-8 text-sm text-faint">
-          {filtering ? "Nenhuma tarefa com esses filtros." : "Nenhuma tarefa nesta sessão."}
+          {filtering ? "Nenhuma tarefa com esses filtros." : emptyLabel}
         </p>
       ) : null}
       {rows.map((task) => {
@@ -187,5 +199,222 @@ export function TaskList({
         );
       })}
     </div>
+  );
+}
+
+export function GroupedTaskList({
+  projectId,
+  sections,
+  tasks,
+  users,
+  tags,
+  selectedId,
+  onSelect,
+  onReorder,
+  draftSection,
+  onDraftSection,
+  sectionDraft = false,
+  onSectionDraftOpened,
+}: {
+  projectId: string;
+  sections: string[];
+  tasks: Task[];
+  users: User[];
+  tags: Tag[];
+  selectedId?: string | null;
+  onSelect: (id: string) => void;
+  onReorder?: (ids: string[]) => void;
+  draftSection: string | null;
+  onDraftSection: (section: string | null) => void;
+  sectionDraft?: boolean;
+  onSectionDraftOpened?: () => void;
+}) {
+  const { canWrite, isAdmin } = useAccess();
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [filters, setFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
+  const [draftKey, setDraftKey] = useState(0);
+  const [newSection, setNewSection] = useState<string | null>(null);
+  const people = users.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const skipSectionBlur = useRef(false);
+  const onSectionDraftOpenedRef = useRef(onSectionDraftOpened);
+  onSectionDraftOpenedRef.current = onSectionDraftOpened;
+
+  useEffect(() => {
+    if (!sectionDraft) return;
+    setNewSection("");
+    onSectionDraftOpenedRef.current?.();
+  }, [sectionDraft]);
+
+  async function commitDraft(section: string, title: string, keepOpen: boolean) {
+    await createTask({ projectId, title, section });
+    if (keepOpen) {
+      setDraftKey((key) => key + 1);
+      return;
+    }
+    onDraftSection(null);
+  }
+
+  return (
+    <div className="min-w-[640px]">
+      <div className="sticky top-0 z-10 grid grid-cols-[1fr_180px_140px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
+        <span>Nome</span>
+        <TaskColumnFilters users={people} filters={filters} onChange={setFilters} />
+      </div>
+      {sections.map((section) => {
+        const open = !collapsed[section];
+        const items = tasks.filter((task) => task.section === section);
+        const count = items.filter((task) => !task.parentId).length;
+        return (
+          <div key={section} id={`secao-${section}`}>
+            <button
+              type="button"
+              onClick={() =>
+                setCollapsed((current) => ({ ...current, [section]: !current[section] }))
+              }
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink hover:bg-hover"
+            >
+              <ChevronDown
+                className={cn("h-4 w-4 text-faint transition-transform", !open && "-rotate-90")}
+                strokeWidth={1.5}
+              />
+              <span className="font-medium">{section}</span>
+              <span className="text-xs text-faint">{count}</span>
+            </button>
+            {open ? (
+              <>
+                <TaskList
+                  tasks={items}
+                  users={users}
+                  tags={tags}
+                  selectedId={selectedId}
+                  onSelect={onSelect}
+                  onReorder={onReorder}
+                  showHeader={false}
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  emptyLabel="Nenhuma tarefa nesta sessão."
+                />
+                {draftSection === section ? (
+                  <DraftRow
+                    key={draftKey}
+                    onCommit={(title, keepOpen) => {
+                      void commitDraft(section, title, keepOpen);
+                    }}
+                    onCancel={() => onDraftSection(null)}
+                  />
+                ) : canWrite ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCollapsed((current) => ({ ...current, [section]: false }));
+                      onDraftSection(section);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 text-sm text-faint hover:text-ink"
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={1.5} />
+                    Adicionar tarefa
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        );
+      })}
+      {isAdmin && newSection !== null ? (
+        <form
+          className="px-4 py-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = newSection.trim();
+            skipSectionBlur.current = true;
+            setNewSection(null);
+            if (!name) return;
+            void createSection(projectId, name);
+          }}
+        >
+          <input
+            autoFocus
+            value={newSection}
+            aria-label="Nova sessão"
+            placeholder="Nova sessão"
+            onChange={(event) => setNewSection(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setNewSection(null);
+              }
+            }}
+            onBlur={() => {
+              if (skipSectionBlur.current) {
+                skipSectionBlur.current = false;
+                return;
+              }
+              const name = newSection.trim();
+              setNewSection(null);
+              if (!name) return;
+              void createSection(projectId, name);
+            }}
+            className="h-8 w-48 rounded-full bg-elevated px-3 text-sm text-ink outline-none placeholder:text-faint"
+          />
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function DraftRow({
+  onCommit,
+  onCancel,
+}: {
+  onCommit: (title: string, keepOpen: boolean) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const skipBlur = useRef(false);
+
+  function commit(keepOpen: boolean) {
+    const title = value.trim();
+    if (!title) {
+      if (!keepOpen) onCancel();
+      return;
+    }
+    setValue("");
+    onCommit(title, keepOpen);
+  }
+
+  return (
+    <form
+      className="grid grid-cols-[1fr_180px_140px_150px] items-center gap-3 border-b border-line-subtle px-4 py-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        skipBlur.current = true;
+        commit(true);
+      }}
+    >
+      <span className="flex min-w-0 items-center gap-3 pl-7">
+        <span className="inline-flex h-4 w-4 rounded-full border border-line" />
+        <input
+          autoFocus
+          value={value}
+          aria-label="Título da tarefa"
+          placeholder="Escreva o título"
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            skipBlur.current = true;
+            onCancel();
+          }}
+          onBlur={() => {
+            if (skipBlur.current) {
+              skipBlur.current = false;
+              return;
+            }
+            commit(false);
+          }}
+          className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+        />
+      </span>
+    </form>
   );
 }

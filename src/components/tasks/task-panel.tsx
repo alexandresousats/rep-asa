@@ -9,11 +9,11 @@ import { EditableTitle } from "@/components/tasks/editable-title";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { addComment, addSubtask, deleteTask, setTaskStatus, updateTask } from "@/lib/api";
+import { addComment, addSubtask, deleteTask, removeAttachment, setTaskFollow, setTaskStatus, updateTask, uploadAttachment } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import { PRIORITY_META, PRIORITY_ORDER } from "@/lib/priority";
-import { useAccess } from "@/lib/workspace";
+import { useAccess, useWorkspace } from "@/lib/workspace";
 import type { Priority, Project, Tag, Task, TaskViewMode, User } from "@/lib/types";
 
 const PANEL_WIDTH_KEY = "asa-task-panel-width";
@@ -156,7 +156,9 @@ export function TaskPanel({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const { isAdmin, canWrite } = useAccess();
+  const { canWrite } = useAccess();
+  const userId = useWorkspace((state) => state.user?.id);
+  const following = Boolean(userId && task.followerIds?.includes(userId));
 
   useEffect(() => {
     const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY));
@@ -223,6 +225,13 @@ export function TaskPanel({
           </h2>
         )}
         <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void setTaskFollow(task.id, !following)}
+            className="rounded-full px-3 py-1 text-xs text-faint hover:bg-hover hover:text-ink"
+          >
+            {following ? "Seguindo" : "Seguir"}
+          </button>
           {onViewChange ? (
             <>
               <button
@@ -265,7 +274,7 @@ export function TaskPanel({
         <Field label="Responsável">
           <select
             value={task.assigneeId ?? ""}
-            disabled={!isAdmin}
+            disabled={!canWrite}
             onChange={(event) =>
               updateTask(task.id, { assigneeId: event.target.value || null })
             }
@@ -434,6 +443,50 @@ export function TaskPanel({
         </div>
 
         <div>
+          <p className="mb-3 text-faint">Arquivos</p>
+          <div className="space-y-1">
+            {(task.attachments ?? []).length === 0 ? (
+              <p className="text-sm text-faint">Nenhum arquivo.</p>
+            ) : null}
+            {(task.attachments ?? []).map((file) => (
+              <div key={file.id} className="flex items-center gap-3 text-sm">
+                <a
+                  href={`/api/tasks/${task.id}/attachments/${file.id}`}
+                  className="min-w-0 flex-1 truncate text-ink hover:underline"
+                >
+                  {file.name}
+                </a>
+                <span className="shrink-0 text-xs text-faint">{formatBytes(file.size)}</span>
+                {canWrite ? (
+                  <button
+                    type="button"
+                    onClick={() => void removeAttachment(task.id, file.id)}
+                    className="text-xs text-faint hover:text-ink"
+                  >
+                    Remover
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          {canWrite ? (
+            <label className="mt-3 inline-block cursor-pointer text-sm text-faint hover:text-ink">
+              Enviar arquivo
+              <input
+                type="file"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  void uploadAttachment(task.id, file);
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
+
+        <div>
           <p className="mb-3 text-faint">Comentários</p>
           <div className="space-y-3">
             {task.comments.map((item) => {
@@ -474,7 +527,7 @@ export function TaskPanel({
           ) : null}
         </div>
 
-        {isAdmin ? (
+        {canWrite ? (
           <div className="border-t border-line-subtle pt-4">
             <button
               type="button"
@@ -534,6 +587,12 @@ export function TaskPanel({
       </Dialog>
     </aside>
   );
+}
+
+function formatBytes(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function Field({
