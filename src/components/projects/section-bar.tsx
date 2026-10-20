@@ -217,12 +217,7 @@ export function SectionBar({
                       event.preventDefault();
                       event.stopPropagation();
                     }}
-                    className={cn(
-                      "mr-1.5 rounded-full p-0.5 text-faint hover:text-ink focus-visible:opacity-100",
-                      section === active
-                        ? "opacity-70"
-                        : "opacity-0 group-hover:opacity-100",
-                    )}
+                    className="mr-1.5 rounded-full p-0.5 text-faint opacity-70 hover:text-ink"
                   >
                     <X className="h-3 w-3" strokeWidth={1.75} />
                   </button>

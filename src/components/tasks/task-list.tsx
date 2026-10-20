@@ -4,12 +4,21 @@ import { Check, ChevronDown, GripVertical, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { TagChip } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { TaskColumnFilters } from "@/components/tasks/task-filters";
-import { createSection, createTask, setTaskStatus, updateTask } from "@/lib/api";
+import {
+  createSection,
+  createTask,
+  deleteSection,
+  reorderSections,
+  setTaskStatus,
+  updateTask,
+} from "@/lib/api";
 import { useAccess } from "@/lib/workspace";
 import { EMPTY_FILTERS, filterTasks, isFiltering, type TaskFilterState } from "@/lib/task-filters";
 import type { Project, Tag, Task, User } from "@/lib/types";
@@ -234,6 +243,12 @@ export function GroupedTaskList({
   const [filters, setFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
   const [draftKey, setDraftKey] = useState(0);
   const [newSection, setNewSection] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [draggingSection, setDraggingSection] = useState<string | null>(null);
+  const [sectionDropAt, setSectionDropAt] = useState<number | null>(null);
+  const sectionDrag = useRef<string | null>(null);
   const people = users.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const skipSectionBlur = useRef(false);
   const onSectionDraftOpenedRef = useRef(onSectionDraftOpened);
@@ -254,32 +269,99 @@ export function GroupedTaskList({
     onDraftSection(null);
   }
 
+  const pendingCount = pendingDelete
+    ? tasks.filter((task) => task.section === pendingDelete && !task.id.startsWith("hist-")).length
+    : 0;
+  const fallback = pendingDelete ? neighborSection(sections, pendingDelete) : "";
+
   return (
     <div className="min-w-[640px]">
       <div className="sticky top-0 z-10 grid grid-cols-[1fr_180px_140px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
         <span>Nome</span>
         <TaskColumnFilters users={people} filters={filters} onChange={setFilters} />
       </div>
-      {sections.map((section) => {
+      {sections.map((section, index) => {
         const open = !collapsed[section];
         const items = tasks.filter((task) => task.section === section);
         const count = items.filter((task) => !task.parentId).length;
+        const canOrder = isAdmin && sections.length > 1;
         return (
-          <div key={section} id={`secao-${section}`}>
-            <button
-              type="button"
-              onClick={() =>
-                setCollapsed((current) => ({ ...current, [section]: !current[section] }))
-              }
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink hover:bg-hover"
-            >
-              <ChevronDown
-                className={cn("h-4 w-4 text-faint transition-transform", !open && "-rotate-90")}
-                strokeWidth={1.5}
-              />
-              <span className="font-medium">{section}</span>
-              <span className="text-xs text-faint">{count}</span>
-            </button>
+          <div
+            key={section}
+            id={`secao-${section}`}
+            onDragOver={(event) => {
+              if (!sectionDrag.current) return;
+              event.preventDefault();
+              const rect = event.currentTarget.getBoundingClientRect();
+              const after = event.clientY > rect.top + rect.height / 2;
+              setSectionDropAt(after ? index + 1 : index);
+            }}
+            onDrop={(event) => {
+              if (!sectionDrag.current) return;
+              event.preventDefault();
+              const source = event.dataTransfer.getData("text/plain") || sectionDrag.current;
+              const rect = event.currentTarget.getBoundingClientRect();
+              const after = event.clientY > rect.top + rect.height / 2;
+              moveSection(sections, projectId, source, after ? index + 1 : index);
+              sectionDrag.current = null;
+              setDraggingSection(null);
+              setSectionDropAt(null);
+            }}
+            className={cn(draggingSection === section && "opacity-40")}
+          >
+            {sectionDropAt === index && draggingSection ? (
+              <div className="mx-4 h-0.5 rounded-full bg-ink" />
+            ) : null}
+            <div className="flex items-center gap-2 px-4 py-3 hover:bg-hover">
+              {canOrder ? (
+                <span
+                  draggable
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Mover ${section}`}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", section);
+                    sectionDrag.current = section;
+                    setDraggingSection(section);
+                  }}
+                  onDragEnd={() => {
+                    sectionDrag.current = null;
+                    setDraggingSection(null);
+                    setSectionDropAt(null);
+                  }}
+                  className="cursor-grab text-faint active:cursor-grabbing"
+                >
+                  <GripVertical className="h-4 w-4" strokeWidth={1.5} />
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() =>
+                  setCollapsed((current) => ({ ...current, [section]: !current[section] }))
+                }
+                className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm text-ink"
+              >
+                <ChevronDown
+                  className={cn("h-4 w-4 text-faint transition-transform", !open && "-rotate-90")}
+                  strokeWidth={1.5}
+                />
+                <span className="font-medium">{section}</span>
+                <span className="text-xs text-faint">{count}</span>
+              </button>
+              {canOrder ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteError("");
+                    setPendingDelete(section);
+                  }}
+                  className="shrink-0 text-xs text-faint hover:text-ink"
+                >
+                  Excluir
+                </button>
+              ) : null}
+            </div>
             {open ? (
               <>
                 <TaskList
@@ -316,6 +398,9 @@ export function GroupedTaskList({
                   </button>
                 ) : null}
               </>
+            ) : null}
+            {sectionDropAt === sections.length && draggingSection && index === sections.length - 1 ? (
+              <div className="mx-4 h-0.5 rounded-full bg-ink" />
             ) : null}
           </div>
         );
@@ -358,8 +443,70 @@ export function GroupedTaskList({
           />
         </form>
       ) : null}
+      <Dialog
+        open={pendingDelete !== null}
+        title="Excluir sessão"
+        onClose={() => {
+          if (!deleting) setPendingDelete(null);
+        }}
+      >
+        <p className="text-sm leading-6 text-faint">
+          {pendingCount > 0
+            ? `${pendingDelete} será excluída. ${pendingCount === 1 ? "A tarefa desta sessão passa" : `As ${pendingCount} tarefas desta sessão passam`} para ${fallback}.`
+            : `${pendingDelete} será excluída.`}
+        </p>
+        {deleteError ? <p className="mt-3 text-sm text-red-400">{deleteError}</p> : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={deleting}
+            onClick={() => setPendingDelete(null)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={deleting || !pendingDelete}
+            onClick={() => {
+              if (!pendingDelete) return;
+              const name = pendingDelete;
+              setDeleting(true);
+              setDeleteError("");
+              void deleteSection(projectId, name).then((result) => {
+                setDeleting(false);
+                if (!result.ok) {
+                  setDeleteError(result.error);
+                  return;
+                }
+                if (draftSection === name) onDraftSection(null);
+                setPendingDelete(null);
+              });
+            }}
+          >
+            Excluir
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
+}
+
+function moveSection(sections: string[], projectId: string, source: string, index: number) {
+  const from = sections.indexOf(source);
+  if (from < 0) return;
+  const target = index > from ? index - 1 : index;
+  if (target === from) return;
+  const next = [...sections];
+  const [item] = next.splice(from, 1);
+  next.splice(target, 0, item);
+  reorderSections(projectId, next);
+}
+
+function neighborSection(sections: string[], name: string) {
+  const index = sections.indexOf(name);
+  if (index < 0) return sections[0] ?? "";
+  return sections[index - 1] ?? sections[index + 1] ?? "";
 }
 
 function DraftRow({

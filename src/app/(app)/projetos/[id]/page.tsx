@@ -316,6 +316,7 @@ function ProjectWorkspace() {
 
         {view === "kanban" ? (
           <TaskKanban
+            projectId={project.id}
             sections={sections}
             tasks={tasks}
             users={users}
