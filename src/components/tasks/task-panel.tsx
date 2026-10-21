@@ -7,16 +7,19 @@ import { RichText } from "@/components/ui/rich-text";
 import { StatusDot } from "@/components/ui/badge";
 import { TaskTagPicker } from "@/components/tasks/task-tag-picker";
 import { TaskAssigneePicker } from "@/components/tasks/task-assignee-picker";
+import { TaskDatePicker } from "@/components/tasks/task-date-picker";
+import { TaskProjectPicker } from "@/components/tasks/task-project-picker";
+import { TaskPriorityPicker } from "@/components/tasks/task-priority-picker";
+import { TaskAttachments } from "@/components/tasks/task-attachments";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { addComment, addSubtask, deleteTask, removeAttachment, setTaskFollow, setTaskStatus, updateTask, uploadAttachment } from "@/lib/api";
+import { addComment, addSubtask, deleteTask, setTaskFollow, setTaskStatus, updateTask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
-import { PRIORITY_META, PRIORITY_ORDER } from "@/lib/priority";
 import { useAccess, useWorkspace } from "@/lib/workspace";
-import type { Priority, Project, Tag, Task, TaskViewMode, User } from "@/lib/types";
+import type { Project, Tag, Task, TaskViewMode, User } from "@/lib/types";
 
 const PANEL_WIDTH_KEY = "asa-task-panel-width";
 const DEFAULT_WIDTH = 448;
@@ -191,7 +194,6 @@ export function TaskPanel({
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
   }
-  const project = projects.find((item) => item.id === task.projectId);
   const doneCount = subtasks.filter((item) => item.status === "done").length;
 
   return (
@@ -279,17 +281,15 @@ export function TaskPanel({
         </Field>
 
         <Field label="Data de conclusão">
-          <input
-            type="date"
-            value={task.dueDate ?? ""}
-            disabled={!canWrite}
-            onChange={(event) =>
+          <TaskDatePicker
+            dueDate={task.dueDate}
+            canWrite={canWrite}
+            onChange={(dueDate) =>
               updateTask(task.id, {
-                dueDate: event.target.value || null,
-                startDate: event.target.value || task.startDate,
+                dueDate,
+                startDate: dueDate || task.startDate,
               })
             }
-            className="bg-transparent text-ink outline-none disabled:text-ink"
           />
         </Field>
 
@@ -303,82 +303,24 @@ export function TaskPanel({
         </Field>
 
         <Field label="Projeto">
-          <div className="flex flex-wrap items-center justify-end gap-2 text-right">
-            <span className="inline-flex items-center gap-2">
-              <span
-                className="h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: project?.color ?? "#737373" }}
-              />
-              <select
-                value={task.projectId}
-                disabled={!canWrite}
-                onChange={(event) => {
-                  const nextProjectId = event.target.value;
-                  if (!nextProjectId || nextProjectId === task.projectId) return;
-                  const target = projects.find((p) => p.id === nextProjectId);
-                  const sections = target?.sections ?? [];
-                  const nextSection = sections.includes(task.section)
-                    ? task.section
-                    : (sections[0] ?? task.section);
-                  updateTask(task.id, {
-                    projectId: nextProjectId,
-                    section: nextSection,
-                  });
-                }}
-                className="bg-transparent text-ink outline-none cursor-pointer disabled:cursor-default disabled:opacity-100"
-              >
-                {projects.map((item) => (
-                  <option key={item.id} value={item.id} className="bg-elevated text-ink">
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </span>
-            {project?.sections && project.sections.length > 0 ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-faint">
-                <span className="text-line">/</span>
-                <select
-                  value={task.section}
-                  disabled={!canWrite}
-                  onChange={(event) =>
-                    updateTask(task.id, { section: event.target.value })
-                  }
-                  className="bg-transparent text-faint hover:text-ink outline-none cursor-pointer disabled:cursor-default disabled:opacity-100 transition-colors"
-                >
-                  {project.sections.map((sec) => (
-                    <option key={sec} value={sec} className="bg-elevated text-ink">
-                      {sec}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            ) : null}
-          </div>
+          <TaskProjectPicker
+            projectId={task.projectId}
+            section={task.section}
+            projects={projects}
+            canWrite={canWrite}
+            onChangeProject={(projectId, section) =>
+              updateTask(task.id, { projectId, section })
+            }
+            onChangeSection={(section) => updateTask(task.id, { section })}
+          />
         </Field>
 
         <Field label="Prioridade">
-          <span className="inline-flex items-center gap-2">
-            <span
-              aria-hidden
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: PRIORITY_META[task.priority].color }}
-            />
-            <select
-              value={task.priority}
-              disabled={!canWrite}
-              onChange={(event) =>
-                updateTask(task.id, { priority: event.target.value as Priority })
-              }
-              className="bg-transparent outline-none disabled:opacity-100"
-              style={{ color: PRIORITY_META[task.priority].color }}
-            >
-              {PRIORITY_ORDER.map((priority) => (
-                <option key={priority} value={priority}>
-                  {PRIORITY_META[priority].label}
-                </option>
-              ))}
-            </select>
-          </span>
+          <TaskPriorityPicker
+            priority={task.priority}
+            canWrite={canWrite}
+            onChange={(priority) => updateTask(task.id, { priority })}
+          />
         </Field>
 
         <div>
@@ -455,49 +397,11 @@ export function TaskPanel({
           </div>
         </div>
 
-        <div>
-          <p className="mb-3 text-faint">Arquivos</p>
-          <div className="space-y-1">
-            {(task.attachments ?? []).length === 0 ? (
-              <p className="text-sm text-faint">Nenhum arquivo.</p>
-            ) : null}
-            {(task.attachments ?? []).map((file) => (
-              <div key={file.id} className="flex items-center gap-3 text-sm">
-                <a
-                  href={`/api/tasks/${task.id}/attachments/${file.id}`}
-                  className="min-w-0 flex-1 truncate text-ink hover:underline"
-                >
-                  {file.name}
-                </a>
-                <span className="shrink-0 text-xs text-faint">{formatBytes(file.size)}</span>
-                {canWrite ? (
-                  <button
-                    type="button"
-                    onClick={() => void removeAttachment(task.id, file.id)}
-                    className="text-xs text-faint hover:text-ink"
-                  >
-                    Remover
-                  </button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-          {canWrite ? (
-            <label className="mt-3 inline-block cursor-pointer text-sm text-faint hover:text-ink">
-              Enviar arquivo
-              <input
-                type="file"
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (!file) return;
-                  void uploadAttachment(task.id, file);
-                }}
-              />
-            </label>
-          ) : null}
-        </div>
+        <TaskAttachments
+          taskId={task.id}
+          attachments={task.attachments}
+          canWrite={canWrite}
+        />
 
         <div>
           <p className="mb-3 text-faint">Comentários</p>
@@ -602,11 +506,6 @@ export function TaskPanel({
   );
 }
 
-function formatBytes(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function Field({
   label,
