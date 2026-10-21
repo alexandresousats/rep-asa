@@ -105,9 +105,15 @@ export function MonthCalendar({
 
   const filterRef = useRef<HTMLDivElement>(null);
   const inlineInputRef = useRef<HTMLInputElement>(null);
+  const inlineCreatorRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const initialScrolledRef = useRef(false);
   const pendingScrollAdjustRef = useRef<{ prevHeight: number; prevScrollTop: number } | null>(null);
+
+  const newTitleRef = useRef(newTitle);
+  newTitleRef.current = newTitle;
+  const creatingDateRef = useRef(creatingDate);
+  creatingDateRef.current = creatingDate;
 
   useIsomorphicLayoutEffect(() => {
     if (pendingScrollAdjustRef.current && scrollContainerRef.current) {
@@ -170,6 +176,28 @@ export function MonthCalendar({
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [filterOpen]);
+
+  // Auto-create or close inline task on outside click
+  useEffect(() => {
+    if (!creatingDate) return;
+    function onPointerDown(event: MouseEvent) {
+      if (
+        inlineCreatorRef.current &&
+        !inlineCreatorRef.current.contains(event.target as Node)
+      ) {
+        const currentDate = creatingDateRef.current;
+        const currentTitle = newTitleRef.current.trim();
+        if (currentDate && currentTitle) {
+          void handleCreateInlineTask(currentDate, currentTitle);
+        } else {
+          setCreatingDate(null);
+          setNewTitle("");
+        }
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [creatingDate]);
 
   // Continuous scroll listener: detect visible month & expand range dynamically
   function handleScroll() {
@@ -333,9 +361,16 @@ export function MonthCalendar({
     setProjectFilter("all");
   }
 
-  async function handleCreateInlineTask(dateISO: string) {
-    const trimmed = newTitle.trim();
-    if (!trimmed || creating) return;
+  async function handleCreateInlineTask(dateISO: string, customTitle?: string) {
+    const raw = customTitle ?? newTitle;
+    const trimmed = raw.trim();
+    if (!trimmed || creating) {
+      setCreatingDate(null);
+      setNewTitle("");
+      return;
+    }
+    setCreatingDate(null);
+    setNewTitle("");
     setCreating(true);
     try {
       const activeProjId = projectId || targetProjectId || projects[0]?.id;
@@ -353,8 +388,6 @@ export function MonthCalendar({
       if (created) {
         onSelect(created.id);
       }
-      setCreatingDate(null);
-      setNewTitle("");
     } catch (err) {
       console.error("Falha ao criar tarefa no calendário:", err);
     } finally {
@@ -709,7 +742,7 @@ export function MonthCalendar({
                           }
                         }}
                         className={cn(
-                          "group relative min-h-[145px] sm:min-h-[160px] p-1.5 sm:p-2 transition-colors",
+                          "group relative min-h-[160px] sm:min-h-[175px] p-1.5 sm:p-2 transition-colors",
                           "cursor-copy",
                           isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
                           "hover:bg-hover/30",
@@ -769,6 +802,7 @@ export function MonthCalendar({
                         {/* Inline Task Creator */}
                         {isCreating ? (
                           <div
+                            ref={inlineCreatorRef}
                             onClick={(e) => e.stopPropagation()}
                             className="rounded-xl border border-line bg-elevated p-2 shadow-lg animate-in fade-in zoom-in-95 duration-100 text-left"
                           >
@@ -778,8 +812,12 @@ export function MonthCalendar({
                               value={newTitle}
                               onChange={(e) => setNewTitle(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter") void handleCreateInlineTask(dayISO);
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleCreateInlineTask(dayISO);
+                                }
                                 if (e.key === "Escape") {
+                                  e.preventDefault();
                                   setCreatingDate(null);
                                   setNewTitle("");
                                 }
@@ -787,12 +825,12 @@ export function MonthCalendar({
                               placeholder="Nome da tarefa..."
                               className="w-full bg-transparent text-xs font-medium text-ink placeholder:text-faint outline-none"
                             />
-                            <div className="mt-2 flex items-center justify-between gap-1">
-                              {projects.length > 1 && !projectId ? (
+                            {projects.length > 1 && !projectId ? (
+                              <div className="mt-1.5 flex items-center justify-between gap-1">
                                 <select
                                   value={targetProjectId}
                                   onChange={(e) => setSelectedProjectId(e.target.value)}
-                                  className="max-w-[100px] truncate bg-transparent text-[10px] text-faint outline-none hover:text-ink"
+                                  className="max-w-[120px] truncate bg-transparent text-[10px] text-faint outline-none hover:text-ink"
                                 >
                                   {projects.map((p) => (
                                     <option
@@ -804,30 +842,8 @@ export function MonthCalendar({
                                     </option>
                                   ))}
                                 </select>
-                              ) : (
-                                <span />
-                              )}
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setCreatingDate(null);
-                                    setNewTitle("");
-                                  }}
-                                  className="px-1.5 py-0.5 text-[10px] text-faint hover:text-ink"
-                                >
-                                  Cancelar
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={!newTitle.trim() || creating}
-                                  onClick={() => void handleCreateInlineTask(dayISO)}
-                                  className="rounded-md bg-ink px-2 py-0.5 text-[10px] font-medium text-white dark:text-black disabled:opacity-50"
-                                >
-                                  Criar
-                                </button>
                               </div>
-                            </div>
+                            ) : null}
                           </div>
                         ) : null}
 
@@ -1016,7 +1032,7 @@ function CalendarTaskCard({
         }
       }}
       className={cn(
-        "group relative flex w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-left text-xs transition-all duration-150",
+        "group relative flex w-full items-start gap-1.5 rounded-lg border px-2.5 py-1.5 sm:py-2 text-left text-xs transition-all duration-150 min-h-[40px]",
         "border-black/10 dark:border-white/10 shadow-2xs hover:shadow-xs hover:brightness-95 dark:hover:brightness-110",
         selectedId === task.id && "ring-2 ring-ink ring-offset-1 ring-offset-elevated",
         isDone && "opacity-60",
@@ -1029,7 +1045,7 @@ function CalendarTaskCard({
     >
       {/* Assignee Avatar */}
       {assignee ? (
-        <span className="shrink-0">
+        <span className="shrink-0 mt-0.5">
           <Avatar
             initials={assignee.initials}
             src={assignee.avatar}
@@ -1048,7 +1064,7 @@ function CalendarTaskCard({
           setTaskStatus(task.id, isDone ? "todo" : "done");
         }}
         className={cn(
-          "shrink-0 h-3.5 w-3.5 rounded-full flex items-center justify-center transition-all",
+          "shrink-0 h-3.5 w-3.5 rounded-full flex items-center justify-center transition-all mt-0.5",
           isDone
             ? "bg-emerald-600 text-white shadow-2xs"
             : "border border-ink/40 hover:border-ink hover:bg-ink/10",
@@ -1060,7 +1076,7 @@ function CalendarTaskCard({
       {/* Title */}
       <span
         className={cn(
-          "min-w-0 flex-1 truncate font-medium text-ink leading-tight",
+          "min-w-0 flex-1 line-clamp-2 font-medium text-ink leading-snug break-words",
           isDone && "line-through text-faint",
         )}
         title={task.title}
@@ -1071,7 +1087,7 @@ function CalendarTaskCard({
       {/* Subtasks Count Icon */}
       {subtasksCount > 0 ? (
         <span
-          className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-faint font-medium"
+          className="inline-flex shrink-0 items-center gap-0.5 text-[10px] text-faint font-medium mt-0.5"
           title={`${subtasksCount} subtarefa(s)`}
         >
           <GitFork className="h-2.5 w-2.5 text-faint" />
@@ -1081,7 +1097,7 @@ function CalendarTaskCard({
 
       {/* Extra Tag Color Dots */}
       {taskTags.length > 1 ? (
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0 mt-1">
           {taskTags.slice(1, 3).map((t) => (
             <span
               key={t.id}

@@ -4,7 +4,6 @@ import {
   CalendarDays,
   ChartColumn,
   FolderKanban,
-  Hash,
   LayoutGrid,
   ListTodo,
   MessageSquare,
@@ -37,7 +36,6 @@ const NAV = [
   { href: "/projetos", label: "Projetos", icon: FolderKanban, match: "/projetos" },
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
   { href: "/mensagens", label: "Mensagens", icon: MessageSquare, match: "/mensagens" },
-  { href: "/tags", label: "Tags", icon: Hash },
   { href: "/equipe", label: "Equipe", icon: Users },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
