@@ -297,6 +297,9 @@ function ProjectWorkspace() {
               onMonthChange={setMonth}
               tasks={tasks}
               tags={tags}
+              users={users}
+              projects={[project]}
+              projectId={project.id}
               selectedId={selectedId}
               onSelect={(id) => setQuery({ task: id })}
             />

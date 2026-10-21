@@ -35,6 +35,8 @@ export default function CalendarPage() {
           onMonthChange={setMonth}
           tasks={tasks}
           tags={tags}
+          users={users}
+          projects={projects}
           selectedId={selectedId}
           onSelect={setSelectedId}
         />

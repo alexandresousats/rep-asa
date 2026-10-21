@@ -7,16 +7,18 @@ export function Avatar({
   name,
 }: {
   initials: string;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   src?: string | null;
   name?: string;
 }) {
   const box =
-    size === "sm"
-      ? "h-6 w-6 text-[10px]"
-      : size === "lg"
-        ? "h-16 w-16 text-lg"
-        : "h-8 w-8 text-xs";
+    size === "xs"
+      ? "h-4 w-4 text-[8px]"
+      : size === "sm"
+        ? "h-6 w-6 text-[10px]"
+        : size === "lg"
+          ? "h-16 w-16 text-lg"
+          : "h-8 w-8 text-xs";
   if (src) {
     return (
       <img
