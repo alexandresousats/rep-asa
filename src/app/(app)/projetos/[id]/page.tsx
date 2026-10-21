@@ -245,7 +245,7 @@ function ProjectWorkspace() {
           ) : null}
         </div>
 
-        <div className={cn("min-h-0 flex-1", view === "kanban" || view === "cronograma" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
+        <div className={cn("min-h-0 flex-1", view === "kanban" || view === "cronograma" || view === "calendario" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
         {view === "lista" ? (
           <div className="overflow-x-auto">
             <GroupedTaskList
@@ -265,7 +265,7 @@ function ProjectWorkspace() {
           </div>
         ) : null}
 
-        {view === "cronograma" || view === "calendario" ? (
+        {view === "cronograma" ? (
           <SectionBar
             projectId={current.id}
             sections={sections}
@@ -291,7 +291,7 @@ function ProjectWorkspace() {
         ) : null}
 
         {view === "calendario" ? (
-          <div className="p-6">
+          <div className="h-full min-h-0 flex flex-col p-4 sm:p-6">
             <MonthCalendar
               month={month}
               onMonthChange={setMonth}

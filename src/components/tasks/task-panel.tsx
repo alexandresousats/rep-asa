@@ -1,7 +1,7 @@
 "use client";
 
 import { AppWindow, PanelRight, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { RichText } from "@/components/ui/rich-text";
 import { StatusDot } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { TaskDatePicker } from "@/components/tasks/task-date-picker";
 import { TaskProjectPicker } from "@/components/tasks/task-project-picker";
 import { TaskPriorityPicker } from "@/components/tasks/task-priority-picker";
 import { TaskAttachments } from "@/components/tasks/task-attachments";
+import { TaskActionsMenu } from "@/components/tasks/task-actions-menu";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { Button } from "@/components/ui/button";
@@ -154,6 +155,7 @@ export function TaskPanel({
 }) {
   const [comment, setComment] = useState("");
   const [subtaskTitle, setSubtaskTitle] = useState("");
+  const subtaskInputRef = useRef<HTMLInputElement>(null);
   const [width, setWidth] = useState(() => {
     if (typeof window === "undefined") return DEFAULT_WIDTH;
     const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY));
@@ -232,6 +234,27 @@ export function TaskPanel({
           >
             {following ? "Seguindo" : "Seguir"}
           </button>
+          <TaskActionsMenu
+            task={task}
+            canWrite={canWrite}
+            onFocusProjects={() => {
+              document.querySelector<HTMLButtonElement>('[aria-label="Alterar projeto"]')?.click();
+            }}
+            onFocusSubtasks={() => {
+              subtaskInputRef.current?.focus();
+              subtaskInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+            onFocusTags={() => {
+              document.querySelector<HTMLButtonElement>('[aria-label="Adicionar tag"]')?.click();
+            }}
+            onTriggerAttach={() => {
+              document.querySelector<HTMLInputElement>('input[type="file"][multiple]')?.click();
+            }}
+            onDeleteTask={() => {
+              setDeleteError("");
+              setConfirmDelete(true);
+            }}
+          />
           {onViewChange ? (
             <>
               <button
@@ -387,6 +410,7 @@ export function TaskPanel({
               }}
             >
               <input
+                ref={subtaskInputRef}
                 value={subtaskTitle}
                 onChange={(event) => setSubtaskTitle(event.target.value)}
                 placeholder="Adicionar subtarefa"

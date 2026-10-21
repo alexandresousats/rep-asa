@@ -2,9 +2,16 @@
 
 import {
   addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
   format,
+  isSameDay,
   isSameMonth,
+  parseISO,
+  startOfMonth,
   startOfToday,
+  startOfWeek,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -24,7 +31,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { createTask, setTaskStatus, updateTask } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { isSameDate, monthGrid, toISODate, WEEKDAYS } from "@/lib/dates";
+import { isSameDate, toISODate, WEEKDAYS } from "@/lib/dates";
 import { PRIORITY_META, PRIORITY_ORDER } from "@/lib/priority";
 import type { Project, Tag, Task, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
@@ -59,6 +66,17 @@ export function MonthCalendar({
   const users = propUsers ?? storeUsers;
   const projects = propProjects ?? storeProjects;
 
+  // Continuous Range of months
+  const [rangeStartMonth, setRangeStartMonth] = useState(() =>
+    addMonths(startOfMonth(month), -3),
+  );
+  const [rangeEndMonth, setRangeEndMonth] = useState(() =>
+    addMonths(startOfMonth(month), 5),
+  );
+
+  // Dynamic visible month in header
+  const [visibleMonth, setVisibleMonth] = useState(month);
+
   // Filters State
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "incomplete" | "done">("all");
@@ -81,9 +99,37 @@ export function MonthCalendar({
 
   const filterRef = useRef<HTMLDivElement>(null);
   const inlineInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const initialScrolledRef = useRef(false);
 
   const today = startOfToday();
-  const days = useMemo(() => monthGrid(month), [month]);
+
+  // Generate continuous interval of all days
+  const allDays = useMemo(() => {
+    const start = startOfWeek(startOfMonth(rangeStartMonth), { weekStartsOn: 1 });
+    const end = endOfWeek(endOfMonth(rangeEndMonth), { weekStartsOn: 1 });
+    return eachDayOfInterval({ start, end });
+  }, [rangeStartMonth, rangeEndMonth]);
+
+  // Group days into weeks (7 days each)
+  const weeks = useMemo(() => {
+    const result: Date[][] = [];
+    for (let i = 0; i < allDays.length; i += 7) {
+      result.push(allDays.slice(i, i + 7));
+    }
+    return result;
+  }, [allDays]);
+
+  // Initial scroll to current month on mount
+  useEffect(() => {
+    if (initialScrolledRef.current) return;
+    const initialDayId = `day-${toISODate(startOfMonth(month))}`;
+    const targetEl = document.getElementById(initialDayId);
+    if (targetEl && scrollContainerRef.current) {
+      targetEl.scrollIntoView({ block: "start" });
+      initialScrolledRef.current = true;
+    }
+  }, [month, allDays]);
 
   // Focus input when inline creation opens
   useEffect(() => {
@@ -103,6 +149,77 @@ export function MonthCalendar({
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [filterOpen]);
+
+  // Continuous scroll listener: detect visible month & expand range dynamically
+  function handleScroll() {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, clientHeight, scrollHeight } = container;
+
+    // Detect which month is currently visible right below the sticky header
+    const containerRect = container.getBoundingClientRect();
+    const checkY = containerRect.top + 75; // just beneath weekday header
+    const checkX = containerRect.left + 50; // column 1
+    const el = document.elementFromPoint(checkX, checkY);
+    const dayCell = el?.closest("[data-date]");
+    const dateStr = dayCell?.getAttribute("data-date");
+    if (dateStr) {
+      const date = parseISO(dateStr);
+      if (!isSameMonth(date, visibleMonth)) {
+        setVisibleMonth(date);
+        onMonthChange(date);
+      }
+    }
+
+    // Infinite scroll expansion at bottom
+    if (scrollTop + clientHeight >= scrollHeight - 350) {
+      setRangeEndMonth((prev) => addMonths(prev, 3));
+    }
+
+    // Infinite scroll expansion at top
+    if (scrollTop <= 200) {
+      const prevScrollHeight = container.scrollHeight;
+      setRangeStartMonth((prev) => addMonths(prev, -3));
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          const addedHeight = scrollContainerRef.current.scrollHeight - prevScrollHeight;
+          scrollContainerRef.current.scrollTop = scrollTop + addedHeight;
+        }
+      });
+    }
+  }
+
+  // Smooth scroll to month
+  function scrollToMonth(targetDate: Date) {
+    const targetISO = toISODate(startOfMonth(targetDate));
+    const targetId = `day-${targetISO}`;
+    const el = document.getElementById(targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      // If outside currently loaded range, expand range first
+      if (targetDate < rangeStartMonth) {
+        setRangeStartMonth(addMonths(targetDate, -2));
+      } else if (targetDate > rangeEndMonth) {
+        setRangeEndMonth(addMonths(targetDate, 2));
+      }
+      setTimeout(() => {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  }
+
+  function scrollToToday() {
+    const todayISO = toISODate(today);
+    const targetId = `day-${todayISO}`;
+    const el = document.getElementById(targetId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      scrollToMonth(today);
+    }
+  }
 
   // Filter tasks
   const filteredTasks = useMemo(() => {
@@ -192,8 +309,8 @@ export function MonthCalendar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Asana-style Top Navigation & Filter Bar */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line-subtle pb-4">
-        {/* Left side: Navigation & Quick Add */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line-subtle pb-4 shrink-0">
+        {/* Left side: Quick Add & Smooth Month Navigation */}
         <div className="flex flex-wrap items-center gap-2.5">
           {canWrite ? (
             <button
@@ -215,14 +332,14 @@ export function MonthCalendar({
               type="button"
               aria-label="Mês anterior"
               title="Mês anterior"
-              onClick={() => onMonthChange(addMonths(month, -1))}
+              onClick={() => scrollToMonth(addMonths(visibleMonth, -1))}
               className="rounded-lg p-1.5 text-faint hover:bg-hover hover:text-ink transition-colors"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               type="button"
-              onClick={() => onMonthChange(startOfToday())}
+              onClick={scrollToToday}
               className="px-2.5 py-1 text-xs font-medium text-faint hover:text-ink transition-colors"
             >
               Hoje
@@ -231,15 +348,16 @@ export function MonthCalendar({
               type="button"
               aria-label="Próximo mês"
               title="Próximo mês"
-              onClick={() => onMonthChange(addMonths(month, 1))}
+              onClick={() => scrollToMonth(addMonths(visibleMonth, 1))}
               className="rounded-lg p-1.5 text-faint hover:bg-hover hover:text-ink transition-colors"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
 
+          {/* Month title: updates dynamically as you scroll! */}
           <h2 className="text-sm font-semibold capitalize tracking-tight text-ink sm:text-base">
-            {format(month, "MMMM 'de' yyyy", { locale: ptBR })}
+            {format(visibleMonth, "MMMM 'de' yyyy", { locale: ptBR })}
           </h2>
         </div>
 
@@ -455,11 +573,15 @@ export function MonthCalendar({
         </div>
       </div>
 
-      {/* Main Calendar Area + Undated Drawer */}
+      {/* Main Continuous Calendar Area + Undated Drawer */}
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
-        {/* Calendar Grid */}
-        <div className="flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-line bg-elevated shadow-xs">
-          {/* Weekday Column Headers */}
+        {/* Continuous Scroll Container (Asana-style) */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-line bg-elevated shadow-xs"
+        >
+          {/* Sticky Weekday Column Headers */}
           <div className="sticky top-0 z-20 grid grid-cols-7 border-b border-line bg-elevated/95 backdrop-blur-sm">
             {WEEKDAYS.map((day, index) => {
               const isWeekend = index === 5 || index === 6;
@@ -477,187 +599,192 @@ export function MonthCalendar({
             })}
           </div>
 
-          {/* Month Days Grid */}
-          <div className="grid grid-cols-7">
-            {days.map((day, dayIndex) => {
-              const dayCol = dayIndex % 7;
-              const isWeekend = dayCol === 5 || dayCol === 6;
-              const isCurrentMonth = isSameMonth(day, month);
-              const isToday = isSameDate(day, today);
-              const dayISO = toISODate(day);
+          {/* Continuous Weeks Grid */}
+          <div className="divide-y divide-line">
+            {weeks.map((week, weekIndex) => (
+              <div key={weekIndex} className="grid grid-cols-7 divide-x divide-line">
+                {week.map((day, dayIndex) => {
+                  const isWeekend = dayIndex === 5 || dayIndex === 6;
+                  const isToday = isSameDay(day, today);
+                  const dayISO = toISODate(day);
+                  const isFirstDayOfMonth = day.getDate() === 1;
 
-              const dayTasks = filteredTasks.filter(
-                (task) => task.dueDate && isSameDate(task.dueDate, day),
-              );
+                  const dayTasks = filteredTasks.filter(
+                    (task) => task.dueDate && isSameDate(task.dueDate, day),
+                  );
 
-              const isCreating = creatingDate === dayISO;
-              const maxVisible = 3;
-              const visibleTasks = dayTasks.slice(0, maxVisible);
-              const extraTasksCount = dayTasks.length - maxVisible;
+                  const isCreating = creatingDate === dayISO;
+                  const maxVisible = 3;
+                  const visibleTasks = dayTasks.slice(0, maxVisible);
+                  const extraTasksCount = dayTasks.length - maxVisible;
 
-              return (
-                <div
-                  key={day.toISOString()}
-                  onClick={() => {
-                    if (canWrite && !isCreating) {
-                      setCreatingDate(dayISO);
-                    }
-                  }}
-                  className={cn(
-                    "group relative min-h-[145px] sm:min-h-[160px] border-b border-r border-line p-1.5 sm:p-2 transition-colors",
-                    "cursor-copy",
-                    dayCol === 6 && "border-r-0",
-                    isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
-                    !isCurrentMonth && "opacity-45 bg-base/50",
-                    "hover:bg-hover/30",
-                  )}
-                >
-                  {/* Day Header: Number + Hover Add button */}
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span
+                  return (
+                    <div
+                      key={dayISO}
+                      id={`day-${dayISO}`}
+                      data-date={dayISO}
+                      onClick={() => {
+                        if (canWrite && !isCreating) {
+                          setCreatingDate(dayISO);
+                        }
+                      }}
                       className={cn(
-                        "inline-flex text-xs font-medium transition-transform",
-                        isToday
-                          ? "h-6 w-6 items-center justify-center rounded-full bg-blue-600 font-bold text-white shadow-xs"
-                          : isCurrentMonth
-                            ? "text-ink"
-                            : "text-faint",
+                        "group relative min-h-[145px] sm:min-h-[160px] p-1.5 sm:p-2 transition-colors",
+                        "cursor-copy",
+                        isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
+                        "hover:bg-hover/30",
                       )}
                     >
-                      {format(day, "d")}
-                      {day.getDate() === 1 ? (
-                        <span className="ml-1 text-[10px] font-normal text-faint lowercase">
-                          {format(day, "MMM", { locale: ptBR })}
-                        </span>
-                      ) : null}
-                    </span>
-
-                    {/* Quick + Button on hover */}
-                    {canWrite ? (
-                      <button
-                        type="button"
-                        aria-label="Adicionar tarefa neste dia"
-                        title="Adicionar tarefa neste dia"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCreatingDate(dayISO);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 h-5 w-5 rounded-full flex items-center justify-center text-faint hover:bg-hover hover:text-ink transition-all"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
-
-                  {/* Tasks List */}
-                  <div className="space-y-1.5">
-                    {visibleTasks.map((task) => (
-                      <CalendarTaskCard
-                        key={task.id}
-                        task={task}
-                        tags={tags}
-                        users={users}
-                        projects={projects}
-                        allTasks={allStoreTasks}
-                        selectedId={selectedId}
-                        onSelect={onSelect}
-                      />
-                    ))}
-
-                    {/* Inline Task Creator */}
-                    {isCreating ? (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="rounded-xl border border-line bg-elevated p-2 shadow-lg animate-in fade-in zoom-in-95 duration-100 text-left"
-                      >
-                        <input
-                          ref={inlineInputRef}
-                          type="text"
-                          value={newTitle}
-                          onChange={(e) => setNewTitle(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") void handleCreateInlineTask(dayISO);
-                            if (e.key === "Escape") setCreatingDate(null);
-                          }}
-                          placeholder="Nome da tarefa..."
-                          className="w-full bg-transparent text-xs font-medium text-ink placeholder:text-faint outline-none"
-                        />
-                        <div className="mt-2 flex items-center justify-between gap-1">
-                          {projects.length > 1 && !projectId ? (
-                            <select
-                              value={targetProjectId}
-                              onChange={(e) => setSelectedProjectId(e.target.value)}
-                              className="max-w-[100px] truncate bg-transparent text-[10px] text-faint outline-none hover:text-ink"
-                            >
-                              {projects.map((p) => (
-                                <option
-                                  key={p.id}
-                                  value={p.id}
-                                  className="bg-elevated text-ink"
-                                >
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span />
+                      {/* Day Header: Number/Month name + Hover Add button */}
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span
+                          className={cn(
+                            "inline-flex items-center text-xs transition-transform",
+                            isToday
+                              ? "h-6 w-6 items-center justify-center rounded-full bg-blue-600 font-bold text-white shadow-xs"
+                              : isFirstDayOfMonth
+                                ? "font-semibold text-ink"
+                                : "font-medium text-faint group-hover:text-ink",
                           )}
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCreatingDate(null);
-                                setNewTitle("");
-                              }}
-                              className="px-1.5 py-0.5 text-[10px] text-faint hover:text-ink"
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              disabled={!newTitle.trim() || creating}
-                              onClick={() => void handleCreateInlineTask(dayISO)}
-                              className="rounded-md bg-ink px-2 py-0.5 text-[10px] font-medium text-white dark:text-black disabled:opacity-50"
-                            >
-                              Criar
-                            </button>
-                          </div>
-                        </div>
+                        >
+                          {isFirstDayOfMonth ? (
+                            <span>{format(day, "d MMM", { locale: ptBR })}</span>
+                          ) : (
+                            format(day, "d")
+                          )}
+                        </span>
+
+                        {/* Quick + Button on hover */}
+                        {canWrite ? (
+                          <button
+                            type="button"
+                            aria-label="Adicionar tarefa neste dia"
+                            title="Adicionar tarefa neste dia"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCreatingDate(dayISO);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 h-5 w-5 rounded-full flex items-center justify-center text-faint hover:bg-hover hover:text-ink transition-all"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                       </div>
-                    ) : null}
 
-                    {/* "+N mais" button if day has overflow */}
-                    {extraTasksCount > 0 ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedDate(day);
-                        }}
-                        className="w-full rounded-md py-0.5 text-center text-[11px] font-medium text-faint hover:bg-hover hover:text-ink transition-colors"
-                      >
-                        Mais {extraTasksCount}
-                      </button>
-                    ) : null}
+                      {/* Tasks List */}
+                      <div className="space-y-1.5">
+                        {visibleTasks.map((task) => (
+                          <CalendarTaskCard
+                            key={task.id}
+                            task={task}
+                            tags={tags}
+                            users={users}
+                            projects={projects}
+                            allTasks={allStoreTasks}
+                            selectedId={selectedId}
+                            onSelect={onSelect}
+                          />
+                        ))}
 
-                    {/* Hover "+ Adicionar uma tarefa" button at bottom */}
-                    {!isCreating && canWrite ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCreatingDate(dayISO);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[11px] text-faint hover:text-ink px-1.5 py-0.5 rounded hover:bg-hover/80 w-full justify-start transition-opacity"
-                      >
-                        <Plus className="h-3 w-3" />
-                        <span>Adicionar uma tarefa</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
+                        {/* Inline Task Creator */}
+                        {isCreating ? (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="rounded-xl border border-line bg-elevated p-2 shadow-lg animate-in fade-in zoom-in-95 duration-100 text-left"
+                          >
+                            <input
+                              ref={inlineInputRef}
+                              type="text"
+                              value={newTitle}
+                              onChange={(e) => setNewTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void handleCreateInlineTask(dayISO);
+                                if (e.key === "Escape") {
+                                  setCreatingDate(null);
+                                  setNewTitle("");
+                                }
+                              }}
+                              placeholder="Nome da tarefa..."
+                              className="w-full bg-transparent text-xs font-medium text-ink placeholder:text-faint outline-none"
+                            />
+                            <div className="mt-2 flex items-center justify-between gap-1">
+                              {projects.length > 1 && !projectId ? (
+                                <select
+                                  value={targetProjectId}
+                                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                                  className="max-w-[100px] truncate bg-transparent text-[10px] text-faint outline-none hover:text-ink"
+                                >
+                                  {projects.map((p) => (
+                                    <option
+                                      key={p.id}
+                                      value={p.id}
+                                      className="bg-elevated text-ink"
+                                    >
+                                      {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span />
+                              )}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCreatingDate(null);
+                                    setNewTitle("");
+                                  }}
+                                  className="px-1.5 py-0.5 text-[10px] text-faint hover:text-ink"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!newTitle.trim() || creating}
+                                  onClick={() => void handleCreateInlineTask(dayISO)}
+                                  className="rounded-md bg-ink px-2 py-0.5 text-[10px] font-medium text-white dark:text-black disabled:opacity-50"
+                                >
+                                  Criar
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* "+N mais" button if day has overflow */}
+                        {extraTasksCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedDate(day);
+                            }}
+                            className="w-full rounded-md py-0.5 text-center text-[11px] font-medium text-faint hover:bg-hover hover:text-ink transition-colors"
+                          >
+                            Mais {extraTasksCount}
+                          </button>
+                        ) : null}
+
+                        {/* Hover "+ Adicionar uma tarefa" button at bottom */}
+                        {!isCreating && canWrite ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCreatingDate(dayISO);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[11px] text-faint hover:text-ink px-1.5 py-0.5 rounded hover:bg-hover/80 w-full justify-start transition-opacity"
+                          >
+                            <Plus className="h-3 w-3" />
+                            <span>Adicionar uma tarefa</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
 
