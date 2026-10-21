@@ -4,7 +4,9 @@ import { AppWindow, PanelRight, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { RichText } from "@/components/ui/rich-text";
-import { StatusDot, TagChip } from "@/components/ui/badge";
+import { StatusDot } from "@/components/ui/badge";
+import { TaskTagPicker } from "@/components/tasks/task-tag-picker";
+import { TaskAssigneePicker } from "@/components/tasks/task-assignee-picker";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { Button } from "@/components/ui/button";
@@ -103,13 +105,10 @@ export function TaskViewer({
 }
 
 function PanelReveal({ children }: { children: React.ReactNode }) {
-  const [shown, setShown] = useState(false);
-
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setShown(true);
-    }
-  }, []);
+  const [shown, setShown] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
 
   return (
     <div
@@ -152,18 +151,18 @@ export function TaskPanel({
 }) {
   const [comment, setComment] = useState("");
   const [subtaskTitle, setSubtaskTitle] = useState("");
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [width, setWidth] = useState(() => {
+    if (typeof window === "undefined") return DEFAULT_WIDTH;
+    const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY));
+    if (saved >= MIN_WIDTH && saved <= MAX_WIDTH) return saved;
+    return DEFAULT_WIDTH;
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const { canWrite } = useAccess();
   const userId = useWorkspace((state) => state.user?.id);
   const following = Boolean(userId && task.followerIds?.includes(userId));
-
-  useEffect(() => {
-    const saved = Number(localStorage.getItem(PANEL_WIDTH_KEY));
-    if (saved >= MIN_WIDTH && saved <= MAX_WIDTH) setWidth(saved);
-  }, []);
 
   function startResize(event: React.PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -192,7 +191,6 @@ export function TaskPanel({
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
   }
-  const assignee = users.find((user) => user.id === task.assigneeId);
   const project = projects.find((item) => item.id === task.projectId);
   const doneCount = subtasks.filter((item) => item.status === "done").length;
 
@@ -272,26 +270,12 @@ export function TaskPanel({
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5 text-sm">
         <Field label="Responsável">
-          <select
-            value={task.assigneeId ?? ""}
-            disabled={!canWrite}
-            onChange={(event) =>
-              updateTask(task.id, { assigneeId: event.target.value || null })
-            }
-            className="w-full bg-transparent text-ink outline-none disabled:text-ink"
-          >
-            <option value="">Sem responsável</option>
-            {users
-              .filter((user) => user.membershipStatus !== "pending")
-              .map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-          {assignee ? (
-            <Avatar initials={assignee.initials} src={assignee.avatar} name={assignee.name} size="sm" />
-          ) : null}
+          <TaskAssigneePicker
+            assigneeId={task.assigneeId}
+            users={users}
+            canWrite={canWrite}
+            onSelect={(assigneeId) => updateTask(task.id, { assigneeId })}
+          />
         </Field>
 
         <Field label="Data de conclusão">
@@ -310,37 +294,66 @@ export function TaskPanel({
         </Field>
 
         <Field label="Tags">
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => {
-              const active = task.tagIds.includes(tag.id);
-              return (
-                <button
-                  key={tag.id}
-                  type="button"
-                  disabled={!canWrite}
-                  onClick={() =>
-                    updateTask(task.id, {
-                      tagIds: active
-                        ? task.tagIds.filter((id) => id !== tag.id)
-                        : [...task.tagIds, tag.id],
-                    })
-                  }
-                >
-                  <TagChip name={tag.name} color={active ? tag.color : "#737373"} />
-                </button>
-              );
-            })}
-          </div>
+          <TaskTagPicker
+            tagIds={task.tagIds}
+            tags={tags}
+            canWrite={canWrite}
+            onUpdateTagIds={(nextIds) => updateTask(task.id, { tagIds: nextIds })}
+          />
         </Field>
 
         <Field label="Projeto">
-          <span className="flex items-center gap-2 text-ink">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ backgroundColor: project?.color }}
-            />
-            {project?.name}
-          </span>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-right">
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: project?.color ?? "#737373" }}
+              />
+              <select
+                value={task.projectId}
+                disabled={!canWrite}
+                onChange={(event) => {
+                  const nextProjectId = event.target.value;
+                  if (!nextProjectId || nextProjectId === task.projectId) return;
+                  const target = projects.find((p) => p.id === nextProjectId);
+                  const sections = target?.sections ?? [];
+                  const nextSection = sections.includes(task.section)
+                    ? task.section
+                    : (sections[0] ?? task.section);
+                  updateTask(task.id, {
+                    projectId: nextProjectId,
+                    section: nextSection,
+                  });
+                }}
+                className="bg-transparent text-ink outline-none cursor-pointer disabled:cursor-default disabled:opacity-100"
+              >
+                {projects.map((item) => (
+                  <option key={item.id} value={item.id} className="bg-elevated text-ink">
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </span>
+            {project?.sections && project.sections.length > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-faint">
+                <span className="text-line">/</span>
+                <select
+                  value={task.section}
+                  disabled={!canWrite}
+                  onChange={(event) =>
+                    updateTask(task.id, { section: event.target.value })
+                  }
+                  className="bg-transparent text-faint hover:text-ink outline-none cursor-pointer disabled:cursor-default disabled:opacity-100 transition-colors"
+                >
+                  {project.sections.map((sec) => (
+                    <option key={sec} value={sec} className="bg-elevated text-ink">
+                      {sec}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            ) : null}
+          </div>
         </Field>
 
         <Field label="Prioridade">

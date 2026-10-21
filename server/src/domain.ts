@@ -1039,6 +1039,7 @@ const editorFields = new Set([
   "tagIds",
   "section",
   "order",
+  "projectId",
 ]);
 
 export async function updateTask(
@@ -1055,6 +1056,7 @@ export async function updateTask(
     tagIds?: string[];
     section?: string;
     order?: number;
+    projectId?: string;
   },
 ) {
   assertWritable(actor);
@@ -1081,7 +1083,27 @@ export async function updateTask(
     data.status = patch.status;
     data.completedAt = patch.status === "done" ? todayISO() : null;
   }
-  if (patch.section !== undefined) {
+  let targetProjectId = task.projectId;
+  if (patch.projectId !== undefined && patch.projectId !== task.projectId) {
+    const targetProject = await visibleProject(actor, patch.projectId);
+    targetProjectId = targetProject.id;
+    data.project = { connect: { id: targetProject.id } };
+
+    let nextSection = patch.section;
+    if (!nextSection || !targetProject.sections.some((s) => s.name === nextSection)) {
+      if (targetProject.sections.some((s) => s.name === task.section)) {
+        nextSection = task.section;
+      } else {
+        nextSection = targetProject.sections[0]?.name ?? "A Fazer";
+      }
+    }
+    data.section = nextSection;
+
+    await prisma.task.updateMany({
+      where: { parentId: id },
+      data: { projectId: targetProject.id },
+    });
+  } else if (patch.section !== undefined) {
     const project = await visibleProject(actor, task.projectId);
     if (!project.sections.some((section) => section.name === patch.section)) {
       throw new ApiError(400, "Sessão não encontrada.");
@@ -1091,13 +1113,20 @@ export async function updateTask(
   if (patch.assigneeId !== undefined && patch.assigneeId !== task.assigneeId) {
     if (patch.assigneeId) {
       const member = await prisma.projectMember.findUnique({
-        where: { projectId_userId: { projectId: task.projectId, userId: patch.assigneeId } },
+        where: { projectId_userId: { projectId: targetProjectId, userId: patch.assigneeId } },
       });
       if (!member) throw new ApiError(400, "O responsável não participa deste projeto.");
     }
     data.assignee = patch.assigneeId
       ? { connect: { id: patch.assigneeId } }
       : { disconnect: true };
+  } else if (patch.projectId !== undefined && patch.projectId !== task.projectId && task.assigneeId) {
+    const member = await prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId: targetProjectId, userId: task.assigneeId } },
+    });
+    if (!member) {
+      data.assignee = { disconnect: true };
+    }
   }
   const next = await prisma.task.update({ where: { id }, data, include: taskInclude });
   if (patch.tagIds) {
@@ -1340,9 +1369,13 @@ export async function listTags(actor: Actor) {
 }
 
 export async function createTag(actor: Actor, name: string, color: string) {
-  assertAdmin(actor);
+  assertWritable(actor);
   const trimmed = name.trim().toLowerCase();
   if (!trimmed) throw new ApiError(400, "Informe o nome da tag.");
+  const existing = await prisma.tag.findFirst({
+    where: { name: trimmed, workspaceId: actor.workspaceId! },
+  });
+  if (existing) return publicTag(existing);
   const tag = await prisma.tag.create({
     data: { id: uid("t"), name: trimmed, color, workspaceId: actor.workspaceId! },
   });

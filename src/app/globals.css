@@ -161,11 +161,28 @@ body {
   animation: drawer-in 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.menu-in {
+  animation: menu-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .panel-reveal,
   .overlay-in,
   .modal-in,
-  .drawer-in {
+  .drawer-in,
+  .menu-in {
     animation: none;
   }
 

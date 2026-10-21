@@ -350,6 +350,7 @@ app.patch("/tasks/:id", async (c) => {
       tagIds: z.array(z.string()).optional(),
       section: z.string().optional(),
       order: z.number().optional(),
+      projectId: z.string().optional(),
     }),
     await c.req.json(),
   );
