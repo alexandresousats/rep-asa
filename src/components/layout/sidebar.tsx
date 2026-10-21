@@ -11,7 +11,6 @@ import {
   Moon,
   Settings,
   PanelLeft,
-  Plus,
   Search,
   Sparkles,
   Sun,
@@ -107,23 +106,13 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className={cn("mb-4", collapsed ? "flex justify-center" : "space-y-1 px-1")}>
+      <div className={cn("mb-4", collapsed ? "flex justify-center" : "px-1")}>
         <WorkspaceDropdown
           workspace={workspace}
           workspaces={workspaces}
           collapsed={collapsed}
           onCreateWorkspace={() => setCreating(true)}
         />
-        {!collapsed ? (
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-            Novo espaço
-          </button>
-        ) : null}
       </div>
 
       <nav className={cn("flex flex-1 flex-col gap-1", collapsed && "w-full items-center")}>

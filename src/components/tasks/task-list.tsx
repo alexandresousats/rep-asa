@@ -89,11 +89,11 @@ export function TaskList({
   }
 
   return (
-    <div className="min-w-[640px]">
+    <div className="min-w-[720px]">
       {showHeader ? (
-        <div className="sticky top-0 z-10 grid grid-cols-[1fr_180px_140px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
+        <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_130px_120px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
           <span>Nome</span>
-          <TaskColumnFilters users={people} filters={filters} onChange={setFilters} />
+          <TaskColumnFilters users={people} tags={tags} filters={filters} onChange={setFilters} />
         </div>
       ) : null}
       {rows.length === 0 ? (
@@ -138,7 +138,7 @@ export function TaskList({
               setOverId(null);
             }}
             className={cn(
-              "grid w-full grid-cols-[1fr_180px_140px_150px] items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
+              "grid w-full grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
               selectedId === task.id && "bg-elevated",
               task.status === "done" && dragId !== task.id && "opacity-50",
               dragId === task.id && "opacity-40",
@@ -186,11 +186,6 @@ export function TaskList({
                   if (canWrite) updateTask(task.id, { title });
                 }}
               />
-              <span className="hidden gap-1 lg:flex">
-                {taskTags.map((tag) => (
-                  <TagChip key={tag.id} name={tag.name} color={tag.color} />
-                ))}
-              </span>
             </span>
             <span className="flex items-center gap-2 text-muted">
               {assignee ? (
@@ -204,6 +199,15 @@ export function TaskList({
             </span>
             <span className="text-muted">{task.dueDate ? formatDay(task.dueDate) : "—"}</span>
             <PriorityLabel priority={task.priority} />
+            <span className="flex flex-wrap items-center gap-1 overflow-hidden">
+              {taskTags.length > 0 ? (
+                taskTags.map((tag) => (
+                  <TagChip key={tag.id} name={tag.name} color={tag.color} />
+                ))
+              ) : (
+                <span className="text-faint text-xs">—</span>
+              )}
+            </span>
           </div>
         );
       })}
@@ -251,14 +255,19 @@ export function GroupedTaskList({
   const sectionDrag = useRef<string | null>(null);
   const people = users.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const skipSectionBlur = useRef(false);
-  const onSectionDraftOpenedRef = useRef(onSectionDraftOpened);
-  onSectionDraftOpenedRef.current = onSectionDraftOpened;
+  const [prevSectionDraft, setPrevSectionDraft] = useState(sectionDraft);
+  if (sectionDraft !== prevSectionDraft) {
+    setPrevSectionDraft(sectionDraft);
+    if (sectionDraft) {
+      setNewSection("");
+    }
+  }
 
   useEffect(() => {
-    if (!sectionDraft) return;
-    setNewSection("");
-    onSectionDraftOpenedRef.current?.();
-  }, [sectionDraft]);
+    if (sectionDraft) {
+      onSectionDraftOpened?.();
+    }
+  }, [sectionDraft, onSectionDraftOpened]);
 
   async function commitDraft(section: string, title: string, keepOpen: boolean) {
     await createTask({ projectId, title, section });
@@ -275,10 +284,10 @@ export function GroupedTaskList({
   const fallback = pendingDelete ? neighborSection(sections, pendingDelete) : "";
 
   return (
-    <div className="min-w-[640px]">
-      <div className="sticky top-0 z-10 grid grid-cols-[1fr_180px_140px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
+    <div className="min-w-[720px]">
+      <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_130px_120px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
         <span>Nome</span>
-        <TaskColumnFilters users={people} filters={filters} onChange={setFilters} />
+        <TaskColumnFilters users={people} tags={tags} filters={filters} onChange={setFilters} />
       </div>
       {sections.map((section, index) => {
         const open = !collapsed[section];
@@ -531,7 +540,7 @@ function DraftRow({
 
   return (
     <form
-      className="grid grid-cols-[1fr_180px_140px_150px] items-center gap-3 border-b border-line-subtle px-4 py-2"
+      className="grid grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-2"
       onSubmit={(event) => {
         event.preventDefault();
         skipBlur.current = true;

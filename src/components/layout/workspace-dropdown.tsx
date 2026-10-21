@@ -72,13 +72,8 @@ export function WorkspaceDropdown({
               {currentInitial}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold leading-tight text-ink">
+              <p className="truncate text-xs font-semibold text-ink">
                 {workspace?.name ?? "Sem espaço"}
-              </p>
-              <p className="truncate text-[10px] leading-tight text-faint">
-                {workspaces.length > 1
-                  ? `${workspaces.length} espaços disponíveis`
-                  : "Espaço atual"}
               </p>
             </div>
           </div>

@@ -8,12 +8,14 @@ export type TaskFilterState = {
   assignees: string[];
   date: DateFilter;
   priorities: Priority[];
+  tags: string[];
 };
 
 export const EMPTY_FILTERS: TaskFilterState = {
   assignees: [],
   date: "all",
   priorities: [],
+  tags: [],
 };
 
 export const DATE_FILTERS: { id: DateFilter; label: string }[] = [
@@ -30,7 +32,8 @@ export function isFiltering(filters: TaskFilterState) {
   return (
     filters.assignees.length > 0 ||
     filters.date !== "all" ||
-    filters.priorities.length > 0
+    filters.priorities.length > 0 ||
+    filters.tags.length > 0
   );
 }
 
@@ -42,6 +45,13 @@ export function taskMatches(task: Task, filters: TaskFilterState, now = new Date
   if (filters.assignees.length > 0) {
     const key = task.assigneeId ?? NONE_ASSIGNEE;
     if (!filters.assignees.includes(key)) return false;
+  }
+
+  if (filters.tags && filters.tags.length > 0) {
+    const hasNone = filters.tags.includes("none");
+    const matchesTag = filters.tags.some((tagId) => task.tagIds?.includes(tagId));
+    const matchesNone = hasNone && (!task.tagIds || task.tagIds.length === 0);
+    if (!matchesTag && !matchesNone) return false;
   }
 
   if (filters.date === "all") return true;

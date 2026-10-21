@@ -8,20 +8,22 @@ import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/cn";
 import { PRIORITY_ORDER } from "@/lib/priority";
 import { DATE_FILTERS, type DateFilter, type TaskFilterState } from "@/lib/task-filters";
-import type { Priority, User } from "@/lib/types";
+import type { Priority, Tag, User } from "@/lib/types";
 
 const NONE = "none";
 
 export function TaskColumnFilters({
   users,
+  tags = [],
   filters,
   onChange,
 }: {
   users: User[];
+  tags?: Tag[];
   filters: TaskFilterState;
   onChange: (filters: TaskFilterState) => void;
 }) {
-  const [open, setOpen] = useState<"assignee" | "date" | "priority" | null>(null);
+  const [open, setOpen] = useState<"assignee" | "date" | "priority" | "tag" | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,6 +58,14 @@ export function TaskColumnFilters({
       ? filters.priorities.filter((item) => item !== priority)
       : [...filters.priorities, priority];
     onChange({ ...filters, priorities });
+  }
+
+  function toggleTag(id: string) {
+    const current = filters.tags ?? [];
+    const nextTags = current.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id];
+    onChange({ ...filters, tags: nextTags });
   }
 
   return (
@@ -135,6 +145,41 @@ export function TaskColumnFilters({
           />
         ) : null}
       </Column>
+
+      <Column
+        label="Tags"
+        active={Boolean(filters.tags && filters.tags.length > 0)}
+        open={open === "tag"}
+        onToggle={() => setOpen((current) => (current === "tag" ? null : "tag"))}
+      >
+        <Option
+          selected={Boolean(filters.tags?.includes("none"))}
+          onClick={() => toggleTag("none")}
+        >
+          <span className="text-muted">Sem tags</span>
+        </Option>
+        {tags.map((tag) => (
+          <Option
+            key={tag.id}
+            selected={Boolean(filters.tags?.includes(tag.id))}
+            onClick={() => toggleTag(tag.id)}
+          >
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: tag.color }}
+            />
+            <span className="truncate">{tag.name}</span>
+          </Option>
+        ))}
+        {filters.tags && filters.tags.length > 0 ? (
+          <Clear
+            onClick={() => {
+              onChange({ ...filters, tags: [] });
+              setOpen(null);
+            }}
+          />
+        ) : null}
+      </Column>
     </div>
   );
 }
@@ -170,22 +215,23 @@ function Column({
       >
         <ListFilter className="h-3.5 w-3.5" strokeWidth={1.75} />
       </button>
-      {open ? <AnchoredMenu anchor={buttonRef.current}>{children}</AnchoredMenu> : null}
+      {open ? <AnchoredMenu anchorRef={buttonRef}>{children}</AnchoredMenu> : null}
     </span>
   );
 }
 
 function AnchoredMenu({
-  anchor,
+  anchorRef,
   children,
 }: {
-  anchor: HTMLElement | null;
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
   children: React.ReactNode;
 }) {
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useLayoutEffect(() => {
     function place() {
+      const anchor = anchorRef.current;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
       const width = 208;
@@ -199,9 +245,9 @@ function AnchoredMenu({
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
     };
-  }, [anchor]);
+  }, [anchorRef]);
 
-  if (!anchor) return null;
+  if (!pos) return null;
 
   return createPortal(
     <div
