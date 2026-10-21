@@ -8,7 +8,6 @@ import {
   format,
   isSameDay,
   isSameMonth,
-  parseISO,
   startOfMonth,
   startOfToday,
   startOfWeek,
@@ -27,14 +26,16 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { createTask, setTaskStatus, updateTask } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { isSameDate, toISODate, WEEKDAYS } from "@/lib/dates";
+import { isSameDate, parseDate, toISODate, WEEKDAYS } from "@/lib/dates";
 import { PRIORITY_META, PRIORITY_ORDER } from "@/lib/priority";
 import type { Project, Tag, Task, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
+
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function MonthCalendar({
   month,
@@ -66,16 +67,21 @@ export function MonthCalendar({
   const users = propUsers ?? storeUsers;
   const projects = propProjects ?? storeProjects;
 
-  // Continuous Range of months
+  // Continuous Range of months (18 months: 6 past, 12 future)
   const [rangeStartMonth, setRangeStartMonth] = useState(() =>
-    addMonths(startOfMonth(month), -3),
+    addMonths(startOfMonth(month), -6),
   );
   const [rangeEndMonth, setRangeEndMonth] = useState(() =>
-    addMonths(startOfMonth(month), 5),
+    addMonths(startOfMonth(month), 12),
   );
 
   // Dynamic visible month in header
   const [visibleMonth, setVisibleMonth] = useState(month);
+  const [prevPropMonth, setPrevPropMonth] = useState(month);
+  if (month !== prevPropMonth) {
+    setPrevPropMonth(month);
+    setVisibleMonth(month);
+  }
 
   // Filters State
   const [search, setSearch] = useState("");
@@ -101,6 +107,16 @@ export function MonthCalendar({
   const inlineInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const initialScrolledRef = useRef(false);
+  const pendingScrollAdjustRef = useRef<{ prevHeight: number; prevScrollTop: number } | null>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    if (pendingScrollAdjustRef.current && scrollContainerRef.current) {
+      const { prevHeight, prevScrollTop } = pendingScrollAdjustRef.current;
+      const added = scrollContainerRef.current.scrollHeight - prevHeight;
+      scrollContainerRef.current.scrollTop = prevScrollTop + added;
+      pendingScrollAdjustRef.current = null;
+    }
+  }, [rangeStartMonth]);
 
   const today = startOfToday();
 
@@ -126,7 +142,12 @@ export function MonthCalendar({
     const initialDayId = `day-${toISODate(startOfMonth(month))}`;
     const targetEl = document.getElementById(initialDayId);
     if (targetEl && scrollContainerRef.current) {
-      targetEl.scrollIntoView({ block: "start" });
+      const container = scrollContainerRef.current;
+      const headerEl = container.querySelector<HTMLElement>(".sticky");
+      const headerHeight = headerEl?.offsetHeight ?? 40;
+      const weekRow = targetEl.closest<HTMLElement>("[data-week-index]");
+      const targetTop = weekRow ? weekRow.offsetTop - headerHeight : targetEl.offsetTop - headerHeight;
+      container.scrollTop = Math.max(0, targetTop);
       initialScrolledRef.current = true;
     }
   }, [month, allDays]);
@@ -158,35 +179,52 @@ export function MonthCalendar({
     const { scrollTop, clientHeight, scrollHeight } = container;
 
     // Detect which month is currently visible right below the sticky header
-    const containerRect = container.getBoundingClientRect();
-    const checkY = containerRect.top + 75; // just beneath weekday header
-    const checkX = containerRect.left + 50; // column 1
-    const el = document.elementFromPoint(checkX, checkY);
-    const dayCell = el?.closest("[data-date]");
-    const dateStr = dayCell?.getAttribute("data-date");
-    if (dateStr) {
-      const date = parseISO(dateStr);
-      if (!isSameMonth(date, visibleMonth)) {
-        setVisibleMonth(date);
-        onMonthChange(date);
+    const headerEl = container.querySelector<HTMLElement>(".sticky");
+    const headerHeight = headerEl?.offsetHeight ?? 40;
+    const targetY = scrollTop + headerHeight + 35;
+
+    const weekRows = container.querySelectorAll<HTMLElement>("[data-week-index]");
+    let activeMonthISO: string | null = null;
+
+    for (let i = 0; i < weekRows.length; i++) {
+      const row = weekRows[i];
+      const rowTop = row.offsetTop;
+      const rowBottom = rowTop + row.offsetHeight;
+
+      if (rowTop <= targetY && rowBottom > targetY) {
+        activeMonthISO = row.getAttribute("data-week-month");
+        break;
+      }
+    }
+
+    if (!activeMonthISO && weekRows.length > 0) {
+      if (targetY < weekRows[0].offsetTop) {
+        activeMonthISO = weekRows[0].getAttribute("data-week-month");
+      } else {
+        activeMonthISO = weekRows[weekRows.length - 1].getAttribute("data-week-month");
+      }
+    }
+
+    if (activeMonthISO) {
+      const detectedDate = parseDate(activeMonthISO);
+      if (!isSameMonth(detectedDate, visibleMonth)) {
+        setVisibleMonth(detectedDate);
+        onMonthChange(detectedDate);
       }
     }
 
     // Infinite scroll expansion at bottom
     if (scrollTop + clientHeight >= scrollHeight - 350) {
-      setRangeEndMonth((prev) => addMonths(prev, 3));
+      setRangeEndMonth((prev) => addMonths(prev, 6));
     }
 
     // Infinite scroll expansion at top
-    if (scrollTop <= 200) {
-      const prevScrollHeight = container.scrollHeight;
-      setRangeStartMonth((prev) => addMonths(prev, -3));
-      requestAnimationFrame(() => {
-        if (scrollContainerRef.current) {
-          const addedHeight = scrollContainerRef.current.scrollHeight - prevScrollHeight;
-          scrollContainerRef.current.scrollTop = scrollTop + addedHeight;
-        }
-      });
+    if (scrollTop <= 200 && !pendingScrollAdjustRef.current) {
+      pendingScrollAdjustRef.current = {
+        prevHeight: container.scrollHeight,
+        prevScrollTop: container.scrollTop,
+      };
+      setRangeStartMonth((prev) => addMonths(prev, -6));
     }
   }
 
@@ -195,18 +233,31 @@ export function MonthCalendar({
     const targetISO = toISODate(startOfMonth(targetDate));
     const targetId = `day-${targetISO}`;
     const el = document.getElementById(targetId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (el && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const headerEl = container.querySelector<HTMLElement>(".sticky");
+      const headerHeight = headerEl?.offsetHeight ?? 40;
+      const weekRow = el.closest<HTMLElement>("[data-week-index]");
+      const targetTop = weekRow ? weekRow.offsetTop - headerHeight : el.offsetTop - headerHeight;
+      container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     } else {
       // If outside currently loaded range, expand range first
       if (targetDate < rangeStartMonth) {
-        setRangeStartMonth(addMonths(targetDate, -2));
+        setRangeStartMonth(addMonths(startOfMonth(targetDate), -3));
       } else if (targetDate > rangeEndMonth) {
-        setRangeEndMonth(addMonths(targetDate, 2));
+        setRangeEndMonth(addMonths(startOfMonth(targetDate), 5));
       }
       setTimeout(() => {
-        document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 50);
+        const newEl = document.getElementById(targetId);
+        if (newEl && scrollContainerRef.current) {
+          const container = scrollContainerRef.current;
+          const headerEl = container.querySelector<HTMLElement>(".sticky");
+          const headerHeight = headerEl?.offsetHeight ?? 40;
+          const weekRow = newEl.closest<HTMLElement>("[data-week-index]");
+          const targetTop = weekRow ? weekRow.offsetTop - headerHeight : newEl.offsetTop - headerHeight;
+          container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+        }
+      }, 60);
     }
   }
 
@@ -214,8 +265,13 @@ export function MonthCalendar({
     const todayISO = toISODate(today);
     const targetId = `day-${todayISO}`;
     const el = document.getElementById(targetId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (el && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const headerEl = container.querySelector<HTMLElement>(".sticky");
+      const headerHeight = headerEl?.offsetHeight ?? 40;
+      const weekRow = el.closest<HTMLElement>("[data-week-index]");
+      const targetTop = weekRow ? weekRow.offsetTop - headerHeight : el.offsetTop - headerHeight;
+      container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     } else {
       scrollToMonth(today);
     }
@@ -332,14 +388,24 @@ export function MonthCalendar({
               type="button"
               aria-label="Mês anterior"
               title="Mês anterior"
-              onClick={() => scrollToMonth(addMonths(visibleMonth, -1))}
+              onClick={() => {
+                const prev = addMonths(visibleMonth, -1);
+                setVisibleMonth(prev);
+                onMonthChange(prev);
+                scrollToMonth(prev);
+              }}
               className="rounded-lg p-1.5 text-faint hover:bg-hover hover:text-ink transition-colors"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button
               type="button"
-              onClick={scrollToToday}
+              onClick={() => {
+                const todayMonth = startOfMonth(today);
+                setVisibleMonth(todayMonth);
+                onMonthChange(todayMonth);
+                scrollToToday();
+              }}
               className="px-2.5 py-1 text-xs font-medium text-faint hover:text-ink transition-colors"
             >
               Hoje
@@ -348,16 +414,23 @@ export function MonthCalendar({
               type="button"
               aria-label="Próximo mês"
               title="Próximo mês"
-              onClick={() => scrollToMonth(addMonths(visibleMonth, 1))}
+              onClick={() => {
+                const next = addMonths(visibleMonth, 1);
+                setVisibleMonth(next);
+                onMonthChange(next);
+                scrollToMonth(next);
+              }}
               className="rounded-lg p-1.5 text-faint hover:bg-hover hover:text-ink transition-colors"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Month title: updates dynamically as you scroll! */}
-          <h2 className="text-sm font-semibold capitalize tracking-tight text-ink sm:text-base">
-            {format(visibleMonth, "MMMM 'de' yyyy", { locale: ptBR })}
+          {/* Month title: updates dynamically in real-time as you scroll! */}
+          <h2 className="text-base sm:text-lg font-bold tracking-tight text-ink">
+            {format(visibleMonth, "MMMM", { locale: ptBR }).charAt(0).toUpperCase() +
+              format(visibleMonth, "MMMM", { locale: ptBR }).slice(1)}{" "}
+            de {format(visibleMonth, "yyyy")}
           </h2>
         </div>
 
@@ -601,58 +674,65 @@ export function MonthCalendar({
 
           {/* Continuous Weeks Grid */}
           <div className="divide-y divide-line">
-            {weeks.map((week, weekIndex) => (
-              <div key={weekIndex} className="grid grid-cols-7 divide-x divide-line">
-                {week.map((day, dayIndex) => {
-                  const isWeekend = dayIndex === 5 || dayIndex === 6;
-                  const isToday = isSameDay(day, today);
-                  const dayISO = toISODate(day);
-                  const isFirstDayOfMonth = day.getDate() === 1;
+            {weeks.map((week, weekIndex) => {
+              const weekMonthISO = toISODate(startOfMonth(week[3]));
+              return (
+                <div
+                  key={weekIndex}
+                  data-week-index={weekIndex}
+                  data-week-month={weekMonthISO}
+                  className="grid grid-cols-7 divide-x divide-line relative"
+                >
+                  {week.map((day, dayIndex) => {
+                    const isWeekend = dayIndex === 5 || dayIndex === 6;
+                    const isToday = isSameDay(day, today);
+                    const dayISO = toISODate(day);
+                    const isFirstDayOfMonth = day.getDate() === 1;
 
-                  const dayTasks = filteredTasks.filter(
-                    (task) => task.dueDate && isSameDate(task.dueDate, day),
-                  );
+                    const dayTasks = filteredTasks.filter(
+                      (task) => task.dueDate && isSameDate(task.dueDate, day),
+                    );
 
-                  const isCreating = creatingDate === dayISO;
-                  const maxVisible = 3;
-                  const visibleTasks = dayTasks.slice(0, maxVisible);
-                  const extraTasksCount = dayTasks.length - maxVisible;
+                    const isCreating = creatingDate === dayISO;
+                    const maxVisible = 3;
+                    const visibleTasks = dayTasks.slice(0, maxVisible);
+                    const extraTasksCount = dayTasks.length - maxVisible;
 
-                  return (
-                    <div
-                      key={dayISO}
-                      id={`day-${dayISO}`}
-                      data-date={dayISO}
-                      onClick={() => {
-                        if (canWrite && !isCreating) {
-                          setCreatingDate(dayISO);
-                        }
-                      }}
-                      className={cn(
-                        "group relative min-h-[145px] sm:min-h-[160px] p-1.5 sm:p-2 transition-colors",
-                        "cursor-copy",
-                        isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
-                        "hover:bg-hover/30",
-                      )}
-                    >
-                      {/* Day Header: Number/Month name + Hover Add button */}
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <span
-                          className={cn(
-                            "inline-flex items-center text-xs transition-transform",
-                            isToday
-                              ? "h-6 w-6 items-center justify-center rounded-full bg-blue-600 font-bold text-white shadow-xs"
-                              : isFirstDayOfMonth
-                                ? "font-semibold text-ink"
-                                : "font-medium text-faint group-hover:text-ink",
-                          )}
-                        >
-                          {isFirstDayOfMonth ? (
-                            <span>{format(day, "d MMM", { locale: ptBR })}</span>
-                          ) : (
-                            format(day, "d")
-                          )}
-                        </span>
+                    return (
+                      <div
+                        key={dayISO}
+                        id={`day-${dayISO}`}
+                        data-date={dayISO}
+                        onClick={() => {
+                          if (canWrite && !isCreating) {
+                            setCreatingDate(dayISO);
+                          }
+                        }}
+                        className={cn(
+                          "group relative min-h-[145px] sm:min-h-[160px] p-1.5 sm:p-2 transition-colors",
+                          "cursor-copy",
+                          isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
+                          "hover:bg-hover/30",
+                        )}
+                      >
+                        {/* Day Header: Number/Month name + Hover Add button */}
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <span
+                            className={cn(
+                              "inline-flex items-center text-xs transition-transform",
+                              isToday
+                                ? "h-6 w-6 items-center justify-center rounded-full bg-blue-600 font-bold text-white shadow-xs"
+                                : isFirstDayOfMonth
+                                  ? "font-bold text-ink rounded-md bg-ink/10 dark:bg-white/10 px-1.5 py-0.5"
+                                  : "font-medium text-faint group-hover:text-ink",
+                            )}
+                          >
+                            {isFirstDayOfMonth ? (
+                              <span>{format(day, "d MMM", { locale: ptBR })}</span>
+                            ) : (
+                              format(day, "d")
+                            )}
+                          </span>
 
                         {/* Quick + Button on hover */}
                         {canWrite ? (
@@ -784,7 +864,8 @@ export function MonthCalendar({
                   );
                 })}
               </div>
-            ))}
+            );
+          })}
           </div>
         </div>
 
