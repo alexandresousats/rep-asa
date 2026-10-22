@@ -187,34 +187,33 @@ export default function AgentPage() {
         {/* Conteúdo Central */}
         <div data-chat-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
           {messages.length === 0 ? (
-            <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-elevated text-ink shadow-sm">
-                <Sparkles className="h-7 w-7" strokeWidth={1.5} />
-              </div>
-
-              <h1 className="mt-4 text-2xl font-medium tracking-tight text-ink sm:text-3xl">
-                Olá, {firstName}.
+            <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center">
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-ink text-center mb-6">
+                O que devemos explorar?
               </h1>
-              <p className="mt-2 text-sm text-faint max-w-md">
-                Converse com o agente para criar tarefas, anexar imagens, enviar gravações de áudio e
-                organizar tudo em pastas.
-              </p>
+
+              <ChatComposer
+                autoFocus
+                hero
+                placeholder="Alterne para o Modo Build para criar apps"
+                className="w-full"
+              />
 
               {ready ? (
-                <div className="mt-8 grid w-full gap-2 sm:grid-cols-2">
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-2 max-w-xl">
                   {SUGGESTIONS.map((sug) => (
                     <button
                       key={sug}
                       type="button"
                       onClick={() => void send(sug)}
-                      className="rounded-2xl border border-line bg-elevated/40 p-3.5 text-left text-xs text-muted hover:border-muted hover:bg-hover hover:text-ink transition-all"
+                      className="rounded-full border border-line bg-elevated/60 px-3.5 py-1.5 text-xs text-muted hover:border-muted hover:bg-hover hover:text-ink transition-all"
                     >
                       {sug}
                     </button>
                   ))}
                 </div>
               ) : (
-                <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-500">
+                <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-500 text-center">
                   <p className="font-medium">Agente não conectado</p>
                   <p className="mt-1 text-amber-500/80">
                     Adicione sua chave de API nas configurações para começar a conversar.
@@ -233,10 +232,16 @@ export default function AgentPage() {
           )}
         </div>
 
-        {/* Rodapé com Composer */}
-        <div className="shrink-0 border-t border-line-subtle bg-base/80 p-4 backdrop-blur-xs">
-          <ChatComposer autoFocus className="mx-auto w-full max-w-3xl" />
-        </div>
+        {/* Rodapé com Composer (exibido apenas quando já existem mensagens na conversa) */}
+        {messages.length > 0 && (
+          <div className="shrink-0 border-t border-line-subtle bg-base/80 p-4 backdrop-blur-xs">
+            <ChatComposer
+              autoFocus
+              placeholder="Alterne para o Modo Build para criar apps"
+              className="mx-auto w-full max-w-3xl"
+            />
+          </div>
+        )}
       </div>
     </div>
   );
