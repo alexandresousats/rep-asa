@@ -195,6 +195,14 @@ export interface ChatAudioAttachment {
   mimeType?: string;
 }
 
+export interface ChatDocumentAttachment {
+  name: string;
+  size: number;
+  type: string;
+  pageCount?: number;
+  text: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -204,6 +212,7 @@ export interface ChatMessage {
   pending?: boolean;
   images?: string[];
   audio?: ChatAudioAttachment;
+  documents?: ChatDocumentAttachment[];
   createdAt: string;
 }
 

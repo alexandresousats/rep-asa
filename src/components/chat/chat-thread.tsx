@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Check,
   Copy,
+  FileText,
   LoaderCircle,
   Sparkles,
   Trash2,
@@ -165,6 +166,28 @@ function Bubble({
           {message.audio && (
             <div className="w-64 max-w-full sm:w-80">
               <AudioPlayer url={message.audio.url} duration={message.audio.duration} />
+            </div>
+          )}
+
+          {message.documents && message.documents.length > 0 && (
+            <div className="flex flex-col gap-2">
+              {message.documents.map((doc, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-3 rounded-2xl border border-line bg-elevated/95 p-3 text-xs text-ink shadow-2xs"
+                >
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-500">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="font-medium truncate text-sm">{doc.name}</p>
+                    <p className="text-[11px] text-faint mt-0.5">
+                      {(doc.size / (1024 * 1024)).toFixed(1)} MB
+                      {doc.pageCount ? ` · ${doc.pageCount} páginas` : ""} · Analisado pela IA
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 

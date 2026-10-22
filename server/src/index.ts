@@ -559,6 +559,17 @@ app.post("/ai/chat", async (c) => {
             role: z.enum(["user", "assistant"]),
             content: z.string().max(30000),
             images: z.array(z.string()).optional(),
+            documents: z
+              .array(
+                z.object({
+                  name: z.string(),
+                  size: z.number(),
+                  type: z.string().optional(),
+                  pageCount: z.number().optional(),
+                  text: z.string(),
+                }),
+              )
+              .optional(),
           }),
         )
         .min(1)

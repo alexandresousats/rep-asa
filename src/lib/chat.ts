@@ -4,7 +4,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { loadSession } from "./api";
 import { agentReady, usePrefs } from "./prefs";
-import type { ChatAudioAttachment, ChatFolder, ChatMessage, ChatSession } from "./types";
+import type {
+  ChatAudioAttachment,
+  ChatDocumentAttachment,
+  ChatFolder,
+  ChatMessage,
+  ChatSession,
+} from "./types";
 
 type StreamEvent =
   | { type: "text"; delta: string }
@@ -17,6 +23,7 @@ export interface SendOptions {
   text: string;
   images?: string[];
   audio?: ChatAudioAttachment;
+  documents?: ChatDocumentAttachment[];
 }
 
 interface ChatState {
@@ -57,11 +64,17 @@ function uid(prefix: string) {
   return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function deriveTitle(text: string, hasImages?: boolean, hasAudio?: boolean): string {
+function deriveTitle(
+  text: string,
+  hasImages?: boolean,
+  hasAudio?: boolean,
+  documents?: ChatDocumentAttachment[],
+): string {
   const clean = text.trim().replace(/\s+/g, " ");
   if (clean) {
     return clean.length > 36 ? `${clean.slice(0, 36).trim()}…` : clean;
   }
+  if (documents && documents.length > 0) return `📄 ${documents[0].name}`;
   if (hasAudio) return "Áudio enviado";
   if (hasImages) return "Imagem enviada";
   return "Nova conversa";
@@ -274,8 +287,14 @@ export const useChat = create<ChatState>()(
           const text = options.text.trim();
           const images = options.images?.filter(Boolean) || [];
           const audio = options.audio;
+          const documents = options.documents?.filter(Boolean) || [];
 
-          if ((!text && images.length === 0 && !audio) || get().sending) return;
+          if (
+            (!text && images.length === 0 && !audio && documents.length === 0) ||
+            get().sending
+          ) {
+            return;
+          }
           const agent = usePrefs.getState().agent;
           if (!agentReady(agent)) return;
 
@@ -292,6 +311,7 @@ export const useChat = create<ChatState>()(
             content: text,
             images: images.length > 0 ? images : undefined,
             audio: audio || undefined,
+            documents: documents.length > 0 ? documents : undefined,
             steps: [],
             createdAt: new Date().toISOString(),
           };
@@ -307,7 +327,7 @@ export const useChat = create<ChatState>()(
 
           const isFirstMessage = session.messages.length === 0;
           const newTitle = isFirstMessage
-            ? deriveTitle(text, images.length > 0, Boolean(audio))
+            ? deriveTitle(text, images.length > 0, Boolean(audio), documents)
             : session.title;
 
           set((state) => {
@@ -330,11 +350,17 @@ export const useChat = create<ChatState>()(
           // Histórico para envio ao backend
           const fullMessages = [...session.messages, userMessage];
           const history = fullMessages
-            .filter((m) => m.content.trim() || (m.images && m.images.length > 0))
+            .filter(
+              (m) =>
+                m.content.trim() ||
+                (m.images && m.images.length > 0) ||
+                (m.documents && m.documents.length > 0),
+            )
             .map((m) => ({
               role: m.role,
               content: m.content,
               images: m.images,
+              documents: m.documents,
             }));
 
           controller = new AbortController();

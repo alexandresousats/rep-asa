@@ -171,28 +171,6 @@ export function Sidebar({
       <div className={cn("mt-auto", collapsed ? "flex w-full flex-col items-center gap-1" : "space-y-3 px-1")}>
         <button
           type="button"
-          title="Assistente"
-          onClick={() => {
-            onOpenAssistant?.();
-            onNavigate?.();
-          }}
-          className={cn(
-            "flex items-center rounded-full text-sm text-muted hover:bg-hover hover:text-ink",
-            collapsed ? "h-9 w-9 justify-center" : "w-full gap-3 px-3 py-2",
-          )}
-        >
-          <Sparkles className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-          <span
-            className={cn(
-              "overflow-hidden transition-all duration-300",
-              collapsed ? "hidden" : "max-w-40 opacity-100",
-            )}
-          >
-            Assistente
-          </span>
-        </button>
-        <button
-          type="button"
           title={isDark ? "Modo claro" : "Modo escuro"}
           onClick={() => setTheme(isDark ? "light" : "dark")}
           className={cn(

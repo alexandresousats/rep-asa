@@ -2,6 +2,7 @@
 
 import {
   ArrowUp,
+  FileText,
   Image as ImageIcon,
   LoaderCircle,
   Mic,
@@ -16,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useChat } from "@/lib/chat";
 import { agentReady, usePrefs } from "@/lib/prefs";
-import type { ChatAudioAttachment } from "@/lib/types";
+import type { ChatAudioAttachment, ChatDocumentAttachment } from "@/lib/types";
 
 // Tipagem para Web Speech Recognition
 interface SpeechRecognitionInstance extends EventTarget {
@@ -48,6 +49,9 @@ export function ChatComposer({
 
   const [value, setValue] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [documents, setDocuments] = useState<ChatDocumentAttachment[]>([]);
+  const [parsingDoc, setParsingDoc] = useState(false);
+  const [parsingFileName, setParsingFileName] = useState("");
   const [attachedAudio, setAttachedAudio] = useState<ChatAudioAttachment | null>(null);
 
   // Estados de gravação de áudio
@@ -56,7 +60,7 @@ export function ChatComposer({
 
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -89,6 +93,47 @@ export function ChatComposer({
     };
   }, []);
 
+  async function uploadDocument(file: File) {
+    if (file.size > 25 * 1024 * 1024) {
+      alert(`O arquivo "${file.name}" tem ${(file.size / (1024 * 1024)).toFixed(1)}MB. O limite máximo é de 25MB.`);
+      return;
+    }
+
+    setParsingDoc(true);
+    setParsingFileName(file.name);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch("/api/ai/parse-doc", {
+        method: "POST",
+        body: form,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert(data.error || `Falha ao processar ${file.name}`);
+        return;
+      }
+
+      setDocuments((prev) => [
+        ...prev,
+        {
+          name: data.name,
+          size: data.size,
+          type: data.type,
+          pageCount: data.pageCount,
+          text: data.text,
+        },
+      ]);
+    } catch (err: any) {
+      alert(`Erro ao analisar ${file.name}: ${err?.message || "conexão interrompida"}`);
+    } finally {
+      setParsingDoc(false);
+      setParsingFileName("");
+    }
+  }
+
   function handleFileSelect(files: FileList | null) {
     if (!files || files.length === 0) return;
     const list = Array.from(files);
@@ -112,6 +157,9 @@ export function ChatComposer({
           }
         };
         reader.readAsDataURL(file);
+      } else {
+        // PDF ou documentos de texto
+        void uploadDocument(file);
       }
     });
   }
@@ -131,6 +179,10 @@ export function ChatComposer({
           };
           reader.readAsDataURL(file);
         }
+      } else if (items[i].type === "application/pdf") {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        if (file) void uploadDocument(file);
       }
     }
   }
@@ -204,7 +256,7 @@ export function ChatComposer({
           // Microfone continua gravando áudio mesmo se a API de fala falhar
         }
       }
-    } catch (err) {
+    } catch {
       alert("Permissão de microfone negada ou microfone indisponível.");
     }
   }
@@ -220,7 +272,6 @@ export function ChatComposer({
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       if (!save) {
-        // descarta chunks
         audioChunksRef.current = [];
         mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
       } else {
@@ -237,28 +288,36 @@ export function ChatComposer({
   }
 
   function submit() {
-    const hasContent = value.trim() || images.length > 0 || attachedAudio;
-    if (!hasContent || sending || !ready) return;
+    const hasContent =
+      value.trim() || images.length > 0 || attachedAudio || documents.length > 0;
+    if (!hasContent || sending || !ready || parsingDoc) return;
 
     const textToSend = value;
     const imagesToSend = [...images];
     const audioToSend = attachedAudio ? { ...attachedAudio } : undefined;
+    const documentsToSend = [...documents];
 
     setValue("");
     setImages([]);
     setAttachedAudio(null);
+    setDocuments([]);
 
     void send({
       text: textToSend,
       images: imagesToSend,
       audio: audioToSend,
+      documents: documentsToSend,
     });
   }
 
-  const canSubmit = (value.trim() || images.length > 0 || attachedAudio) && ready;
+  const canSubmit =
+    (value.trim() || images.length > 0 || attachedAudio || documents.length > 0) &&
+    ready &&
+    !parsingDoc;
 
   return (
     <div className={className}>
+      {/* Input para Imagens */}
       <input
         ref={fileInputRef}
         type="file"
@@ -270,10 +329,13 @@ export function ChatComposer({
           e.target.value = "";
         }}
       />
+
+      {/* Input para PDFs e Documentos grandes (até 25MB) */}
       <input
-        ref={audioInputRef}
+        ref={docInputRef}
         type="file"
-        accept="audio/*"
+        accept="application/pdf,.pdf,.txt,.csv,.md,.json"
+        multiple
         className="hidden"
         onChange={(e) => {
           handleFileSelect(e.target.files);
@@ -288,6 +350,49 @@ export function ChatComposer({
           hero ? "rounded-[28px] p-3 pl-5" : "rounded-3xl p-2.5 pl-4",
         )}
       >
+        {/* Documentos / PDFs Anexados */}
+        {documents.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 px-1 pt-1">
+            {documents.map((doc, idx) => (
+              <div
+                key={idx}
+                className="flex items-center gap-2.5 rounded-2xl border border-line bg-base px-3 py-1.5 text-xs text-ink shadow-2xs"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/10 text-red-500">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div className="flex flex-col min-w-0 pr-1">
+                  <span className="font-medium truncate max-w-[180px] sm:max-w-[240px]">
+                    {doc.name}
+                  </span>
+                  <span className="text-[10px] text-faint">
+                    {(doc.size / (1024 * 1024)).toFixed(1)} MB
+                    {doc.pageCount ? ` · ${doc.pageCount} pág.` : ""} · Pronto para análise
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDocuments((prev) => prev.filter((_, i) => i !== idx))}
+                  className="rounded-full p-1 text-faint hover:bg-hover hover:text-red-400"
+                  aria-label="Remover documento"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Indicador de Processamento do PDF / Documento */}
+        {parsingDoc && (
+          <div className="mb-2 flex items-center gap-2.5 rounded-2xl border border-line bg-base px-3 py-2 text-xs text-muted">
+            <LoaderCircle className="h-4 w-4 animate-spin text-ink shrink-0" />
+            <span className="truncate">
+              Processando <strong>{parsingFileName}</strong> (lendo texto e páginas do PDF)...
+            </span>
+          </div>
+        )}
+
         {/* Pré-visualização de Imagens Anexadas */}
         {images.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 pt-1">
@@ -381,7 +486,7 @@ export function ChatComposer({
               placeholder={
                 hydrated && !ready
                   ? "Conecte um agente nas configurações para conversar"
-                  : "Peça ao agente, anexe imagens ou grave um áudio…"
+                  : "Peça ao agente, anexe PDF (até 20MB), imagens ou grave áudio…"
               }
               aria-label="Mensagem para o agente"
               className={cn(
@@ -390,12 +495,23 @@ export function ChatComposer({
               )}
             />
 
-            {/* Ações do Composer (Anexos, Áudio, Envio) */}
+            {/* Ações do Composer (Anexos, PDF, Imagens, Áudio, Envio) */}
             <div className="flex items-center gap-1 pb-1">
+              {/* Botão Anexar PDF / Documentos */}
+              <button
+                type="button"
+                disabled={!ready || parsingDoc}
+                onClick={() => docInputRef.current?.click()}
+                title="Anexar PDF ou Documento (até 20MB)"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink disabled:opacity-40 transition-colors"
+              >
+                <Paperclip className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+
               {/* Botão Anexar Imagem */}
               <button
                 type="button"
-                disabled={!ready}
+                disabled={!ready || parsingDoc}
                 onClick={() => fileInputRef.current?.click()}
                 title="Anexar imagem"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink disabled:opacity-40 transition-colors"
@@ -406,7 +522,7 @@ export function ChatComposer({
               {/* Botão Gravar Áudio */}
               <button
                 type="button"
-                disabled={!ready}
+                disabled={!ready || parsingDoc}
                 onClick={startRecording}
                 title="Gravar áudio com microfone"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-ink disabled:opacity-40 transition-colors"
@@ -450,7 +566,7 @@ export function ChatComposer({
           >
             Conectar meu agente
           </Link>{" "}
-          com uma chave de API para habilitar chat, áudio e imagens.
+          com uma chave de API para habilitar chat, análise de PDFs, áudio e imagens.
         </p>
       ) : null}
     </div>

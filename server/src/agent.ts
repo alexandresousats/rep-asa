@@ -4,10 +4,20 @@ import { ApiError } from "./errors";
 import { callTool, tools } from "./mcp";
 
 export type AgentConfig = { baseUrl: string; apiKey: string; model: string };
+
+export type ChatDocumentTurn = {
+  name: string;
+  size: number;
+  type?: string;
+  pageCount?: number;
+  text: string;
+};
+
 export type ChatTurn = {
   role: "user" | "assistant";
   content: string;
   images?: string[];
+  documents?: ChatDocumentTurn[];
 };
 
 export type AgentEvent =
@@ -278,18 +288,49 @@ export async function runAgent(
   const messages: ProviderMessage[] = [
     { role: "system", content: systemPrompt(actor) },
     ...turns.slice(-30).map((turn) => {
-      if (turn.role === "user" && turn.images && turn.images.length > 0) {
-        return {
-          role: "user" as const,
-          content: [
-            { type: "text" as const, text: turn.content || "Analise a imagem anexada." },
-            ...turn.images.map((url) => ({
-              type: "image_url" as const,
-              image_url: { url },
-            })),
-          ],
-        };
+      if (turn.role === "user") {
+        let textContent = turn.content;
+
+        if (turn.documents && turn.documents.length > 0) {
+          const docSections = turn.documents
+            .map((doc) => {
+              const sizeMb = (doc.size / (1024 * 1024)).toFixed(1);
+              const meta = [
+                `Arquivo: "${doc.name}"`,
+                `Tamanho: ${sizeMb} MB`,
+                doc.pageCount ? `Páginas: ${doc.pageCount}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+
+              return `[DOCUMENTO ANEXADO PELO USUÁRIO PARA ANÁLISE: ${meta}]\n--- Início do Conteúdo do Documento ---\n${doc.text}\n--- Fim do Conteúdo do Documento ---`;
+            })
+            .join("\n\n");
+
+          textContent = textContent
+            ? `${docSections}\n\n${textContent}`
+            : `${docSections}\n\nPor favor, analise o(s) documento(s) anexado(s) acima e responda em detalhes de acordo com a solicitação.`;
+        }
+
+        if (turn.images && turn.images.length > 0) {
+          return {
+            role: "user" as const,
+            content: [
+              {
+                type: "text" as const,
+                text: textContent || "Analise a imagem anexada.",
+              },
+              ...turn.images.map((url) => ({
+                type: "image_url" as const,
+                image_url: { url },
+              })),
+            ],
+          };
+        }
+
+        return { role: "user" as const, content: textContent };
       }
+
       return { role: turn.role, content: turn.content } as ProviderMessage;
     }),
   ];
