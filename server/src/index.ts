@@ -8,6 +8,12 @@ import { z } from "zod";
 import { subscribe } from "./events";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import {
+  generateDemandLinkToken,
+  processDemandChatTurn,
+  submitDemandViaVerifiedLink,
+  verifyDemandLinkToken,
+} from "./demand-links";
+import {
   actorFromApiKey,
   actorFromSession,
   acceptInvite,
@@ -600,6 +606,81 @@ app.post("/ai/chat", async (c) => {
     }
     emit({ type: "done" });
   });
+});
+
+app.post("/demands/generate-link", async (c) => {
+  const actor = await actorOf(c);
+  const body = parse(z.object({ projectId: z.string() }), await c.req.json());
+  return c.json(await generateDemandLinkToken(actor, body.projectId));
+});
+
+app.get("/demands/link-info", async (c) => {
+  const token = c.req.query("token") ?? "";
+  if (!token) throw new ApiError(400, "Token ausente.");
+  return c.json(await verifyDemandLinkToken(token));
+});
+
+app.post("/demands/agent-chat", async (c) => {
+  const body = parse(
+    z.object({
+      token: z.string(),
+      messages: z.array(
+        z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string(),
+          images: z.array(z.string()).optional(),
+          videos: z.array(z.string()).optional(),
+          documents: z.array(z.any()).optional(),
+        }),
+      ),
+      currentDemand: z
+        .object({
+          subject: z.string().optional(),
+          format: z.string().optional(),
+          tagIds: z.array(z.string()).optional(),
+          dueDate: z.string().optional(),
+          referenceUrls: z.string().optional(),
+          notes: z.string().optional(),
+          requesterName: z.string().optional(),
+          isReadyToConfirm: z.boolean().optional(),
+        })
+        .optional(),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await processDemandChatTurn(body.token, body.messages, body.currentDemand));
+});
+
+app.post("/demands/submit-via-link", async (c) => {
+  const body = parse(
+    z.object({
+      token: z.string(),
+      demand: z.object({
+        title: z.string().optional().default(""),
+        subject: z.string().optional(),
+        description: z.string().optional().default(""),
+        demandFormat: z.string().optional(),
+        tagIds: z.array(z.string()).optional(),
+        dueDate: z.string().optional(),
+        referenceUrls: z.string().optional(),
+        requesterName: z.string().optional(),
+        requesterEmail: z.string().optional(),
+        attachments: z
+          .array(
+            z.object({
+              name: z.string(),
+              type: z.string(),
+              size: z.number(),
+              base64: z.string().optional(),
+              url: z.string().optional(),
+            }),
+          )
+          .optional(),
+      }),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await submitDemandViaVerifiedLink(body.token, body.demand));
 });
 
 app.post("/mcp", async (c) => {

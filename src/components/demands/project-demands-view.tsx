@@ -22,6 +22,7 @@ import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import type { DemandFormat, Project, Tag, Task, User } from "@/lib/types";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
+import { ShareDemandLinkDialog } from "./share-demand-link-dialog";
 
 const FORMAT_TABS: { id: DemandFormat | "all"; label: string; icon: typeof Square }[] = [
   { id: "all", label: "Todos os formatos", icon: Square },
@@ -48,6 +49,7 @@ export function ProjectDemandsView({
 }) {
   const [formatFilter, setFormatFilter] = useState<DemandFormat | "all">("all");
   const [search, setSearch] = useState("");
+  const [shareLinkOpen, setShareLinkOpen] = useState(false);
 
   // Demands are either flagged isDemand: true, or have a demandFormat, or belong to sections called "Demandas"
   const demandTasks = useMemo(() => {
@@ -112,10 +114,21 @@ export function ProjectDemandsView({
             />
           </div>
 
-          <Button onClick={onCreateDemand} className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white">
-            <Plus className="h-4 w-4" />
-            Solicitar Demanda
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShareLinkOpen(true)}
+              className="gap-2 border-line bg-elevated/70 text-ink hover:bg-hover hover:border-line-subtle shadow-xs"
+            >
+              <Link2 className="h-4 w-4 text-sky-400" />
+              <span>Link do Agente</span>
+            </Button>
+
+            <Button onClick={onCreateDemand} className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white">
+              <Plus className="h-4 w-4" />
+              <span>Solicitar Demanda</span>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -268,6 +281,12 @@ export function ProjectDemandsView({
           </div>
         )}
       </div>
+
+      <ShareDemandLinkDialog
+        open={shareLinkOpen}
+        onClose={() => setShareLinkOpen(false)}
+        defaultProjectId={project.id}
+      />
     </div>
   );
 }

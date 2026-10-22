@@ -7,10 +7,9 @@ import {
   FolderOpen,
   FolderPlus,
   GripVertical,
-  MessageSquare,
   MoreVertical,
   Pencil,
-  Plus,
+  SquarePen,
   Trash2,
   X,
 } from "lucide-react";
@@ -126,10 +125,10 @@ export function AgentSidebar({
             selectSession(id);
             onClose?.();
           }}
-          className="flex h-9 flex-1 items-center justify-center gap-2 rounded-2xl bg-ink px-4 text-xs font-medium text-base hover:opacity-90 transition-opacity shadow-xs"
+          className="flex h-9 flex-1 items-center gap-2.5 rounded-xl bg-hover/80 px-3 text-[14px] font-medium text-ink hover:bg-hover transition-colors shadow-2xs"
         >
-          <Plus className="h-4 w-4" strokeWidth={1.75} />
-          <span>Nova conversa</span>
+          <SquarePen className="h-4 w-4 shrink-0 text-muted" strokeWidth={1.5} />
+          <span>Novo Chat</span>
         </button>
 
         {onClose && (
@@ -203,7 +202,7 @@ export function AgentSidebar({
                   type="button"
                   onClick={() => setSelectedFolderId(null)}
                   className={cn(
-                    "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs transition-colors",
+                    "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-[14px] transition-colors",
                     selectedFolderId === null
                       ? "bg-active font-medium text-ink"
                       : "text-muted hover:bg-hover hover:text-ink",
@@ -303,7 +302,7 @@ export function AgentSidebar({
                       setDraggedSessionId(null);
                     }}
                     className={cn(
-                      "group relative flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs transition-all",
+                      "group relative flex items-center justify-between rounded-xl px-2.5 py-1.5 text-[14px] transition-all",
                       active
                         ? "bg-active font-medium text-ink"
                         : "text-muted hover:bg-hover hover:text-ink",
@@ -419,7 +418,7 @@ export function AgentSidebar({
                         setDragOverFolderId(null);
                       }}
                       className={cn(
-                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-xs transition-all cursor-pointer select-none",
+                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-[14px] transition-all cursor-pointer select-none",
                         isActive
                           ? "bg-active font-medium text-ink shadow-2xs"
                           : "text-muted hover:bg-hover hover:text-ink",
@@ -440,17 +439,14 @@ export function AgentSidebar({
                           selectSession(session.id);
                           onClose?.();
                         }}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        className="min-w-0 flex-1 text-left"
                       >
-                        <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        <div className="min-w-0 flex-1 truncate">
-                          <span className="block truncate">{session.title}</span>
-                          {folder && (
-                            <span className="block text-[10px] text-faint truncate">
-                              📁 {folder.name}
-                            </span>
-                          )}
-                        </div>
+                        <span className="block truncate text-[14px] leading-5">{session.title}</span>
+                        {folder && (
+                          <span className="block text-[11px] text-faint truncate mt-0.5">
+                            {folder.name}
+                          </span>
+                        )}
                       </button>
 
                       {/* Botões de Ação na Conversa */}

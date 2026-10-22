@@ -45,6 +45,7 @@ interface ChatState {
 
   // Mensagens
   deleteMessage: (messageId: string, sessionId?: string) => void;
+  editAndResendMessage: (messageId: string, newText: string) => Promise<void>;
 
   // Pastas
   createFolder: (name: string, color?: string) => ChatFolder;
@@ -123,6 +124,117 @@ export const useChat = create<ChatState>()(
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+
+      async function runChatStream(
+        currentSessionId: string,
+        replyMessageId: string,
+        history: Array<{
+          role: "user" | "assistant";
+          content: string;
+          images?: string[];
+          documents?: ChatDocumentAttachment[];
+        }>,
+      ) {
+        const agent = usePrefs.getState().agent;
+        if (!agentReady(agent)) return;
+
+        controller = new AbortController();
+        let mutated = false;
+
+        function apply(event: StreamEvent) {
+          if (event.type === "text") {
+            patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+              ...m,
+              content: m.content + event.delta,
+            }));
+          } else if (event.type === "tool") {
+            patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+              ...m,
+              steps: [
+                ...m.steps,
+                { id: event.id, name: event.name, args: event.args, status: "running" },
+              ],
+            }));
+          } else if (event.type === "tool_result") {
+            if (event.mutated) mutated = true;
+            patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+              ...m,
+              steps: m.steps.map((step) =>
+                step.id === event.id ? { ...step, status: event.ok ? "done" : "error" } : step,
+              ),
+            }));
+          } else if (event.type === "error") {
+            patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+              ...m,
+              error: event.message,
+            }));
+          }
+        }
+
+        try {
+          const response = await fetch("/api/ai/chat", {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              agent: { baseUrl: agent.baseUrl, apiKey: agent.apiKey, model: agent.model },
+              messages: history,
+            }),
+            signal: controller.signal,
+          });
+
+          if (!response.ok || !response.body) {
+            let message = "Não foi possível falar com o agente.";
+            try {
+              const data = (await response.json()) as { error?: string };
+              if (data.error) message = data.error;
+            } catch {
+              // mantém padrão
+            }
+            patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+              ...m,
+              error: message,
+            }));
+          } else {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            while (true) {
+              const { done, value: chunk } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(chunk, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                  apply(JSON.parse(line) as StreamEvent);
+                } catch {
+                  // linha incompleta
+                }
+              }
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+              ...m,
+              error: "A conexão com o servidor foi interrompida.",
+            }));
+          }
+        } finally {
+          controller = null;
+          patchAssistantInSession(currentSessionId, replyMessageId, (m) => ({
+            ...m,
+            pending: false,
+            steps: m.steps.map((step) =>
+              step.status === "running" ? { ...step, status: "error" } : step,
+            ),
+          }));
+          set({ sending: false });
+          if (mutated) void loadSession();
+        }
+      }
 
       return {
         folders: [],
@@ -363,102 +475,85 @@ export const useChat = create<ChatState>()(
               documents: m.documents,
             }));
 
-          controller = new AbortController();
-          let mutated = false;
+          await runChatStream(currentSessionId, replyMessage.id, history);
+        },
 
-          function apply(event: StreamEvent) {
-            if (event.type === "text") {
-              patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-                ...m,
-                content: m.content + event.delta,
-              }));
-            } else if (event.type === "tool") {
-              patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-                ...m,
-                steps: [
-                  ...m.steps,
-                  { id: event.id, name: event.name, args: event.args, status: "running" },
-                ],
-              }));
-            } else if (event.type === "tool_result") {
-              if (event.mutated) mutated = true;
-              patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-                ...m,
-                steps: m.steps.map((step) =>
-                  step.id === event.id ? { ...step, status: event.ok ? "done" : "error" } : step,
-                ),
-              }));
-            } else if (event.type === "error") {
-              patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-                ...m,
-                error: event.message,
-              }));
-            }
-          }
+        editAndResendMessage: async (messageId: string, newText: string) => {
+          const clean = newText.trim();
+          if (!clean || get().sending) return;
 
-          try {
-            const response = await fetch("/api/ai/chat", {
-              method: "POST",
-              credentials: "include",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                agent: { baseUrl: agent.baseUrl, apiKey: agent.apiKey, model: agent.model },
-                messages: history,
-              }),
-              signal: controller.signal,
+          const agent = usePrefs.getState().agent;
+          if (!agentReady(agent)) return;
+
+          let session = activeSession();
+          if (!session) return;
+          const currentSessionId = session.id;
+
+          const msgIndex = session.messages.findIndex((m) => m.id === messageId);
+          if (msgIndex === -1) return;
+
+          const targetMsg = session.messages[msgIndex];
+          const updatedUserMessage: ChatMessage = {
+            ...targetMsg,
+            content: clean,
+            createdAt: new Date().toISOString(),
+          };
+
+          const replyMessage: ChatMessage = {
+            id: uid("a"),
+            role: "assistant",
+            content: "",
+            steps: [],
+            pending: true,
+            createdAt: new Date().toISOString(),
+          };
+
+          const priorMessages = session.messages.slice(0, msgIndex);
+          const newMessages = [...priorMessages, updatedUserMessage, replyMessage];
+
+          const newTitle =
+            msgIndex === 0
+              ? deriveTitle(
+                  clean,
+                  Boolean(targetMsg.images?.length),
+                  Boolean(targetMsg.audio),
+                  targetMsg.documents,
+                )
+              : session.title;
+
+          set((state) => {
+            const sessions = state.sessions.map((s) => {
+              if (s.id !== currentSessionId) return s;
+              return {
+                ...s,
+                title: newTitle,
+                messages: newMessages,
+                updatedAt: new Date().toISOString(),
+              };
             });
+            return {
+              sessions,
+              messages: syncMessages(sessions, state.activeSessionId),
+              sending: true,
+            };
+          });
 
-            if (!response.ok || !response.body) {
-              let message = "Não foi possível falar com o agente.";
-              try {
-                const data = (await response.json()) as { error?: string };
-                if (data.error) message = data.error;
-              } catch {
-                // mantém padrão
-              }
-              patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-                ...m,
-                error: message,
-              }));
-            } else {
-              const reader = response.body.getReader();
-              const decoder = new TextDecoder();
-              let buffer = "";
-              while (true) {
-                const { done, value: chunk } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(chunk, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() ?? "";
-                for (const line of lines) {
-                  if (!line.trim()) continue;
-                  try {
-                    apply(JSON.parse(line) as StreamEvent);
-                  } catch {
-                    // linha incompleta
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            if (!(error instanceof DOMException && error.name === "AbortError")) {
-              patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-                ...m,
-                error: "A conexão com o servidor foi interrompida.",
-              }));
-            }
-          } finally {
-            controller = null;
-            patchAssistantInSession(currentSessionId, replyMessage.id, (m) => ({
-              ...m,
-              pending: false,
-              steps: m.steps.map((step) =>
-                step.status === "running" ? { ...step, status: "error" } : step,
-              ),
+          const fullMessages = [...priorMessages, updatedUserMessage];
+          const history = fullMessages
+            .filter(
+              (m) =>
+                m.content.trim() ||
+                (m.images && m.images.length > 0) ||
+                (m.documents && m.documents.length > 0),
+            )
+            .map((m) => ({
+              role: m.role,
+              content: m.content,
+              images: m.images,
+              documents: m.documents,
             }));
-            set({ sending: false });
-            if (mutated) void loadSession();
-          }
+
+          await runChatStream(currentSessionId, replyMessage.id, history);
         },
       };
     },

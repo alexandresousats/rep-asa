@@ -626,3 +626,86 @@ export async function markAllNotificationsRead() {
   );
   useWorkspace.getState().setNotifications(items);
 }
+
+export interface DemandLinkInfoResponse {
+  ok: boolean;
+  project: {
+    id: string;
+    name: string;
+    color: string;
+    description: string;
+  };
+  workspace: {
+    id: string;
+    name: string;
+  };
+  verifiedBy: {
+    id: string;
+    name: string;
+    role: string;
+    verified: boolean;
+    verifiedAt: string;
+  };
+  tags: { id: string; name: string; color: string }[];
+  formats: {
+    id: string;
+    label: string;
+    tagName: string;
+    desc: string;
+    color: string;
+    bgLight: string;
+    borderColor: string;
+  }[];
+}
+
+export async function generateDemandLink(projectId: string) {
+  return request<{
+    token: string;
+    project: { id: string; name: string; color: string };
+    workspace: { id: string; name: string };
+    verifiedBy: { id: string; name: string; role: string; verified: boolean };
+  }>("/demands/generate-link", {
+    method: "POST",
+    body: JSON.stringify({ projectId }),
+  });
+}
+
+export async function getDemandLinkInfo(token: string) {
+  return request<DemandLinkInfoResponse>(`/demands/link-info?token=${encodeURIComponent(token)}`);
+}
+
+export async function chatWithDemandAgent(
+  token: string,
+  messages: Array<{
+    role: "user" | "assistant";
+    content: string;
+    images?: string[];
+    videos?: string[];
+    documents?: any[];
+  }>,
+  currentDemand?: Record<string, any>,
+) {
+  return request<{
+    ok: boolean;
+    reply: string;
+    updatedDemand: Record<string, any>;
+    project: { id: string; name: string };
+    verifiedBy: { name: string };
+  }>("/demands/agent-chat", {
+    method: "POST",
+    body: JSON.stringify({ token, messages, currentDemand }),
+  });
+}
+
+export async function submitDemandViaLink(token: string, demand: Record<string, any>) {
+  return request<{
+    ok: boolean;
+    task: Task;
+    demandCode: string;
+    projectName: string;
+    workspaceName: string;
+  }>("/demands/submit-via-link", {
+    method: "POST",
+    body: JSON.stringify({ token, demand }),
+  });
+}

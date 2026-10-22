@@ -34,14 +34,14 @@ import { WorkspaceDropdown } from "./workspace-dropdown";
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
   { href: "/agente", label: "Agente IA", icon: Sparkles, match: "/agente" },
-  { href: "/insights", label: "Insights", icon: ChartColumn },
-  { href: "/demandas", label: "Demandas", icon: Inbox, match: "/demandas" },
   { href: "/tarefas", label: "Minhas tarefas", icon: ListTodo },
   { href: "/projetos", label: "Projetos", icon: FolderKanban, match: "/projetos" },
+  { href: "/demandas", label: "Demandas", icon: Inbox, match: "/demandas" },
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
   { href: "/datas-comemorativas", label: "Datas Comemorativas", icon: PartyPopper, match: "/datas-comemorativas" },
   { href: "/mensagens", label: "Mensagens", icon: MessageSquare, match: "/mensagens" },
   { href: "/equipe", label: "Equipe", icon: Users },
+  { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

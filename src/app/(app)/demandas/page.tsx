@@ -19,6 +19,7 @@ import {
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CreateDemandDialog, FORMAT_OPTIONS } from "@/components/demands/create-demand-dialog";
+import { ShareDemandLinkDialog } from "@/components/demands/share-demand-link-dialog";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { cn } from "@/lib/cn";
@@ -36,6 +37,7 @@ export default function DemandsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [demandDialogOpen, setDemandDialogOpen] = useState(false);
+  const [shareLinkDialogOpen, setShareLinkDialogOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const allTasks = useWorkspace((state) => state.tasks);
@@ -138,13 +140,24 @@ export default function DemandsPage() {
               </p>
             </div>
 
-            <Button
-              onClick={() => setDemandDialogOpen(true)}
-              className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md hover:opacity-95"
-            >
-              <Plus className="h-4 w-4" />
-              Solicitar Demanda
-            </Button>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Button
+                variant="outline"
+                onClick={() => setShareLinkDialogOpen(true)}
+                className="gap-2 border-line bg-elevated/80 text-ink hover:bg-hover hover:border-line-subtle shadow-xs"
+              >
+                <Link2 className="h-4 w-4 text-sky-400" />
+                <span>Link Verificado do Agente</span>
+              </Button>
+
+              <Button
+                onClick={() => setDemandDialogOpen(true)}
+                className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md hover:opacity-95"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Solicitar Demanda</span>
+              </Button>
+            </div>
           </div>
 
           {/* Stats Bar */}
@@ -547,6 +560,13 @@ export default function DemandsPage() {
         open={demandDialogOpen}
         onClose={() => setDemandDialogOpen(false)}
         onDemandCreated={(task) => setSelectedId(task.id)}
+      />
+
+      {/* Share Verified Demand Link Dialog */}
+      <ShareDemandLinkDialog
+        open={shareLinkDialogOpen}
+        onClose={() => setShareLinkDialogOpen(false)}
+        defaultProjectId={projectFilter !== "all" ? projectFilter : undefined}
       />
     </div>
   );

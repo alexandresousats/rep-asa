@@ -6,6 +6,7 @@ import {
   Copy,
   FileText,
   LoaderCircle,
+  Pencil,
   Sparkles,
   Trash2,
   X,
@@ -108,6 +109,16 @@ function Bubble({
 }) {
   const [copied, setCopied] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(message.content || "");
+  const sending = useChat((state) => state.sending);
+  const editAndResendMessage = useChat((state) => state.editAndResendMessage);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditText(message.content || "");
+    }
+  }, [message.content, isEditing]);
 
   function copyText() {
     if (!message.content) return;
@@ -117,34 +128,64 @@ function Bubble({
     });
   }
 
+  function handleSaveEdit() {
+    const clean = editText.trim();
+    if (!clean || sending) return;
+    setIsEditing(false);
+    void editAndResendMessage(message.id, clean);
+  }
+
   if (message.role === "user") {
+    if (isEditing) {
+      return (
+        <div className="flex justify-end">
+          <div className="w-full max-w-[85%] rounded-3xl bg-elevated p-4 shadow-sm">
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSaveEdit();
+                } else if (e.key === "Escape") {
+                  setIsEditing(false);
+                  setEditText(message.content || "");
+                }
+              }}
+              rows={Math.min(6, Math.max(2, editText.split("\n").length))}
+              className="w-full resize-none bg-transparent text-[15px] leading-7 text-ink focus:outline-none"
+              autoFocus
+            />
+            <div className="mt-2 flex items-center justify-end gap-2 border-t border-line/30 pt-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditing(false);
+                  setEditText(message.content || "");
+                }}
+                className="rounded-full px-3.5 py-1.5 text-xs font-medium text-faint transition-colors hover:bg-hover hover:text-ink"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={!editText.trim() || sending}
+                className="rounded-full bg-ink px-4 py-1.5 text-xs font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="group relative flex justify-end">
-        {/* Ações da mensagem (excluir / copiar) */}
-        <div className="absolute top-2 -left-16 hidden items-center gap-1 opacity-0 transition-opacity group-hover:flex group-hover:opacity-100 sm:flex">
-          {message.content ? (
-            <button
-              type="button"
-              onClick={copyText}
-              title="Copiar texto"
-              className="rounded-lg p-1 text-faint hover:bg-hover hover:text-ink"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => onDelete(message.id)}
-            title="Excluir mensagem"
-            className="rounded-lg p-1 text-faint hover:bg-hover hover:text-red-400"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-
-        <div className="max-w-[85%] space-y-2">
+        <div className="flex max-w-[85%] flex-col items-end">
           {message.images && message.images.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
               {message.images.map((img, idx) => (
                 <button
                   key={idx}
@@ -164,13 +205,13 @@ function Bubble({
           )}
 
           {message.audio && (
-            <div className="w-64 max-w-full sm:w-80">
+            <div className="mb-2 w-64 max-w-full sm:w-80">
               <AudioPlayer url={message.audio.url} duration={message.audio.duration} />
             </div>
           )}
 
           {message.documents && message.documents.length > 0 && (
-            <div className="flex flex-col gap-2">
+            <div className="mb-2 flex w-full flex-col gap-2">
               {message.documents.map((doc, idx) => (
                 <div
                   key={idx}
@@ -180,8 +221,8 @@ function Bubble({
                     <FileText className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1 text-left">
-                    <p className="font-medium truncate text-sm">{doc.name}</p>
-                    <p className="text-[11px] text-faint mt-0.5">
+                    <p className="truncate text-sm font-medium">{doc.name}</p>
+                    <p className="mt-0.5 text-[11px] text-faint">
                       {(doc.size / (1024 * 1024)).toFixed(1)} MB
                       {doc.pageCount ? ` · ${doc.pageCount} páginas` : ""} · Analisado pela IA
                     </p>
@@ -197,15 +238,44 @@ function Bubble({
             </div>
           ) : null}
 
-          {/* Botão de excluir no mobile */}
-          <div className="flex justify-end sm:hidden">
+          {/* Ações abaixo da mensagem enviada: editar, copiar e excluir (visíveis no hover) */}
+          <div className="mt-1 flex items-center justify-end gap-1.5 px-1 text-faint opacity-0 transition-opacity group-hover:opacity-100">
+            {message.content ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditText(message.content || "");
+                  setIsEditing(true);
+                }}
+                title="Editar mensagem"
+                className="rounded-md p-1 transition-colors hover:bg-hover hover:text-ink"
+              >
+                <Pencil className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            ) : null}
+
+            {message.content ? (
+              <button
+                type="button"
+                onClick={copyText}
+                title="Copiar texto"
+                className="rounded-md p-1 transition-colors hover:bg-hover hover:text-ink"
+              >
+                {copied ? (
+                  <Check className="h-4 w-4 text-emerald-500" strokeWidth={1.5} />
+                ) : (
+                  <Copy className="h-4 w-4" strokeWidth={1.5} />
+                )}
+              </button>
+            ) : null}
+
             <button
               type="button"
               onClick={() => onDelete(message.id)}
-              className="flex items-center gap-1 text-[11px] text-faint hover:text-red-400"
+              title="Excluir mensagem"
+              className="rounded-md p-1 transition-colors hover:bg-hover hover:text-red-400"
             >
-              <Trash2 className="h-3 w-3" />
-              <span>Excluir</span>
+              <Trash2 className="h-4 w-4" strokeWidth={1.5} />
             </button>
           </div>
         </div>
