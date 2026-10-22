@@ -1,9 +1,11 @@
 export type Priority = "baixa" | "media" | "alta" | "urgente";
 export type TaskStatus = "todo" | "doing" | "done";
-export type ProjectView = "lista" | "cronograma" | "calendario" | "kanban" | "painel";
+export type ProjectView = "lista" | "cronograma" | "calendario" | "kanban" | "painel" | "demandas" | "aprovacoes";
 export type ProjectsLayout = "grid" | "list";
 export type TaskViewMode = "sidebar" | "modal";
-export type AccessLevel = "admin" | "editor" | "leitura";
+export type AccessLevel = "admin" | "editor" | "leitura" | "cliente";
+export type ApprovalStatus = "none" | "pending" | "approved" | "changes_requested";
+export type DemandFormat = "card" | "carrossel" | "video_longo" | "reels";
 
 export interface User {
   id: string;
@@ -114,6 +116,13 @@ export interface Task {
   attachments?: TaskAttachment[];
   completedAt: string | null;
   createdAt: string;
+  isDemand?: boolean;
+  demandFormat?: string | null;
+  referenceUrls?: string | null;
+  approvalStatus?: ApprovalStatus;
+  approvalFeedback?: string | null;
+  approvedAt?: string | null;
+  approvedById?: string | null;
 }
 
 export interface Message {
@@ -162,6 +171,31 @@ export interface McpServer {
   transport: McpTransport;
   apiKey: string;
   enabled: boolean;
+}
+
+export type AgentPreset = "openai" | "xai" | "openrouter" | "custom";
+
+export interface AgentSettings {
+  preset: AgentPreset;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+}
+
+export interface ChatToolStep {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  status: "running" | "done" | "error";
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  steps: ChatToolStep[];
+  error?: string;
+  pending?: boolean;
 }
 
 export interface AssistantReply {

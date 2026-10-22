@@ -15,5 +15,11 @@ services:
       timeout: 5s
       retries: 10
 
+  opendata:
+    build: https://github.com/alexandresousats/api-opendata.br.git
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
 volumes:
   asa_pg:

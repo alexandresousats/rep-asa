@@ -3,6 +3,7 @@
 import { Check, GripVertical, Plus, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { PriorityLabel } from "@/components/tasks/priority-label";
+import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { Avatar } from "@/components/ui/avatar";
 import { TagChip } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -259,8 +260,14 @@ export function TaskKanban({
                         </p>
                       </div>
                     </div>
+                    {task.demandFormat || (task.approvalStatus && task.approvalStatus !== "none") ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <TaskFormatBadge format={task.demandFormat} />
+                        <TaskApprovalBadge status={task.approvalStatus} />
+                      </div>
+                    ) : null}
                     {taskTags.length > 0 ? (
-                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <div className="mt-2 flex flex-wrap gap-1.5">
                         {taskTags.map((tag) => (
                           <TagChip key={tag.id} name={tag.name} color={tag.color} />
                         ))}

@@ -14,6 +14,9 @@ import { ProjectTimeline } from "@/components/timeline/project-timeline";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SectionBar } from "@/components/projects/section-bar";
+import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
+import { ProjectDemandsView } from "@/components/demands/project-demands-view";
+import { ProjectApprovalsView } from "@/components/demands/project-approvals-view";
 import { addProjectMember, createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
@@ -26,6 +29,8 @@ const VIEWS: { id: ProjectView; label: string }[] = [
   { id: "cronograma", label: "Cronograma" },
   { id: "calendario", label: "Calendário" },
   { id: "painel", label: "Painel" },
+  { id: "demandas", label: "Demandas" },
+  { id: "aprovacoes", label: "Aprovações" },
 ];
 
 export default function ProjectPage() {
@@ -47,6 +52,7 @@ function ProjectWorkspace() {
   const [pendingSection, setPendingSection] = useState(false);
   const [listDraft, setListDraft] = useState<string | null>(null);
   const [addMenu, setAddMenu] = useState(false);
+  const [demandDialogOpen, setDemandDialogOpen] = useState(false);
   const [memberOpen, setMemberOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editingInfo, setEditingInfo] = useState(false);
@@ -60,7 +66,7 @@ function ProjectWorkspace() {
   const tags = useWorkspace((state) => state.tags);
   const taskView = usePrefs((state) => state.taskView);
   const setTaskView = usePrefs((state) => state.setTaskView);
-  const { isAdmin, canWrite } = useAccess();
+  const { isAdmin, canWrite, isClient } = useAccess();
   const project = projects.find((item) => item.id === params.id);
   const tasks = useMemo(
     () =>
@@ -168,84 +174,96 @@ function ProjectWorkspace() {
               ))}
             </div>
           </div>
-          {canWrite ? (
           <div className="flex items-center gap-3">
-          {isAdmin ? (
-          <button
-            type="button"
-            onClick={() => {
-              setDeleteError("");
-              setConfirmDelete(true);
-            }}
-            className="text-xs text-faint hover:text-ink"
-          >
-            Excluir projeto
-          </button>
-          ) : null}
-          <div ref={addMenuRef} className="relative">
-            <Button
-              aria-expanded={addMenu}
-              aria-haspopup="menu"
-              onClick={() => setAddMenu((open) => !open)}
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar
-            </Button>
-            {addMenu ? (
-              <div
-                role="menu"
-                className="absolute right-0 z-30 mt-2 min-w-36 rounded-2xl border border-line bg-elevated p-1"
+            {(canWrite || isClient) ? (
+              <Button
+                onClick={() => setDemandDialogOpen(true)}
+                className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-sm hover:opacity-90"
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setAddMenu(false);
-                    if (view === "lista") {
-                      setListDraft(activeSection);
-                      return;
-                    }
-                    addTask();
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                >
-                  Tarefa
-                </button>
+                <Plus className="h-4 w-4" />
+                Nova Demanda
+              </Button>
+            ) : null}
+            {canWrite ? (
+              <>
                 {isAdmin ? (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setAddMenu(false);
-                        setPendingSection(true);
-                        if (view !== "lista") setQuery({ view: "lista" });
-                      }}
-                      className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                    >
-                      Sessão
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setAddMenu(false);
-                        setMemberOpen(true);
-                      }}
-                      className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
-                    >
-                      Membro
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteError("");
+                      setConfirmDelete(true);
+                    }}
+                    className="text-xs text-faint hover:text-ink"
+                  >
+                    Excluir projeto
+                  </button>
                 ) : null}
-              </div>
+                <div ref={addMenuRef} className="relative">
+                  <Button
+                    aria-expanded={addMenu}
+                    aria-haspopup="menu"
+                    variant="outline"
+                    onClick={() => setAddMenu((open) => !open)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Adicionar
+                  </Button>
+                  {addMenu ? (
+                    <div
+                      role="menu"
+                      className="absolute right-0 z-30 mt-2 min-w-36 rounded-2xl border border-line bg-elevated p-1"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAddMenu(false);
+                          if (view === "lista") {
+                            setListDraft(activeSection);
+                            return;
+                          }
+                          addTask();
+                        }}
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+                      >
+                        Tarefa
+                      </button>
+                      {isAdmin ? (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAddMenu(false);
+                              setPendingSection(true);
+                              if (view !== "lista") setQuery({ view: "lista" });
+                            }}
+                            className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+                          >
+                            Sessão
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAddMenu(false);
+                              setMemberOpen(true);
+                            }}
+                            className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
+                          >
+                            Membro
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </>
             ) : null}
           </div>
-          </div>
-          ) : null}
         </div>
 
-        <div className={cn("min-h-0 flex-1", view === "kanban" || view === "cronograma" || view === "calendario" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
+        <div className={cn("min-h-0 flex-1", view === "kanban" || view === "cronograma" || view === "calendario" || view === "demandas" || view === "aprovacoes" ? "overflow-hidden" : "overflow-y-auto overscroll-contain")}>
         {view === "lista" ? (
           <div className="overflow-x-auto">
             <GroupedTaskList
@@ -330,6 +348,27 @@ function ProjectWorkspace() {
             draggable={canWrite}
           />
         ) : null}
+
+        {view === "demandas" ? (
+          <ProjectDemandsView
+            project={current}
+            tasks={tasks}
+            users={users}
+            tags={tags}
+            onSelectTask={(id) => setQuery({ task: id })}
+            onCreateDemand={() => setDemandDialogOpen(true)}
+          />
+        ) : null}
+
+        {view === "aprovacoes" ? (
+          <ProjectApprovalsView
+            project={current}
+            tasks={tasks}
+            users={users}
+            tags={tags}
+            onSelectTask={(id) => setQuery({ task: id })}
+          />
+        ) : null}
         </div>
       </div>
 
@@ -356,6 +395,12 @@ function ProjectWorkspace() {
         memberIds={project.memberIds}
         users={users}
         onClose={() => setMemberOpen(false)}
+      />
+      <CreateDemandDialog
+        open={demandDialogOpen}
+        onClose={() => setDemandDialogOpen(false)}
+        defaultProjectId={project.id}
+        onDemandCreated={(task) => setQuery({ task: task.id })}
       />
       <Dialog
         open={confirmDelete}

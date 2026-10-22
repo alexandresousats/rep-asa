@@ -2,13 +2,14 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Building2, Cpu, Hash, User } from "lucide-react";
+import { Building2, Cpu, Hash, Sparkles, User } from "lucide-react";
 import { CreateWorkspaceDialog } from "@/components/layout/create-workspace-dialog";
 import { MemberForm } from "@/components/team/member-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { AgentSettingsCard } from "@/components/settings/agent-settings";
 import { ApiKeysCard } from "@/components/settings/api-keys";
 import { TagsManager } from "@/components/settings/tags-manager";
 import {
@@ -23,11 +24,12 @@ import { usePrefs } from "@/lib/prefs";
 import type { McpTransport, WorkspaceMembership } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
 
-type SettingsTab = "perfil" | "workspace" | "mcp" | "tags";
+type SettingsTab = "perfil" | "workspace" | "agente" | "mcp" | "tags";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof User }[] = [
   { id: "perfil", label: "Perfil", icon: User },
   { id: "workspace", label: "Espaço de trabalho", icon: Building2 },
+  { id: "agente", label: "Agente de IA", icon: Sparkles },
   { id: "mcp", label: "MCP", icon: Cpu },
   { id: "tags", label: "Tags", icon: Hash },
 ];
@@ -42,6 +44,9 @@ function normalizeTab(param: string | null): SettingsTab {
     lower === "espaço de trabalho"
   ) {
     return "workspace";
+  }
+  if (lower === "agente" || lower === "ai" || lower === "ia" || lower === "agent") {
+    return "agente";
   }
   if (lower === "mcp") return "mcp";
   if (lower === "tags" || lower === "tag") return "tags";
@@ -233,6 +238,8 @@ function SettingsContent() {
           </section>
         </div>
       )}
+
+      {activeTab === "agente" && <AgentSettingsCard />}
 
       {activeTab === "mcp" && (
         <div className="space-y-10">

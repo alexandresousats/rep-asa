@@ -3,9 +3,10 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { streamSSE } from "hono/streaming";
+import { stream, streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { subscribe } from "./events";
+import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import {
   actorFromApiKey,
   actorFromSession,
@@ -52,13 +53,15 @@ import {
   signup,
   updateTag,
   updateTask,
+  updateTaskApproval,
   updateUser,
 } from "./domain";
 import type { Actor } from "./domain";
 import { ApiError } from "./errors";
 import { handleMcpMessage, rpcError } from "./mcp";
 
-const access = z.enum(["admin", "editor", "leitura"]);
+const access = z.enum(["admin", "editor", "leitura", "cliente"]);
+const approvalStatus = z.enum(["none", "pending", "approved", "changes_requested"]);
 const priority = z.enum(["baixa", "media", "alta", "urgente"]);
 const status = z.enum(["todo", "doing", "done"]);
 
@@ -229,6 +232,7 @@ app.post("/users", async (c) => {
       password: z.string().optional(),
       role: z.string(),
       access,
+      projectId: z.string().optional(),
     }),
     await c.req.json(),
   );
@@ -331,6 +335,10 @@ app.post("/tasks", async (c) => {
       priority: priority.optional(),
       tagIds: z.array(z.string()).optional(),
       section: z.string().optional(),
+      isDemand: z.boolean().optional(),
+      demandFormat: z.string().nullable().optional(),
+      referenceUrls: z.string().nullable().optional(),
+      approvalStatus: approvalStatus.optional(),
     }),
     await c.req.json(),
   );
@@ -351,10 +359,26 @@ app.patch("/tasks/:id", async (c) => {
       section: z.string().optional(),
       order: z.number().optional(),
       projectId: z.string().optional(),
+      isDemand: z.boolean().optional(),
+      demandFormat: z.string().nullable().optional(),
+      referenceUrls: z.string().nullable().optional(),
+      approvalStatus: approvalStatus.optional(),
+      approvalFeedback: z.string().nullable().optional(),
     }),
     await c.req.json(),
   );
   return c.json(await updateTask(await actorOf(c), c.req.param("id"), body));
+});
+
+app.post("/tasks/:id/approval", async (c) => {
+  const body = parse(
+    z.object({
+      status: approvalStatus,
+      feedback: z.string().optional(),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await updateTaskApproval(await actorOf(c), c.req.param("id"), body));
 });
 
 app.delete("/tasks/:id", async (c) => {
@@ -510,6 +534,60 @@ app.post("/api-keys", async (c) => {
 app.delete("/api-keys/:id", async (c) => {
   await deleteApiKey(await actorOf(c), c.req.param("id"));
   return c.json({ ok: true });
+});
+
+const agentConfig = z.object({
+  baseUrl: z.string().max(300),
+  apiKey: z.string().max(500),
+  model: z.string().max(200),
+});
+
+app.post("/ai/test", async (c) => {
+  await actorOf(c);
+  const body = parse(z.object({ agent: agentConfig }), await c.req.json());
+  return c.json(await testAgent(body.agent));
+});
+
+app.post("/ai/chat", async (c) => {
+  const actor = await actorOf(c);
+  const body = parse(
+    z.object({
+      agent: agentConfig,
+      messages: z
+        .array(
+          z.object({
+            role: z.enum(["user", "assistant"]),
+            content: z.string().max(20000),
+          }),
+        )
+        .min(1)
+        .max(100),
+    }),
+    await c.req.json(),
+  );
+  const agent = normalizeConfig(body.agent);
+  c.header("Content-Type", "application/x-ndjson; charset=utf-8");
+  c.header("Cache-Control", "no-cache, no-transform");
+  c.header("X-Accel-Buffering", "no");
+  return stream(c, async (out) => {
+    const controller = new AbortController();
+    out.onAbort(() => controller.abort());
+    const emit = (event: AgentEvent) => {
+      if (controller.signal.aborted) return;
+      void out.write(`${JSON.stringify(event)}\n`);
+    };
+    try {
+      await runAgent(actor, agent, body.messages, emit, controller.signal);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const message =
+          error instanceof ApiError ? error.message : "Não foi possível falar com o agente.";
+        if (!(error instanceof ApiError)) console.error(error);
+        emit({ type: "error", message });
+      }
+    }
+    emit({ type: "done" });
+  });
 });
 
 app.post("/mcp", async (c) => {

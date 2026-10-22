@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { PriorityLabel } from "@/components/tasks/priority-label";
+import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { TaskColumnFilters } from "@/components/tasks/task-filters";
 import {
   createSection,
@@ -186,6 +187,8 @@ export function TaskList({
                   if (canWrite) updateTask(task.id, { title });
                 }}
               />
+              <TaskFormatBadge format={task.demandFormat} />
+              <TaskApprovalBadge status={task.approvalStatus} />
             </span>
             <span className="flex items-center gap-2 text-muted">
               {assignee ? (

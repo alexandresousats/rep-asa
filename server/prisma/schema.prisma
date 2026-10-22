@@ -11,6 +11,14 @@ enum AccessLevel {
   admin
   editor
   leitura
+  cliente
+}
+
+enum ApprovalStatus {
+  none
+  pending
+  approved
+  changes_requested
 }
 
 enum MemberStatus {
@@ -50,6 +58,7 @@ model User {
   workspaceMembers WorkspaceMember[]   @relation("WorkspaceMembers")
   sentInvites      WorkspaceMember[]   @relation("InvitedBy")
   assignedTasks    Task[]              @relation("Assignee")
+  approvedTasks    Task[]              @relation("TaskApprover")
   comments         Comment[]
   messages         Message[]
   threads          ThreadParticipant[]
@@ -175,11 +184,20 @@ model Task {
   children    Task[]     @relation("Subtasks")
   tags        TaskTag[]
   comments    Comment[]
-  followers   TaskFollower[]
-  attachments Attachment[]
+  followers        TaskFollower[]
+  attachments      Attachment[]
+  isDemand         Boolean        @default(false)
+  demandFormat     String?
+  referenceUrls    String?        @db.Text
+  approvalStatus   ApprovalStatus @default(none)
+  approvalFeedback String?        @db.Text
+  approvedAt       String?
+  approvedById     String?
+  approvedBy       User?          @relation("TaskApprover", fields: [approvedById], references: [id])
 
   @@index([projectId])
   @@index([assigneeId])
+  @@index([approvalStatus])
 }
 
 model Tag {

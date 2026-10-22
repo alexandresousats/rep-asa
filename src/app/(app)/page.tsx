@@ -4,15 +4,101 @@ import { endOfWeek, format, startOfDay, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, SquarePen } from "lucide-react";
 import { Heatmap } from "@/components/insights/heatmap";
+import { MonthHighlights } from "@/components/opendata/month-highlights";
 import { TagChip } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatDay, parseDate } from "@/lib/dates";
 import { computeInsights } from "@/lib/insights";
 import { useWorkspace } from "@/lib/workspace";
+import { ChatComposer } from "@/components/chat/chat-composer";
+import { ChatThread } from "@/components/chat/chat-thread";
+import { useChat } from "@/lib/chat";
+import { agentReady, usePrefs } from "@/lib/prefs";
+
+const SUGGESTIONS = [
+  "Criar uma tarefa para amanhã",
+  "Quais tarefas estão atrasadas?",
+  "O que vence esta semana?",
+];
 
 export default function OverviewPage() {
+  const messages = useChat((state) => state.messages);
+
+  if (messages.length === 0) {
+    return (
+      <div className="mx-auto w-full max-w-6xl px-6 py-10">
+        <ChatHero />
+        <Dashboard />
+      </div>
+    );
+  }
+  return <ChatScreen />;
+}
+
+function ChatHero() {
+  const user = useWorkspace((state) => state.user);
+  const agent = usePrefs((state) => state.agent);
+  const send = useChat((state) => state.send);
+  const firstName = user?.name.split(" ")[0] ?? "equipe";
+  const ready = agentReady(agent);
+
+  return (
+    <section className="mx-auto mb-12 flex w-full max-w-2xl flex-col items-center pt-6 sm:pt-10">
+      <h1 className="text-center text-3xl font-medium tracking-tight text-ink">
+        Olá, {firstName}.
+      </h1>
+      <p className="mt-2 mb-8 text-center text-sm text-faint">
+        Converse com o agente para criar e organizar tarefas.
+      </p>
+      <ChatComposer hero autoFocus className="w-full" />
+      {ready ? (
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {SUGGESTIONS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => void send(item)}
+              className="rounded-full border border-line px-4 py-2 text-sm text-muted transition-colors hover:bg-hover hover:text-ink"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ChatScreen() {
+  const messages = useChat((state) => state.messages);
+  const reset = useChat((state) => state.reset);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between px-6 py-3">
+        <p className="text-sm text-faint">Agente ASA</p>
+        <button
+          type="button"
+          onClick={reset}
+          className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted transition-colors hover:bg-hover hover:text-ink"
+        >
+          <SquarePen className="h-4 w-4" strokeWidth={1.5} />
+          Nova conversa
+        </button>
+      </div>
+      <div data-chat-scroll className="min-h-0 flex-1 overflow-y-auto px-6">
+        <ChatThread messages={messages} className="mx-auto w-full max-w-3xl py-6" />
+      </div>
+      <div className="shrink-0 px-6 pt-2 pb-5">
+        <ChatComposer autoFocus className="mx-auto w-full max-w-3xl" />
+      </div>
+    </div>
+  );
+}
+
+function Dashboard() {
   const user = useWorkspace((state) => state.user);
   const tasks = useWorkspace((state) => state.tasks);
   const projects = useWorkspace((state) => state.projects);
@@ -65,11 +151,7 @@ export default function OverviewPage() {
   }, [tasks]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
-      <h1 className="mb-10 text-center text-3xl font-medium tracking-tight text-ink">
-        Olá, {firstName}.
-      </h1>
-
+    <div>
       <Card className="mb-6 border-none">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -152,9 +234,11 @@ export default function OverviewPage() {
         )}
       </Card>
 
+      <MonthHighlights />
+
       <Card className="mb-6 border-none">
         <div className="mb-5 flex items-center justify-between">
-          <p className="text-sm text-faint">Próximas datas importantes</p>
+          <p className="text-sm text-faint">Próximas datas importantes da equipe</p>
           <Link href="/calendario" className="text-xs text-faint hover:text-ink">
             {new Date().getFullYear()}
           </Link>
@@ -254,9 +338,10 @@ export default function OverviewPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <QuickLink href="/projetos" title="Projetos" text="Criar e acompanhar entregas." />
         <QuickLink href="/calendario" title="Calendário" text="Ver o mês da equipe." />
+        <QuickLink href="/datas-comemorativas" title="Datas Comemorativas" text="Feriados, campanhas e datas do ano." />
       </div>
     </div>
   );

@@ -28,6 +28,10 @@ const nextConfig: NextConfig = {
         source: "/mcp",
         destination: "http://127.0.0.1:4000/mcp",
       },
+      {
+        source: "/opendata/:path*",
+        destination: "http://127.0.0.1:8000/api/v1/:path*",
+      },
     ];
   },
   turbopack: {

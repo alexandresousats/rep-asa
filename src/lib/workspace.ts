@@ -157,9 +157,11 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
 
 export function useAccess() {
   const user = useWorkspace((state) => state.user);
+  const isClient = user?.access === "cliente" || user?.role?.toLowerCase().includes("cliente");
   return {
     user,
     isAdmin: user?.access === "admin",
     canWrite: user?.access === "admin" || user?.access === "editor",
+    isClient,
   };
 }

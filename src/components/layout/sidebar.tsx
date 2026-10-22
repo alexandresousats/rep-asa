@@ -4,10 +4,12 @@ import {
   CalendarDays,
   ChartColumn,
   FolderKanban,
+  Inbox,
   LayoutGrid,
   ListTodo,
   MessageSquare,
   Moon,
+  PartyPopper,
   Settings,
   PanelLeft,
   Search,
@@ -32,9 +34,11 @@ import { WorkspaceDropdown } from "./workspace-dropdown";
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
   { href: "/insights", label: "Insights", icon: ChartColumn },
+  { href: "/demandas", label: "Demandas", icon: Inbox, match: "/demandas" },
   { href: "/tarefas", label: "Minhas tarefas", icon: ListTodo },
   { href: "/projetos", label: "Projetos", icon: FolderKanban, match: "/projetos" },
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
+  { href: "/datas-comemorativas", label: "Datas Comemorativas", icon: PartyPopper, match: "/datas-comemorativas" },
   { href: "/mensagens", label: "Mensagens", icon: MessageSquare, match: "/mensagens" },
   { href: "/equipe", label: "Equipe", icon: Users },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
@@ -60,6 +64,8 @@ export function Sidebar({
   const user = useWorkspace((state) => state.user);
   const workspace = useWorkspace((state) => state.workspace);
   const workspaces = useWorkspace((state) => state.workspaces);
+  const tasks = useWorkspace((state) => state.tasks);
+  const pendingApprovals = tasks.filter((t) => t.approvalStatus === "pending").length;
   const [creating, setCreating] = useState(false);
 
   return (
@@ -121,6 +127,8 @@ export function Sidebar({
               : pathname === item.href ||
                 (item.match ? pathname.startsWith(item.match) : false);
           const Icon = item.icon;
+          const showBadge = item.href === "/demandas" && pendingApprovals > 0;
+
           return (
             <Link
               key={item.href}
@@ -128,14 +136,19 @@ export function Sidebar({
               title={item.label}
               onClick={onNavigate}
               className={cn(
-                "flex items-center rounded-full text-sm transition-colors",
+                "relative flex items-center rounded-full text-sm transition-colors",
                 collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
                 active
                   ? "bg-active text-ink"
                   : "text-muted hover:bg-hover hover:text-ink",
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+              <div className="relative">
+                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                {collapsed && showBadge && (
+                  <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                )}
+              </div>
               <span
                 className={cn(
                   "overflow-hidden transition-all duration-300",
@@ -144,6 +157,11 @@ export function Sidebar({
               >
                 {item.label}
               </span>
+              {!collapsed && showBadge && (
+                <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-[10px] font-semibold text-amber-500">
+                  {pendingApprovals}
+                </span>
+              )}
             </Link>
           );
         })}

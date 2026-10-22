@@ -14,6 +14,8 @@ import { TaskAttachments } from "@/components/tasks/task-attachments";
 import { TaskActionsMenu } from "@/components/tasks/task-actions-menu";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { SubtaskMark } from "@/components/tasks/task-list";
+import { TaskApprovalSection } from "@/components/tasks/task-approval-section";
+import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { addComment, addSubtask, deleteTask, setTaskFollow, setTaskStatus, updateTask } from "@/lib/api";
@@ -165,7 +167,7 @@ export function TaskPanel({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const { canWrite } = useAccess();
+  const { canWrite, isClient } = useAccess();
   const userId = useWorkspace((state) => state.user?.id);
   const following = Boolean(userId && task.followerIds?.includes(userId));
 
@@ -212,20 +214,26 @@ export function TaskPanel({
         />
       ) : null}
       <div className="flex items-start justify-between gap-4 border-b border-line-subtle px-5 py-5">
-        {canWrite ? (
-          <EditableTitle
-            key={task.id}
-            as="h2"
-            title={task.title}
-            startEditing={startEditing}
-            className="min-w-0 flex-1 text-lg font-medium leading-snug tracking-tight text-ink"
-            onCommit={(title) => updateTask(task.id, { title })}
-          />
-        ) : (
-          <h2 className="min-w-0 flex-1 text-lg font-medium leading-snug tracking-tight text-ink">
-            {task.title}
-          </h2>
-        )}
+        <div className="min-w-0 flex-1">
+          {canWrite ? (
+            <EditableTitle
+              key={task.id}
+              as="h2"
+              title={task.title}
+              startEditing={startEditing}
+              className="min-w-0 text-lg font-medium leading-snug tracking-tight text-ink"
+              onCommit={(title) => updateTask(task.id, { title })}
+            />
+          ) : (
+            <h2 className="min-w-0 text-lg font-medium leading-snug tracking-tight text-ink">
+              {task.title}
+            </h2>
+          )}
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <TaskFormatBadge format={task.demandFormat} />
+            <TaskApprovalBadge status={task.approvalStatus} />
+          </div>
+        </div>
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -294,6 +302,8 @@ export function TaskPanel({
       </div>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5 text-sm">
+        <TaskApprovalSection task={task} />
+
         <Field label="Responsável">
           <TaskAssigneePicker
             assigneeId={task.assigneeId}
@@ -424,7 +434,7 @@ export function TaskPanel({
         <TaskAttachments
           taskId={task.id}
           attachments={task.attachments}
-          canWrite={canWrite}
+          canWrite={Boolean(canWrite || isClient)}
         />
 
         <div>
@@ -448,7 +458,7 @@ export function TaskPanel({
               );
             })}
           </div>
-          {canWrite ? (
+          {canWrite || isClient ? (
           <form
             className="mt-4"
             onSubmit={(event) => {
@@ -461,7 +471,7 @@ export function TaskPanel({
             <input
               value={comment}
               onChange={(event) => setComment(event.target.value)}
-              placeholder="Adicione um comentário ou mencione a equipe"
+              placeholder="Adicione um comentário ou tire dúvidas"
               className="w-full rounded-2xl border border-line bg-base px-4 py-3 text-sm text-ink outline-none placeholder:text-faint"
             />
           </form>

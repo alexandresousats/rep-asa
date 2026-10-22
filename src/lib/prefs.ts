@@ -2,7 +2,35 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { McpServer, McpTransport, ProjectsLayout, TaskViewMode } from "./types";
+import type {
+  AgentSettings,
+  McpServer,
+  McpTransport,
+  ProjectsLayout,
+  TaskViewMode,
+} from "./types";
+
+export const AGENT_PRESETS = {
+  openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  xai: { label: "Grok (xAI)", baseUrl: "https://api.x.ai/v1", model: "grok-4" },
+  openrouter: {
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-4o-mini",
+  },
+  custom: { label: "Outra API", baseUrl: "", model: "" },
+} as const;
+
+export const EMPTY_AGENT: AgentSettings = {
+  preset: "openai",
+  baseUrl: AGENT_PRESETS.openai.baseUrl,
+  model: AGENT_PRESETS.openai.model,
+  apiKey: "",
+};
+
+export function agentReady(agent: AgentSettings) {
+  return Boolean(agent.baseUrl.trim() && agent.model.trim() && agent.apiKey.trim());
+}
 
 function uid(prefix: string) {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
@@ -15,6 +43,8 @@ interface PrefsState {
   taskView: TaskViewMode;
   projectsLayout: ProjectsLayout;
   mcpServers: McpServer[];
+  agent: AgentSettings;
+  setAgent: (patch: Partial<AgentSettings>) => void;
   setHasHydrated: (value: boolean) => void;
   setTaskView: (view: TaskViewMode) => void;
   setProjectsLayout: (layout: ProjectsLayout) => void;
@@ -35,6 +65,8 @@ export const usePrefs = create<PrefsState>()(
       taskView: "sidebar",
       projectsLayout: "grid",
       mcpServers: [],
+      agent: EMPTY_AGENT,
+      setAgent: (patch) => set({ agent: { ...get().agent, ...patch } }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
       setTaskView: (view) => set({ taskView: view }),
       setProjectsLayout: (layout) => set({ projectsLayout: layout }),
@@ -67,6 +99,7 @@ export const usePrefs = create<PrefsState>()(
         taskView: state.taskView,
         projectsLayout: state.projectsLayout,
         mcpServers: state.mcpServers,
+        agent: state.agent,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

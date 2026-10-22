@@ -193,6 +193,7 @@ export async function addMember(input: {
   password?: string;
   role: string;
   access: User["access"];
+  projectId?: string;
 }): Promise<{ ok: true; user: User } | { ok: false; error: string }> {
   try {
     const user = await request<User>("/users", {
@@ -200,6 +201,9 @@ export async function addMember(input: {
       body: JSON.stringify(input),
     });
     useWorkspace.getState().upsertUser(user);
+    if (input.projectId) {
+      await loadSession();
+    }
     return { ok: true, user };
   } catch (error) {
     return fail(error);
@@ -341,8 +345,27 @@ export async function createTask(input: {
   priority?: Priority;
   tagIds?: string[];
   section?: string;
+  isDemand?: boolean;
+  demandFormat?: string | null;
+  referenceUrls?: string | null;
+  approvalStatus?: Task["approvalStatus"];
 }) {
   const task = await request<Task>("/tasks", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  useWorkspace.getState().upsertTask(task);
+  return task;
+}
+
+export async function updateTaskApproval(
+  taskId: string,
+  input: {
+    status: NonNullable<Task["approvalStatus"]>;
+    feedback?: string;
+  },
+) {
+  const task = await request<Task>(`/tasks/${taskId}/approval`, {
     method: "POST",
     body: JSON.stringify(input),
   });

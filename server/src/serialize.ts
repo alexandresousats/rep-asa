@@ -102,6 +102,13 @@ export function publicTask(
       })) ?? [],
     completedAt: task.completedAt,
     createdAt: task.createdAt,
+    isDemand: task.isDemand,
+    demandFormat: task.demandFormat,
+    referenceUrls: task.referenceUrls,
+    approvalStatus: task.approvalStatus,
+    approvalFeedback: task.approvalFeedback,
+    approvedAt: task.approvedAt,
+    approvedById: task.approvedById,
   };
 }
 

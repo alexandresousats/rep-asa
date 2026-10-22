@@ -28,7 +28,7 @@ type JsonRpc = {
 
 const protocolVersion = "2025-03-26";
 
-const tools = [
+export const tools = [
   {
     name: "list_workspaces",
     description:
@@ -261,7 +261,7 @@ function arg(args: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-async function callTool(actor: Actor, name: string, args: Record<string, unknown>) {
+export async function callTool(actor: Actor, name: string, args: Record<string, unknown>) {
   const tool = tools.find((item) => item.name === name);
   if (!tool) throw new ApiError(400, "Ferramenta desconhecida.");
   if (tool.admin && actor.access !== "admin") {

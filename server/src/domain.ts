@@ -499,6 +499,7 @@ export async function addMember(
     password?: string;
     role: string;
     access: Actor["access"];
+    projectId?: string;
   },
 ) {
   assertAdmin(actor);
@@ -523,7 +524,16 @@ export async function addMember(
         passwordHash: await bcrypt.hash(input.password, 10),
         initials: initialsFrom(name),
         role,
-        access: "leitura",
+        access: input.access,
+      },
+    });
+  } else if (input.password && input.password.length >= 6) {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: await bcrypt.hash(input.password, 10),
+        role,
+        access: input.access,
       },
     });
   }
@@ -539,30 +549,46 @@ export async function addMember(
     throw new ApiError(400, "Esta pessoa já tem um convite pendente.");
   }
 
+  const isClient = input.access === "cliente";
   const membership = await prisma.workspaceMember.create({
     data: {
       workspaceId: actor.workspaceId,
       userId: user.id,
       access: input.access,
-      status: "pending",
+      status: isClient ? "active" : "pending",
       role,
       owner: false,
       invitedById: actor.id,
+      acceptedAt: isClient ? new Date() : null,
     },
   });
+
+  if (input.projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: input.projectId, workspaceId: actor.workspaceId },
+    });
+    if (project) {
+      await prisma.projectMember.upsert({
+        where: { projectId_userId: { projectId: project.id, userId: user.id } },
+        create: { projectId: project.id, userId: user.id },
+        update: {},
+      });
+    }
+  }
+
   const workspace = await prisma.workspace.findUnique({ where: { id: actor.workspaceId } });
   await notify({
     userId: user.id,
     workspaceId: actor.workspaceId,
     type: "workspace_invite",
-    title: "Convite para um espaço",
-    body: `${actor.name} convidou você para ${workspace?.name ?? "um espaço de trabalho"}.`,
+    title: isClient ? "Credenciais de cliente criadas" : "Convite para um espaço",
+    body: `${actor.name} cadastrou seu acesso em ${workspace?.name ?? "um espaço de trabalho"}.`,
   });
   return publicUser(user, {
     role: membership.role,
     access: membership.access,
     owner: false,
-    status: "pending",
+    status: membership.status,
   });
 }
 
@@ -970,6 +996,10 @@ export async function createTask(
     priority?: Task["priority"];
     tagIds?: string[];
     section?: string;
+    isDemand?: boolean;
+    demandFormat?: string | null;
+    referenceUrls?: string | null;
+    approvalStatus?: "none" | "pending" | "approved" | "changes_requested";
   },
 ) {
   assertWritable(actor);
@@ -980,7 +1010,12 @@ export async function createTask(
   if (!project.sections.some((item) => item.name === section)) {
     throw new ApiError(400, "Sessão não encontrada.");
   }
-  const assigneeId = input.assigneeId === undefined ? actor.id : input.assigneeId;
+  const assigneeId =
+    input.assigneeId === undefined
+      ? actor.access === "cliente"
+        ? null
+        : actor.id
+      : input.assigneeId;
   if (assigneeId) {
     const member = project.members.some((item) => item.userId === assigneeId);
     if (!member) throw new ApiError(400, "O responsável não participa deste projeto.");
@@ -1005,6 +1040,10 @@ export async function createTask(
       section,
       order: order + 1,
       createdAt: new Date().toISOString(),
+      isDemand: input.isDemand ?? false,
+      demandFormat: input.demandFormat ?? null,
+      referenceUrls: input.referenceUrls?.trim() ?? null,
+      approvalStatus: input.approvalStatus ?? "none",
       tags: input.tagIds?.length
         ? { create: input.tagIds.map((tagId) => ({ tagId })) }
         : undefined,
@@ -1020,6 +1059,19 @@ export async function createTask(
       href: `/projetos/${task.projectId}?task=${task.id}`,
       workspaceId: actor.workspaceId,
     });
+  }
+  if (input.isDemand) {
+    const others = project.members.filter((m) => m.userId !== actor.id);
+    for (const member of others) {
+      await notify({
+        userId: member.userId,
+        type: "demand_created",
+        title: "Nova solicitação de demanda",
+        body: `${actor.name} solicitou uma demanda: “${task.title}”.`,
+        href: `/projetos/${task.projectId}?task=${task.id}`,
+        workspaceId: actor.workspaceId,
+      });
+    }
   }
   await rememberFollower(task.id, assigneeId);
   const saved = await loadTask(task.id);
@@ -1040,6 +1092,13 @@ const editorFields = new Set([
   "section",
   "order",
   "projectId",
+  "isDemand",
+  "demandFormat",
+  "referenceUrls",
+  "approvalStatus",
+  "approvalFeedback",
+  "approvedAt",
+  "approvedById",
 ]);
 
 export async function updateTask(
@@ -1057,6 +1116,13 @@ export async function updateTask(
     section?: string;
     order?: number;
     projectId?: string;
+    isDemand?: boolean;
+    demandFormat?: string | null;
+    referenceUrls?: string | null;
+    approvalStatus?: "none" | "pending" | "approved" | "changes_requested";
+    approvalFeedback?: string | null;
+    approvedAt?: string | null;
+    approvedById?: string | null;
   },
 ) {
   assertWritable(actor);
@@ -1079,6 +1145,15 @@ export async function updateTask(
   if (patch.startDate !== undefined) data.startDate = patch.startDate;
   if (patch.priority !== undefined) data.priority = patch.priority;
   if (patch.order !== undefined) data.order = patch.order;
+  if (patch.isDemand !== undefined) data.isDemand = patch.isDemand;
+  if (patch.demandFormat !== undefined) data.demandFormat = patch.demandFormat;
+  if (patch.referenceUrls !== undefined) data.referenceUrls = patch.referenceUrls;
+  if (patch.approvalStatus !== undefined) data.approvalStatus = patch.approvalStatus;
+  if (patch.approvalFeedback !== undefined) data.approvalFeedback = patch.approvalFeedback;
+  if (patch.approvedAt !== undefined) data.approvedAt = patch.approvedAt;
+  if (patch.approvedById !== undefined) {
+    data.approvedBy = patch.approvedById ? { connect: { id: patch.approvedById } } : { disconnect: true };
+  }
   if (patch.status !== undefined) {
     data.status = patch.status;
     data.completedAt = patch.status === "done" ? todayISO() : null;
@@ -1158,6 +1233,92 @@ export async function updateTask(
     await rememberFollower(saved.id, patch.assigneeId);
   }
   const fresh = (await loadTask(saved.id)) ?? saved;
+  publishTask(actor, fresh);
+  return publicTask(fresh);
+}
+
+export async function updateTaskApproval(
+  actor: Actor,
+  id: string,
+  input: {
+    status: "none" | "pending" | "approved" | "changes_requested";
+    feedback?: string;
+  },
+) {
+  assertWritable(actor);
+  const task = await visibleTask(actor, id);
+  const feedback = input.feedback?.trim() ?? "";
+  const now = new Date().toISOString();
+
+  let autoComment = "";
+  if (input.status === "approved") {
+    autoComment = feedback
+      ? `✅ Demanda aprovada pelo cliente.\nObservação: ${feedback}`
+      : `✅ Demanda aprovada pelo cliente.`;
+  } else if (input.status === "changes_requested") {
+    autoComment = `⚠️ Ajustes solicitados pelo cliente:\n${feedback || "Por favor, verificar os ajustes necessários."}`;
+  } else if (input.status === "pending") {
+    autoComment = `⏳ Demanda enviada para aprovação do cliente.`;
+  }
+
+  await prisma.task.update({
+    where: { id },
+    data: {
+      approvalStatus: input.status,
+      approvalFeedback: feedback || null,
+      approvedAt:
+        input.status === "approved" || input.status === "changes_requested" ? now : null,
+      approvedById:
+        input.status === "approved" || input.status === "changes_requested" ? actor.id : null,
+    },
+  });
+
+  if (autoComment) {
+    await prisma.comment.create({
+      data: {
+        id: uid("c"),
+        taskId: id,
+        authorId: actor.id,
+        body: autoComment,
+        createdAt: now,
+      },
+    });
+  }
+
+  const project = await prisma.project.findUnique({
+    where: { id: task.projectId },
+    include: { members: { include: { user: true } } },
+  });
+  if (project) {
+    const recipients = project.members
+      .map((m) => m.userId)
+      .filter((uid) => uid !== actor.id);
+    for (const userId of recipients) {
+      let title = "Status de aprovação atualizado";
+      let body = `${actor.name} atualizou o status de aprovação de “${task.title}”.`;
+      if (input.status === "approved") {
+        title = "Demanda aprovada!";
+        body = `${actor.name} aprovou a demanda “${task.title}”.`;
+      } else if (input.status === "changes_requested") {
+        title = "Ajustes solicitados!";
+        body = `${actor.name} solicitou ajustes na demanda “${task.title}”: ${feedback}`;
+      } else if (input.status === "pending") {
+        title = "Demanda para aprovação";
+        body = `${actor.name} enviou a tarefa “${task.title}” para aprovação.`;
+      }
+      await notify({
+        userId,
+        type: "task_approval",
+        title,
+        body,
+        href: `/projetos/${task.projectId}?task=${task.id}`,
+        workspaceId: actor.workspaceId,
+      });
+    }
+  }
+
+  const fresh = await loadTask(id);
+  if (!fresh) throw new ApiError(404, "Tarefa não encontrada.");
   publishTask(actor, fresh);
   return publicTask(fresh);
 }
@@ -1359,8 +1520,35 @@ async function assertWorkspaceTags(actor: Actor, tagIds: string[]) {
   if (count !== new Set(tagIds).size) throw new ApiError(400, "Tag não encontrada.");
 }
 
+export const EXPLICIT_DEMAND_TAGS = [
+  { name: "Card", color: "#0284c7" },
+  { name: "Carrossel", color: "#6366f1" },
+  { name: "Vídeo Longo", color: "#f59e0b" },
+  { name: "Reels", color: "#ec4899" },
+];
+
+export async function ensureExplicitTags(workspaceId: string) {
+  const existing = await prisma.tag.findMany({ where: { workspaceId } });
+  for (const def of EXPLICIT_DEMAND_TAGS) {
+    const found = existing.some(
+      (t) => t.name.trim().toLowerCase() === def.name.trim().toLowerCase(),
+    );
+    if (!found) {
+      await prisma.tag.create({
+        data: {
+          id: uid("t"),
+          name: def.name,
+          color: def.color,
+          workspaceId,
+        },
+      });
+    }
+  }
+}
+
 export async function listTags(actor: Actor) {
   if (!actor.workspaceId) return [];
+  await ensureExplicitTags(actor.workspaceId);
   const tags = await prisma.tag.findMany({
     where: { workspaceId: actor.workspaceId },
     orderBy: { name: "asc" },

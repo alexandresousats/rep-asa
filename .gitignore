@@ -39,3 +39,4 @@ yarn-error.log*
 server/data/
 *.tsbuildinfo
 next-env.d.ts
+openasa-landing/
