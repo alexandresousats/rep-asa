@@ -33,6 +33,7 @@ import { WorkspaceDropdown } from "./workspace-dropdown";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutGrid },
+  { href: "/agente", label: "Agente IA", icon: Sparkles, match: "/agente" },
   { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/demandas", label: "Demandas", icon: Inbox, match: "/demandas" },
   { href: "/tarefas", label: "Minhas tarefas", icon: ListTodo },

@@ -557,7 +557,8 @@ app.post("/ai/chat", async (c) => {
         .array(
           z.object({
             role: z.enum(["user", "assistant"]),
-            content: z.string().max(20000),
+            content: z.string().max(30000),
+            images: z.array(z.string()).optional(),
           }),
         )
         .min(1)

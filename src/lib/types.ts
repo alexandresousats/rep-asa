@@ -189,6 +189,12 @@ export interface ChatToolStep {
   status: "running" | "done" | "error";
 }
 
+export interface ChatAudioAttachment {
+  url: string;
+  duration?: number;
+  mimeType?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -196,6 +202,25 @@ export interface ChatMessage {
   steps: ChatToolStep[];
   error?: string;
   pending?: boolean;
+  images?: string[];
+  audio?: ChatAudioAttachment;
+  createdAt: string;
+}
+
+export interface ChatFolder {
+  id: string;
+  name: string;
+  color?: string;
+  createdAt: string;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  folderId: string | null;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AssistantReply {
@@ -204,3 +229,4 @@ export interface AssistantReply {
   body: string;
   createdAt: string;
 }
+

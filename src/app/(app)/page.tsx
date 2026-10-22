@@ -67,6 +67,15 @@ function ChatHero() {
           ))}
         </div>
       ) : null}
+      <div className="mt-5 flex items-center justify-center">
+        <Link
+          href="/agente"
+          className="flex items-center gap-1.5 text-xs text-faint hover:text-ink transition-colors"
+        >
+          <span>Abrir espaço do Agente IA (com pastas, áudios e histórico)</span>
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
     </section>
   );
 }
@@ -77,8 +86,17 @@ function ChatScreen() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between px-6 py-3">
-        <p className="text-sm text-faint">Agente ASA</p>
+      <div className="flex shrink-0 items-center justify-between border-b border-line-subtle px-6 py-3">
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-medium text-ink">Agente ASA</p>
+          <Link
+            href="/agente"
+            className="flex items-center gap-1 text-xs text-muted hover:text-ink transition-colors"
+          >
+            <span>Modo completo</span>
+            <ArrowUpRight className="h-3 w-3" />
+          </Link>
+        </div>
         <button
           type="button"
           onClick={reset}

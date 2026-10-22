@@ -4,7 +4,11 @@ import { ApiError } from "./errors";
 import { callTool, tools } from "./mcp";
 
 export type AgentConfig = { baseUrl: string; apiKey: string; model: string };
-export type ChatTurn = { role: "user" | "assistant"; content: string };
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+  images?: string[];
+};
 
 export type AgentEvent =
   | { type: "text"; delta: string }
@@ -15,8 +19,13 @@ export type AgentEvent =
 
 type ToolCall = { id: string; name: string; arguments: string };
 
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 type ProviderMessage =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | { role: "user"; content: string | ContentPart[] }
   | {
       role: "assistant";
       content: string | null;
@@ -268,7 +277,21 @@ export async function runAgent(
   const config = normalizeConfig(rawConfig);
   const messages: ProviderMessage[] = [
     { role: "system", content: systemPrompt(actor) },
-    ...turns.slice(-30).map((turn) => ({ role: turn.role, content: turn.content }) as ProviderMessage),
+    ...turns.slice(-30).map((turn) => {
+      if (turn.role === "user" && turn.images && turn.images.length > 0) {
+        return {
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: turn.content || "Analise a imagem anexada." },
+            ...turn.images.map((url) => ({
+              type: "image_url" as const,
+              image_url: { url },
+            })),
+          ],
+        };
+      }
+      return { role: turn.role, content: turn.content } as ProviderMessage;
+    }),
   ];
 
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
