@@ -49,10 +49,10 @@ function Step({ step }: { step: ChatToolStep }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
+        "flex items-center gap-2 rounded-full px-3 py-1.5 text-xs",
         step.status === "error"
-          ? "border-red-400/30 text-red-400"
-          : "border-line-subtle bg-elevated text-muted",
+          ? "border border-red-400/30 text-red-400"
+          : "bg-elevated text-muted",
       )}
     >
       {step.status === "running" ? (
@@ -150,7 +150,7 @@ function Bubble({
                   key={idx}
                   type="button"
                   onClick={() => setPreviewImage(img)}
-                  className="overflow-hidden rounded-2xl border border-line transition-transform hover:scale-102"
+                  className="overflow-hidden rounded-2xl shadow-xs transition-transform hover:scale-102"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -174,7 +174,7 @@ function Bubble({
               {message.documents.map((doc, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-3 rounded-2xl border border-line bg-elevated/95 p-3 text-xs text-ink shadow-2xs"
+                  className="flex items-center gap-3 rounded-2xl bg-elevated/95 p-3 text-xs text-ink shadow-2xs"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-500">
                     <FileText className="h-5 w-5" />
@@ -221,7 +221,7 @@ function Bubble({
 
   return (
     <div className="group relative flex gap-4">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line text-ink">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-elevated text-ink">
         <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
       </span>
 

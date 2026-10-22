@@ -88,8 +88,8 @@ export default function AgentPage() {
       {/* Área Principal de Conversa */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Barra Superior */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-line px-4">
-          <div className="flex min-w-0 items-center gap-2">
+        <header className="flex h-[68px] shrink-0 items-center justify-between px-3 py-4">
+          <div className="flex min-w-0 items-center gap-1">
             <button
               type="button"
               onClick={() => {
@@ -99,11 +99,11 @@ export default function AgentPage() {
                   setSidebarOpen((prev) => !prev);
                 }
               }}
-              className="rounded-lg p-2 text-muted hover:bg-hover hover:text-ink transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink transition-colors"
               title="Alternar barra de conversas e pastas"
               aria-label="Alternar barra lateral"
             >
-              <PanelLeft className="h-4 w-4" />
+              <PanelLeft className="h-4 w-4" strokeWidth={1.5} />
             </button>
 
             {isEditingTitle ? (
@@ -116,7 +116,7 @@ export default function AgentPage() {
                     if (e.key === "Enter") handleSaveRename();
                     if (e.key === "Escape") setIsEditingTitle(false);
                   }}
-                  className="h-8 rounded-lg border border-line bg-elevated px-2.5 text-sm font-medium text-ink outline-none"
+                  className="h-8 rounded-lg bg-elevated px-2.5 text-sm font-medium text-ink outline-none ring-1 ring-ink/10 focus:ring-ink/30"
                 />
                 <button
                   type="button"
@@ -127,20 +127,20 @@ export default function AgentPage() {
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 truncate">
+              <div className="flex items-center gap-1.5 truncate">
                 <button
                   type="button"
                   onClick={handleStartRename}
-                  className="group flex items-center gap-1.5 truncate text-left text-sm font-medium text-ink hover:opacity-80"
+                  className="group flex h-9 items-center gap-1.5 truncate text-left text-sm font-medium text-ink hover:opacity-80"
                   title="Clique para renomear"
                 >
                   <span className="truncate">{activeSession?.title || "Nova conversa"}</span>
-                  <Pencil className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100 shrink-0" />
+                  <Pencil className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100 shrink-0" strokeWidth={1.5} />
                 </button>
 
                 {activeFolder && (
-                  <span className="hidden items-center gap-1 rounded-full border border-line bg-elevated px-2 py-0.5 text-[11px] text-faint sm:flex shrink-0">
-                    <FolderIcon className="h-3 w-3" style={{ color: activeFolder.color }} />
+                  <span className="hidden items-center gap-1 rounded-full bg-elevated px-2.5 py-0.5 text-[11px] text-faint sm:flex shrink-0">
+                    <FolderIcon className="h-3 w-3" style={{ color: activeFolder.color }} strokeWidth={1.5} />
                     <span className="truncate max-w-[120px]">{activeFolder.name}</span>
                   </span>
                 )}
@@ -153,9 +153,9 @@ export default function AgentPage() {
             <button
               type="button"
               onClick={() => createSession(activeSession?.folderId)}
-              className="hidden items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink sm:flex transition-colors"
+              className="hidden h-9 items-center gap-1.5 rounded-full bg-elevated px-3 text-xs text-muted hover:bg-hover hover:text-ink sm:flex transition-colors"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>Novo chat</span>
             </button>
 
@@ -168,18 +168,18 @@ export default function AgentPage() {
                   }
                 }}
                 title="Limpar mensagens desta conversa"
-                className="rounded-lg p-2 text-faint hover:bg-hover hover:text-ink transition-colors"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-faint hover:bg-hover hover:text-ink transition-colors"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-4 w-4" strokeWidth={1.5} />
               </button>
             )}
 
             <Link
               href="/configuracoes?tab=agente"
               title="Configurações do Agente de IA"
-              className="rounded-lg p-2 text-faint hover:bg-hover hover:text-ink transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-faint hover:bg-hover hover:text-ink transition-colors"
             >
-              <Settings className="h-4 w-4" />
+              <Settings className="h-4 w-4" strokeWidth={1.5} />
             </Link>
           </div>
         </header>
@@ -206,7 +206,7 @@ export default function AgentPage() {
                       key={sug}
                       type="button"
                       onClick={() => void send(sug)}
-                      className="rounded-full border border-line bg-elevated/60 px-3.5 py-1.5 text-xs text-muted hover:border-muted hover:bg-hover hover:text-ink transition-all"
+                      className="rounded-full bg-elevated/70 px-4 py-2 text-xs text-muted hover:bg-hover hover:text-ink transition-all"
                     >
                       {sug}
                     </button>
@@ -234,7 +234,7 @@ export default function AgentPage() {
 
         {/* Rodapé com Composer (exibido apenas quando já existem mensagens na conversa) */}
         {messages.length > 0 && (
-          <div className="shrink-0 border-t border-line-subtle bg-base/80 p-4 backdrop-blur-xs">
+          <div className="shrink-0 bg-base/80 p-4 backdrop-blur-xs">
             <ChatComposer
               autoFocus
               placeholder="Alterne para o Modo Build para criar apps"

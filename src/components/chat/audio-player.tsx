@@ -71,7 +71,7 @@ export function AudioPlayer({
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-line-subtle bg-base/80 p-2.5 pr-4 backdrop-blur-xs">
+    <div className="flex items-center gap-3 rounded-2xl bg-elevated/95 p-2.5 pr-4 shadow-2xs backdrop-blur-xs">
       <button
         type="button"
         onClick={togglePlay}

@@ -4,7 +4,9 @@ import {
   ChevronDown,
   ChevronRight,
   Folder as FolderIcon,
+  FolderOpen,
   FolderPlus,
+  GripVertical,
   MessageSquare,
   MoreVertical,
   Pencil,
@@ -48,6 +50,10 @@ export function AgentSidebar({
 
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [foldersExpanded, setFoldersExpanded] = useState(true);
+
+  // Estados de arrastar e soltar (Drag and Drop)
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
   function handleCreateFolder(e: React.FormEvent) {
     e.preventDefault();
@@ -107,12 +113,12 @@ export function AgentSidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-[280px] shrink-0 flex-col border-r border-line bg-elevated/70 backdrop-blur-xs transition-[width,transform] duration-200 ease-in-out",
-        !open && "hidden md:flex md:w-0 md:border-r-0 md:overflow-hidden",
+        "flex h-full w-[232px] shrink-0 flex-col bg-elevated/70 backdrop-blur-xs transition-[width,transform] duration-200 ease-in-out",
+        !open && "hidden md:flex md:w-0 md:overflow-hidden",
       )}
     >
       {/* Topo do Sidebar: Novo Chat e Fechar Mobile */}
-      <div className="flex items-center justify-between gap-2 p-3 pb-2 border-b border-line-subtle">
+      <div className="flex h-[68px] items-center justify-between gap-2 px-3 py-4">
         <button
           type="button"
           onClick={() => {
@@ -120,9 +126,9 @@ export function AgentSidebar({
             selectSession(id);
             onClose?.();
           }}
-          className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-2.5 text-xs font-medium text-base hover:opacity-90 transition-opacity shadow-xs"
+          className="flex h-9 flex-1 items-center justify-center gap-2 rounded-2xl bg-ink px-4 text-xs font-medium text-base hover:opacity-90 transition-opacity shadow-xs"
         >
-          <Plus className="h-4 w-4" strokeWidth={2.25} />
+          <Plus className="h-4 w-4" strokeWidth={1.75} />
           <span>Nova conversa</span>
         </button>
 
@@ -130,10 +136,10 @@ export function AgentSidebar({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-2 text-faint hover:bg-hover hover:text-ink md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-faint hover:bg-hover hover:text-ink md:hidden"
             aria-label="Fechar painel"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" strokeWidth={1.5} />
           </button>
         )}
       </div>
@@ -166,23 +172,54 @@ export function AgentSidebar({
 
           {foldersExpanded && (
             <div className="space-y-0.5">
-              {/* Botão Todas */}
-              <button
-                type="button"
-                onClick={() => setSelectedFolderId(null)}
+              {/* Botão Todas as Conversas (Drop target para remover de pastas) */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                }}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  setDragOverFolderId("root");
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragOverFolderId((prev) => (prev === "root" ? null : prev));
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const sid = e.dataTransfer.getData("text/plain") || draggedSessionId;
+                  if (sid) moveSessionToFolder(sid, null);
+                  setDragOverFolderId(null);
+                  setDraggedSessionId(null);
+                }}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs transition-colors",
-                  selectedFolderId === null
-                    ? "bg-active font-medium text-ink"
-                    : "text-muted hover:bg-hover hover:text-ink",
+                  "rounded-xl transition-all",
+                  dragOverFolderId === "root" && "ring-2 ring-ink/30 bg-active scale-[1.02] shadow-xs",
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <FolderIcon className="h-3.5 w-3.5" />
-                  <span>Todas as conversas</span>
-                </div>
-                <span className="text-[10px] text-faint">{sessions.length}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFolderId(null)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs transition-colors",
+                    selectedFolderId === null
+                      ? "bg-active font-medium text-ink"
+                      : "text-muted hover:bg-hover hover:text-ink",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    {dragOverFolderId === "root" ? (
+                      <FolderOpen className="h-3.5 w-3.5 text-ink animate-pulse" />
+                    ) : (
+                      <FolderIcon className="h-3.5 w-3.5" />
+                    )}
+                    <span>Todas as conversas</span>
+                  </div>
+                  <span className="text-[10px] text-faint">{sessions.length}</span>
+                </button>
+              </div>
 
               {/* Formulário de Criação de Pasta */}
               {isCreatingFolder && (
@@ -193,7 +230,7 @@ export function AgentSidebar({
                       value={newFolderName}
                       onChange={(e) => setNewFolderName(e.target.value)}
                       placeholder="Nome da pasta..."
-                      className="h-7 w-full rounded-lg border border-line bg-base px-2 text-xs text-ink outline-none"
+                      className="h-7 w-full rounded-lg bg-base px-2 text-xs text-ink outline-none ring-1 ring-ink/10 focus:ring-ink/30"
                     />
                     <button
                       type="submit"
@@ -212,10 +249,11 @@ export function AgentSidebar({
                 </form>
               )}
 
-              {/* Lista de Pastas Criadas */}
+              {/* Lista de Pastas Criadas (Drop targets) */}
               {folders.map((folder) => {
                 const count = sessions.filter((s) => s.folderId === folder.id).length;
                 const active = selectedFolderId === folder.id;
+                const isDropTarget = dragOverFolderId === folder.id;
 
                 if (editingFolderId === folder.id) {
                   return (
@@ -228,7 +266,7 @@ export function AgentSidebar({
                           if (e.key === "Enter") handleSaveRenameFolder(folder.id);
                           if (e.key === "Escape") setEditingFolderId(null);
                         }}
-                        className="h-7 w-full rounded-lg border border-line bg-base px-2 text-xs text-ink outline-none"
+                        className="h-7 w-full rounded-lg bg-base px-2 text-xs text-ink outline-none ring-1 ring-ink/10 focus:ring-ink/30"
                       />
                       <button
                         type="button"
@@ -244,11 +282,32 @@ export function AgentSidebar({
                 return (
                   <div
                     key={folder.id}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      setDragOverFolderId(folder.id);
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDragOverFolderId((prev) => (prev === folder.id ? null : prev));
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const sid = e.dataTransfer.getData("text/plain") || draggedSessionId;
+                      if (sid) moveSessionToFolder(sid, folder.id);
+                      setDragOverFolderId(null);
+                      setDraggedSessionId(null);
+                    }}
                     className={cn(
-                      "group relative flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs transition-colors",
+                      "group relative flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs transition-all",
                       active
                         ? "bg-active font-medium text-ink"
                         : "text-muted hover:bg-hover hover:text-ink",
+                      isDropTarget && "ring-2 ring-ink/30 bg-active text-ink scale-[1.02] shadow-xs",
                     )}
                   >
                     <button
@@ -256,10 +315,17 @@ export function AgentSidebar({
                       onClick={() => setSelectedFolderId(active ? null : folder.id)}
                       className="flex flex-1 items-center gap-2 truncate text-left"
                     >
-                      <FolderIcon
-                        className="h-3.5 w-3.5 shrink-0"
-                        style={{ color: folder.color || "currentColor" }}
-                      />
+                      {isDropTarget ? (
+                        <FolderOpen
+                          className="h-3.5 w-3.5 shrink-0 animate-pulse text-ink"
+                          style={{ color: folder.color || "currentColor" }}
+                        />
+                      ) : (
+                        <FolderIcon
+                          className="h-3.5 w-3.5 shrink-0"
+                          style={{ color: folder.color || "currentColor" }}
+                        />
+                      )}
                       <span className="truncate">{folder.name}</span>
                     </button>
 
@@ -323,7 +389,7 @@ export function AgentSidebar({
                             if (e.key === "Enter") handleSaveRenameSession(session.id);
                             if (e.key === "Escape") setEditingSessionId(null);
                           }}
-                          className="h-7 w-full rounded-lg border border-line bg-base px-2 text-xs text-ink outline-none"
+                          className="h-7 w-full rounded-lg bg-base px-2 text-xs text-ink outline-none ring-1 ring-ink/10 focus:ring-ink/30"
                         />
                         <button
                           type="button"
@@ -336,18 +402,40 @@ export function AgentSidebar({
                     );
                   }
 
+                  const isBeingDragged = draggedSessionId === session.id;
+
                   return (
                     <div
                       key={session.id}
+                      draggable={!isEditing}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", session.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        setDraggedSessionId(session.id);
+                        if (!foldersExpanded) setFoldersExpanded(true);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedSessionId(null);
+                        setDragOverFolderId(null);
+                      }}
                       className={cn(
-                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-xs transition-colors",
+                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-xs transition-all cursor-pointer select-none",
                         isActive
                           ? "bg-active font-medium text-ink shadow-2xs"
                           : "text-muted hover:bg-hover hover:text-ink",
+                        isBeingDragged && "opacity-40 scale-95 shadow-md",
                       )}
                     >
+                      <div
+                        title="Arraste para mover para uma pasta"
+                        className="mr-1 -ml-1 flex cursor-grab items-center text-faint opacity-0 group-hover:opacity-70 hover:opacity-100 active:cursor-grabbing transition-opacity shrink-0"
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </div>
+
                       <button
                         type="button"
+                        draggable={false}
                         onClick={() => {
                           selectSession(session.id);
                           onClose?.();
@@ -383,7 +471,7 @@ export function AgentSidebar({
                           {menuSessionId === session.id && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="absolute top-full right-0 z-50 mt-1 w-44 rounded-xl border border-line bg-base p-1 text-xs shadow-xl animate-in fade-in"
+                              className="absolute top-full right-0 z-50 mt-1 w-44 rounded-xl bg-elevated p-1 text-xs shadow-xl ring-1 ring-black/5 animate-in fade-in"
                             >
                               <div className="px-2 py-1 text-[10px] uppercase font-semibold text-faint">
                                 Mover para pasta
@@ -419,7 +507,7 @@ export function AgentSidebar({
                                 </button>
                               ))}
 
-                              <div className="my-1 border-t border-line-subtle" />
+                              <div className="my-1 h-px bg-hover" />
 
                               <button
                                 type="button"

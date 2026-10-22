@@ -394,7 +394,7 @@ export function ChatComposer({
       {/* Caixa do Chat Unificada: Estilo visual escuro idêntico às imagens anexadas */}
       <div
         className={cn(
-          "relative flex flex-col rounded-[26px] bg-[#212121] text-zinc-100 border border-white/5 shadow-lg transition-all focus-within:border-zinc-500/50",
+          "relative flex flex-col rounded-[26px] bg-[#212121] text-zinc-100 shadow-lg transition-all",
           hero ? "p-4 pb-3" : "p-3.5 pb-2.5",
         )}
       >
@@ -404,7 +404,7 @@ export function ChatComposer({
             {documents.map((doc, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-[#191919] px-3 py-1.5 text-xs text-zinc-200 shadow-2xs"
+                className="flex items-center gap-2.5 rounded-2xl bg-[#191919] px-3 py-1.5 text-xs text-zinc-200 shadow-2xs"
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/15 text-red-400">
                   <FileText className="h-4 w-4" />
@@ -433,7 +433,7 @@ export function ChatComposer({
 
         {/* Indicador de Processamento do PDF / Documento */}
         {parsingDoc && (
-          <div className="mb-2 flex items-center gap-2.5 rounded-2xl border border-white/10 bg-[#191919] px-3 py-2 text-xs text-zinc-300">
+          <div className="mb-2 flex items-center gap-2.5 rounded-2xl bg-[#191919] px-3 py-2 text-xs text-zinc-300">
             <LoaderCircle className="h-4 w-4 animate-spin text-blue-400 shrink-0" />
             <span className="truncate">
               Processando <strong>{parsingFileName}</strong> (lendo texto e páginas do PDF)...
@@ -447,7 +447,7 @@ export function ChatComposer({
             {images.map((img, idx) => (
               <div
                 key={idx}
-                className="group relative h-16 w-16 overflow-hidden rounded-xl border border-white/10 bg-black/40"
+                className="group relative h-16 w-16 overflow-hidden rounded-xl bg-black/40"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={img} alt={`Preview ${idx}`} className="h-full w-full object-cover" />
@@ -466,7 +466,7 @@ export function ChatComposer({
 
         {/* Pré-visualização de Áudio Gravado/Anexado */}
         {attachedAudio && !isRecording && (
-          <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-[#191919] px-3 py-2">
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl bg-[#191919] px-3 py-2">
             <div className="flex items-center gap-2 text-xs text-zinc-200">
               <Radio className="h-4 w-4 text-emerald-400 animate-pulse" />
               <span>Mensagem de voz anexada ({formatSeconds(attachedAudio.duration || 0)})</span>
@@ -732,7 +732,7 @@ export function ChatComposer({
                 onClick={startRecording}
                 title="Modo Voz / Conversa em tempo real"
                 aria-label="Iniciar modo voz"
-                className="group relative flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[#171717] hover:bg-[#262626] border border-white/10 shadow-sm transition-all active:scale-95 disabled:opacity-40"
+                className="group relative flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[#171717] hover:bg-[#262626] shadow-sm transition-all active:scale-95 disabled:opacity-40"
               >
                 <div className="flex items-center gap-[2.5px] h-4">
                   <span className="w-[2.5px] h-2 bg-[#38bdf8] rounded-full group-hover:h-3 transition-all duration-200" />
