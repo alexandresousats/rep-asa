@@ -168,7 +168,7 @@ export default function MyTasksPage() {
                             if (event.key === "Enter") setSelectedId(task.id);
                           }}
                           className={cn(
-                            "flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-left hover:bg-hover",
+                            "flex w-full cursor-pointer items-center gap-3 rounded-2xl px-2 py-2.5 text-left hover:bg-hover",
                             selectedId === task.id && "bg-elevated",
                             task.status === "done" && "opacity-60",
                           )}
@@ -188,7 +188,7 @@ export default function MyTasksPage() {
                                   task.status === "done" ? "todo" : "done",
                                 );
                               }}
-                              className="shrink-0"
+                              className="shrink-0 cursor-pointer"
                             >
                               {task.status === "done" ? (
                                 <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white">

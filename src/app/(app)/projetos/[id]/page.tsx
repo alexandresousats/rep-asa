@@ -13,7 +13,7 @@ import { ProjectPanel } from "@/components/projects/project-panel";
 import { ProjectTimeline } from "@/components/timeline/project-timeline";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { SectionBar } from "@/components/projects/section-bar";
+import { SectionBar, SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
 import { ProjectApprovalsView } from "@/components/demands/project-approvals-view";
@@ -121,6 +121,12 @@ function ProjectWorkspace() {
   const sections = current.sections?.length ? current.sections : ["Geral"];
   const activeSection =
     pickedSection && sections.includes(pickedSection) ? pickedSection : sections[0];
+  const cronogramaSection =
+    pickedSection === SECTION_FILTER_ALL
+      ? SECTION_FILTER_ALL
+      : pickedSection && sections.includes(pickedSection)
+        ? pickedSection
+        : SECTION_FILTER_ALL;
 
   function addTask(section = activeSection) {
     void createTask({
@@ -150,7 +156,7 @@ function ProjectWorkspace() {
                   type="button"
                   aria-label="Editar projeto"
                   onClick={() => setEditingInfo(true)}
-                  className="rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
+                  className="cursor-pointer rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
                 >
                   <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
                 </button>
@@ -163,7 +169,7 @@ function ProjectWorkspace() {
                   type="button"
                   onClick={() => setQuery({ view: item.id })}
                   className={cn(
-                    "rounded-full px-3 py-1 text-xs",
+                    "cursor-pointer rounded-full px-3 py-1 text-xs",
                     view === item.id
                       ? "bg-elevated text-ink"
                       : "text-faint hover:text-ink",
@@ -287,9 +293,10 @@ function ProjectWorkspace() {
           <SectionBar
             projectId={current.id}
             sections={sections}
-            active={activeSection}
+            active={cronogramaSection}
             accent={project.color}
             canManage={isAdmin}
+            includeAllTab
             onSelect={setPickedSection}
             pendingDraft={pendingSection}
             onDraftOpened={() => setPendingSection(false)}
@@ -302,6 +309,7 @@ function ProjectWorkspace() {
             tags={tags}
             users={users}
             sections={sections}
+            activeSection={cronogramaSection}
             accent={project.color}
             selectedId={selectedId}
             onSelect={(id) => setQuery({ task: id })}

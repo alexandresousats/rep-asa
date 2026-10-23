@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, GripVertical, Plus, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { Avatar } from "@/components/ui/avatar";
@@ -13,6 +13,17 @@ import { useAccess } from "@/lib/workspace";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import type { Tag, Task, User } from "@/lib/types";
+
+type ColumnGesture = {
+  name: string;
+  fromIndex: number;
+  startX: number;
+  startScroll: number;
+  stride: number;
+  pointerId: number;
+  active: boolean;
+  dest: number;
+};
 
 export function TaskKanban({
   projectId,
@@ -42,10 +53,17 @@ export function TaskKanban({
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [draggingSection, setDraggingSection] = useState<string | null>(null);
-  const [sectionDropAt, setSectionDropAt] = useState<number | null>(null);
-  const sectionDrag = useRef<string | null>(null);
   const dragged = useRef(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const columnRefs = useRef(new Map<string, HTMLElement>());
+  const columnDrag = useRef<ColumnGesture | null>(null);
+  const scrollRaf = useRef(0);
+  const pointerX = useRef(0);
+  const motionGen = useRef(0);
+  const pendingClear = useRef(false);
+  const suppressClick = useRef(false);
+  const settling = useRef(false);
+  const [columnDragName, setColumnDragName] = useState<string | null>(null);
 
   function columnTasks(section: string) {
     return tasks
@@ -75,16 +93,203 @@ export function TaskKanban({
     setOverTaskId(null);
   }
 
-  function placeSection(section: string, clientX: number, rect: DOMRect) {
-    const source = sectionDrag.current;
-    if (!source) return;
-    const index = sections.indexOf(section);
-    const after = clientX > rect.left + rect.width / 2;
-    moveSection(sections, projectId, source, after ? index + 1 : index);
+  function clearColumnMotion(animate: boolean) {
+    const gen = ++motionGen.current;
+    columnRefs.current.forEach((el) => {
+      el.style.transition = animate ? "transform 180ms ease-out" : "";
+      el.style.transform = "";
+      el.style.zIndex = "";
+      el.style.boxShadow = "";
+    });
+    if (!animate) return;
+    window.setTimeout(() => {
+      if (motionGen.current !== gen) return;
+      columnRefs.current.forEach((el) => {
+        el.style.transition = "";
+      });
+    }, 200);
   }
 
+  function applyColumnDrag(clientX: number) {
+    const drag = columnDrag.current;
+    const board = boardRef.current;
+    if (!drag?.active || !board) return;
+    const base = board.getBoundingClientRect().left - board.scrollLeft;
+    const centers = sections.map((name) => {
+      const el = columnRefs.current.get(name);
+      if (!el) return 0;
+      return base + el.offsetLeft + el.offsetWidth / 2;
+    });
+    drag.dest = destinationIndex(clientX, drag.fromIndex, centers);
+    const deltaX = clientX - drag.startX + (board.scrollLeft - drag.startScroll);
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    sections.forEach((name, index) => {
+      const el = columnRefs.current.get(name);
+      if (!el) return;
+      const dragging = name === drag.name;
+      const shift = columnTranslate(index, drag.fromIndex, drag.dest, drag.stride, deltaX);
+      el.style.transition = dragging || reduceMotion ? "none" : "transform 200ms ease-out";
+      el.style.transform = `translateX(${shift}px)`;
+      el.style.zIndex = dragging ? "30" : "";
+      el.style.boxShadow = dragging ? "0 18px 40px rgba(0,0,0,0.35)" : "";
+    });
+  }
+
+  function autoScrollColumns() {
+    const drag = columnDrag.current;
+    const board = boardRef.current;
+    if (!drag?.active || !board) return;
+    const rect = board.getBoundingClientRect();
+    const edge = 64;
+    const x = pointerX.current;
+    let speed = 0;
+    if (x < rect.left + edge) speed = -Math.max(6, Math.round((edge - (x - rect.left)) / 3));
+    else if (x > rect.right - edge) speed = Math.max(6, Math.round((x - (rect.right - edge)) / 3));
+    if (speed) {
+      board.scrollLeft += speed;
+      applyColumnDrag(x);
+    }
+    scrollRaf.current = requestAnimationFrame(autoScrollColumns);
+  }
+
+  function stopColumnDrag(commit: boolean) {
+    if (!columnDrag.current && settling.current && !commit) {
+      motionGen.current += 1;
+      settling.current = false;
+      clearColumnMotion(true);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      return;
+    }
+    const drag = columnDrag.current;
+    columnDrag.current = null;
+    if (scrollRaf.current) {
+      cancelAnimationFrame(scrollRaf.current);
+      scrollRaf.current = 0;
+    }
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    setColumnDragName(null);
+    window.setTimeout(() => {
+      suppressClick.current = false;
+    }, 0);
+    if (!drag?.active) return;
+    if (!commit || drag.dest === drag.fromIndex) {
+      clearColumnMotion(true);
+      return;
+    }
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const gen = ++motionGen.current;
+    settling.current = true;
+    sections.forEach((name, index) => {
+      const el = columnRefs.current.get(name);
+      if (!el) return;
+      const shift =
+        index === drag.fromIndex
+          ? (drag.dest - drag.fromIndex) * drag.stride
+          : columnTranslate(index, drag.fromIndex, drag.dest, drag.stride, 0);
+      el.style.transition = reduceMotion ? "none" : "transform 160ms ease-out";
+      el.style.transform = `translateX(${shift}px)`;
+      el.style.zIndex = "";
+      el.style.boxShadow = "";
+    });
+    window.setTimeout(() => {
+      if (motionGen.current !== gen) {
+        settling.current = false;
+        return;
+      }
+      const from = sections.indexOf(drag.name);
+      const gap = drag.dest > drag.fromIndex ? drag.dest + 1 : drag.dest;
+      const target = gap > from ? gap - 1 : gap;
+      if (from < 0 || target === from) {
+        settling.current = false;
+        clearColumnMotion(false);
+        return;
+      }
+      pendingClear.current = true;
+      moveSection(sections, projectId, drag.name, gap);
+      settling.current = false;
+    }, reduceMotion ? 0 : 160);
+  }
+
+  function beginColumnDrag(event: React.PointerEvent<HTMLElement>, section: string, index: number) {
+    if (settling.current || !isAdmin || sections.length < 2 || event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("button")) return;
+    const board = boardRef.current;
+    const el = columnRefs.current.get(section);
+    if (!board || !el) return;
+    const neighborName = sections[index + 1] ?? sections[index - 1];
+    const neighbor = neighborName ? columnRefs.current.get(neighborName) : undefined;
+    const stride = neighbor ? Math.abs(neighbor.offsetLeft - el.offsetLeft) : el.offsetWidth + 12;
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // The pointer can already be gone if the gesture ended mid-event.
+    }
+    motionGen.current += 1;
+    columnDrag.current = {
+      name: section,
+      fromIndex: index,
+      startX: event.clientX,
+      startScroll: board.scrollLeft,
+      stride,
+      pointerId: event.pointerId,
+      active: false,
+      dest: index,
+    };
+  }
+
+  function trackColumnDrag(event: React.PointerEvent<HTMLElement>) {
+    const drag = columnDrag.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    pointerX.current = event.clientX;
+    if (!drag.active) {
+      if (Math.abs(event.clientX - drag.startX) < 6) return;
+      drag.active = true;
+      suppressClick.current = true;
+      setColumnDragName(drag.name);
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+      scrollRaf.current = requestAnimationFrame(autoScrollColumns);
+    }
+    applyColumnDrag(event.clientX);
+  }
+
+  function finishColumnDrag(event: React.PointerEvent<HTMLElement>, commit: boolean) {
+    const drag = columnDrag.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    stopColumnDrag(commit);
+  }
+
+  useLayoutEffect(() => {
+    if (!pendingClear.current) return;
+    pendingClear.current = false;
+    clearColumnMotion(false);
+  }, [sections]);
+
+  const stopColumnDragRef = useRef(stopColumnDrag);
+  stopColumnDragRef.current = stopColumnDrag;
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") stopColumnDragRef.current(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, []);
+
   return (
-    <div className="flex h-full gap-3 overflow-x-auto px-6 py-4">
+    <div ref={boardRef} className="relative flex h-full gap-3 overflow-x-auto px-6 py-4">
       {sections.map((section, index) => {
         const cards = columnTasks(section);
         const active = dragId !== null && overSection === section;
@@ -92,28 +297,19 @@ export function TaskKanban({
         return (
           <section
             key={section}
+            ref={(node) => {
+              if (node) columnRefs.current.set(section, node);
+              else columnRefs.current.delete(section);
+            }}
+            data-section={section}
             onDragOver={(event) => {
-              if (sectionDrag.current) {
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                const after = event.clientX > rect.left + rect.width / 2;
-                setSectionDropAt(after ? index + 1 : index);
-                return;
-              }
-              if (!dragId) return;
+              if (columnDrag.current || !dragId) return;
               event.preventDefault();
               setOverSection(section);
               if (event.target === event.currentTarget) setOverTaskId(null);
             }}
             onDrop={(event) => {
-              if (sectionDrag.current) {
-                event.preventDefault();
-                placeSection(section, event.clientX, event.currentTarget.getBoundingClientRect());
-                sectionDrag.current = null;
-                setDraggingSection(null);
-                setSectionDropAt(null);
-                return;
-              }
+              if (columnDrag.current || !dragId) return;
               event.preventDefault();
               const sourceId = event.dataTransfer.getData("text/plain") || dragId || "";
               move(sourceId, section, overTaskId);
@@ -122,31 +318,27 @@ export function TaskKanban({
             className={cn(
               "flex h-full w-72 shrink-0 flex-col rounded-2xl bg-elevated",
               active && "ring-1 ring-line",
-              draggingSection === section && "opacity-40",
-              sectionDropAt === index && draggingSection && "ring-1 ring-ink",
             )}
           >
-            <header className="flex items-center gap-2 px-3 py-3">
+            <header
+              className={cn(
+                "flex items-center gap-2 px-3 py-3",
+                canOrder && "cursor-grab touch-none select-none",
+                columnDragName === section && "cursor-grabbing",
+              )}
+              onPointerDown={(event) => beginColumnDrag(event, section, index)}
+              onPointerMove={trackColumnDrag}
+              onPointerUp={(event) => finishColumnDrag(event, true)}
+              onPointerCancel={(event) => finishColumnDrag(event, false)}
+              onClickCapture={(event) => {
+                if (!suppressClick.current) return;
+                suppressClick.current = false;
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
               {canOrder ? (
-                <span
-                  draggable
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Mover ${section}`}
-                  onDragStart={(event) => {
-                    event.stopPropagation();
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", section);
-                    sectionDrag.current = section;
-                    setDraggingSection(section);
-                  }}
-                  onDragEnd={() => {
-                    sectionDrag.current = null;
-                    setDraggingSection(null);
-                    setSectionDropAt(null);
-                  }}
-                  className="cursor-grab text-faint active:cursor-grabbing"
-                >
+                <span aria-hidden className="text-faint">
                   <GripVertical className="h-4 w-4" strokeWidth={1.5} />
                 </span>
               ) : null}
@@ -160,7 +352,7 @@ export function TaskKanban({
                     setDeleteError("");
                     setPendingDelete(section);
                   }}
-                  className="rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
+                  className="cursor-pointer rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -170,7 +362,7 @@ export function TaskKanban({
                   type="button"
                   aria-label={`Adicionar tarefa em ${section}`}
                   onClick={() => onCreate(section)}
-                  className="rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
+                  className="cursor-pointer rounded-full p-1 text-faint hover:bg-hover hover:text-ink"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
@@ -222,7 +414,7 @@ export function TaskKanban({
                       onSelect(task.id);
                     }}
                     className={cn(
-                      "rounded-2xl bg-base px-3.5 py-3.5",
+                      "cursor-pointer rounded-2xl bg-base px-3.5 py-3.5",
                       draggable && "cursor-grab active:cursor-grabbing",
                       selectedId === task.id && "ring-1 ring-ink",
                       task.status === "done" && dragId !== task.id && "opacity-50",
@@ -239,7 +431,7 @@ export function TaskKanban({
                           if (!canWrite) return;
                           setTaskStatus(task.id, task.status === "done" ? "todo" : "done");
                         }}
-                        className="mt-0.5 shrink-0"
+                        className="mt-0.5 shrink-0 cursor-pointer"
                       >
                         {task.status === "done" ? (
                           <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white">
@@ -346,6 +538,28 @@ export function TaskKanban({
       </Dialog>
     </div>
   );
+}
+
+function destinationIndex(clientX: number, fromIndex: number, centers: number[]) {
+  let dest = 0;
+  for (let index = 0; index < centers.length; index++) {
+    if (index === fromIndex) continue;
+    if (clientX > centers[index]) dest += 1;
+  }
+  return dest;
+}
+
+function columnTranslate(
+  index: number,
+  from: number,
+  dest: number,
+  stride: number,
+  deltaX: number,
+) {
+  if (index === from) return deltaX;
+  if (dest > from && index > from && index <= dest) return -stride;
+  if (dest < from && index >= dest && index < from) return stride;
+  return 0;
 }
 
 function moveSection(sections: string[], projectId: string, source: string, index: number) {

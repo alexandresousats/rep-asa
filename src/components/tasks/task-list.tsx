@@ -139,7 +139,7 @@ export function TaskList({
               setOverId(null);
             }}
             className={cn(
-              "grid w-full grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
+              "grid w-full cursor-pointer grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
               selectedId === task.id && "bg-elevated",
               task.status === "done" && dragId !== task.id && "opacity-50",
               dragId === task.id && "opacity-40",
@@ -163,6 +163,7 @@ export function TaskList({
                 </span>
               )}
               <span
+                className="cursor-pointer"
                 onClick={(event) => {
                   event.stopPropagation();
                   if (!canWrite) return;
@@ -352,7 +353,7 @@ export function GroupedTaskList({
                 onClick={() =>
                   setCollapsed((current) => ({ ...current, [section]: !current[section] }))
                 }
-                className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm text-ink"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left text-sm text-ink"
               >
                 <ChevronDown
                   className={cn("h-4 w-4 text-faint transition-transform", !open && "-rotate-90")}
@@ -368,7 +369,7 @@ export function GroupedTaskList({
                     setDeleteError("");
                     setPendingDelete(section);
                   }}
-                  className="shrink-0 text-xs text-faint hover:text-ink"
+                  className="shrink-0 cursor-pointer text-xs text-faint hover:text-ink"
                 >
                   Excluir
                 </button>
@@ -403,7 +404,7 @@ export function GroupedTaskList({
                       setCollapsed((current) => ({ ...current, [section]: false }));
                       onDraftSection(section);
                     }}
-                    className="flex items-center gap-2 px-4 py-2.5 text-sm text-faint hover:text-ink"
+                    className="flex cursor-pointer items-center gap-2 px-4 py-2.5 text-sm text-faint hover:text-ink"
                   >
                     <Plus className="h-4 w-4" strokeWidth={1.5} />
                     Adicionar tarefa

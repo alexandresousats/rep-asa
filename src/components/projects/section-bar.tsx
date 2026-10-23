@@ -8,6 +8,9 @@ import { createSection, deleteSection, renameSection, reorderSections } from "@/
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/lib/workspace";
 
+/** Valor interno da tab “Todos” no cronograma (não é nome de sessão). */
+export const SECTION_FILTER_ALL = "__all_sections__";
+
 export function SectionBar({
   projectId,
   sections,
@@ -15,6 +18,7 @@ export function SectionBar({
   accent,
   canManage,
   onSelect,
+  includeAllTab = false,
   pendingDraft = false,
   onDraftOpened,
 }: {
@@ -24,6 +28,7 @@ export function SectionBar({
   accent: string;
   canManage: boolean;
   onSelect: (section: string) => void;
+  includeAllTab?: boolean;
   pendingDraft?: boolean;
   onDraftOpened?: () => void;
 }) {
@@ -97,6 +102,31 @@ export function SectionBar({
           event.preventDefault();
         }}
       >
+        {includeAllTab ? (
+          <div className="flex shrink-0 items-center">
+            <div
+              className="rounded-full"
+              style={
+                active === SECTION_FILTER_ALL
+                  ? { backgroundColor: `color-mix(in srgb, ${accent} 22%, transparent)` }
+                  : undefined
+              }
+            >
+              <button
+                type="button"
+                onClick={() => onSelect(SECTION_FILTER_ALL)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs",
+                  active === SECTION_FILTER_ALL
+                    ? "font-medium text-ink"
+                    : "text-faint hover:text-ink",
+                )}
+              >
+                Todos
+              </button>
+            </div>
+          </div>
+        ) : null}
         {sections.map((section, index) =>
           editing === section ? (
             <form
@@ -189,18 +219,11 @@ export function SectionBar({
                     }
                   }}
                   className={cn(
-                    "relative rounded-full px-3 pt-1 pb-2 text-xs",
+                    "rounded-full px-3 py-1 text-xs",
                     section === active ? "font-medium text-ink" : "text-faint group-hover:text-ink",
                   )}
                 >
                   {section}
-                  {section === active ? (
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-x-3 bottom-1 h-0.5 rounded-full"
-                      style={{ backgroundColor: accent }}
-                    />
-                  ) : null}
                 </div>
                 {canManage && sections.length > 1 ? (
                   <button

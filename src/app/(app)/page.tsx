@@ -150,17 +150,17 @@ function Dashboard() {
 
   return (
     <div>
-      <Card className="mb-6 border-none">
-        <div className="mb-6 flex items-center justify-between">
+      <Card className="mb-6 border-none p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between">
           <div>
-            <p className="text-sm text-faint">Todas as entregas</p>
-            <p className="mt-1 text-3xl font-medium tracking-tight text-ink">
+            <p className="text-xs text-faint sm:text-sm">Todas as entregas</p>
+            <p className="mt-0.5 text-2xl font-medium tracking-tight text-ink sm:text-[28px]">
               {insights.totalCompleted.toLocaleString("pt-BR")}
             </p>
           </div>
         </div>
         <Heatmap cells={insights.heatmap} />
-        <div className="mt-8 grid grid-cols-2 gap-6 md:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-5">
           <Stat label="Mês mais ativo" value={insights.mostActiveMonth} />
           <Stat label="Dia mais ativo" value={insights.mostActiveWeekday} />
           <Stat

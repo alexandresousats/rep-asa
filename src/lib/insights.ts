@@ -1,6 +1,7 @@
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { toISODate } from "./dates";
+import { parseDate, toISODate } from "./dates";
+import { heatmapInterval, isFutureHeatmapDay } from "./heatmap-window";
 import type { InsightStats, Project, Task, User } from "./types";
 
 function startOfDay(date: Date) {
@@ -22,23 +23,26 @@ export function computeInsights(
   }
 
   const year = today.getFullYear();
-  const heatmap = [];
-  for (let month = 0; month < 12; month += 1) {
-    const days = new Date(year, month + 1, 0).getDate();
-    for (let day = 1; day <= days; day += 1) {
-      const date = toISODate(new Date(year, month, day));
-      heatmap.push({ date, count: counts.get(date) ?? 0 });
-    }
-  }
-
   const monthTotals = new Array(12).fill(0);
   const weekdayTotals = new Array(7).fill(0);
 
-  for (const cell of heatmap) {
-    const date = parseISO(cell.date);
-    monthTotals[date.getMonth()] += cell.count;
-    weekdayTotals[date.getDay()] += cell.count;
+  for (let month = 0; month < 12; month += 1) {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = parseDate(toISODate(new Date(year, month, day)));
+      const count = counts.get(toISODate(date)) ?? 0;
+      monthTotals[month] += count;
+      weekdayTotals[date.getDay()] += count;
+    }
   }
+
+  const heatmap = heatmapInterval(today).map((day) => {
+    const date = toISODate(day);
+    if (isFutureHeatmapDay(day, today)) {
+      return { date, count: 0 };
+    }
+    return { date, count: counts.get(date) ?? 0 };
+  });
 
   const mostActiveMonthIndex = monthTotals.indexOf(Math.max(...monthTotals));
   const mostActiveWeekdayIndex = weekdayTotals.indexOf(Math.max(...weekdayTotals));
@@ -53,7 +57,7 @@ export function computeInsights(
       currentRun = 1;
     } else {
       const gap =
-        (parseISO(day).getTime() - parseISO(previous).getTime()) / 86_400_000;
+        (parseDate(day).getTime() - parseDate(previous).getTime()) / 86_400_000;
       currentRun = gap === 1 ? currentRun + 1 : 1;
     }
     longestStreak = Math.max(longestStreak, currentRun);
