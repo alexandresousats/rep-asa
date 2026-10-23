@@ -485,7 +485,7 @@ export const useChat = create<ChatState>()(
           const agent = usePrefs.getState().agent;
           if (!agentReady(agent)) return;
 
-          let session = activeSession();
+          const session = activeSession();
           if (!session) return;
           const currentSessionId = session.id;
 

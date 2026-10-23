@@ -50,8 +50,14 @@ export async function generateDemandLinkToken(actor: Actor, projectId: string) {
     throw new ApiError(403, "Apenas administradores ou editores podem gerar links verificados de demanda.");
   }
 
+  if (!actor.workspaceId) {
+    throw new ApiError(400, "Espaço de trabalho não selecionado.");
+  }
+
+  const workspaceId: string = actor.workspaceId;
+
   const project = await prisma.project.findFirst({
-    where: { id: projectId, workspaceId: actor.workspaceId },
+    where: { id: projectId, workspaceId },
     include: { workspace: true },
   });
 

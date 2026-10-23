@@ -674,6 +674,36 @@ export async function getDemandLinkInfo(token: string) {
   return request<DemandLinkInfoResponse>(`/demands/link-info?token=${encodeURIComponent(token)}`);
 }
 
+export interface DemandExtractionState {
+  subject?: string;
+  format?: string;
+  tagIds?: string[];
+  dueDate?: string;
+  referenceUrls?: string;
+  notes?: string;
+  requesterName?: string;
+  isReadyToConfirm?: boolean;
+}
+
+export interface SubmitDemandPayload {
+  title?: string;
+  subject?: string;
+  description?: string;
+  demandFormat?: string;
+  tagIds?: string[];
+  dueDate?: string;
+  referenceUrls?: string;
+  requesterName?: string;
+  requesterEmail?: string;
+  attachments?: {
+    name: string;
+    type: string;
+    size: number;
+    base64?: string;
+    url?: string;
+  }[];
+}
+
 export async function chatWithDemandAgent(
   token: string,
   messages: Array<{
@@ -681,14 +711,14 @@ export async function chatWithDemandAgent(
     content: string;
     images?: string[];
     videos?: string[];
-    documents?: any[];
+    documents?: unknown[];
   }>,
-  currentDemand?: Record<string, any>,
+  currentDemand?: DemandExtractionState,
 ) {
   return request<{
     ok: boolean;
     reply: string;
-    updatedDemand: Record<string, any>;
+    updatedDemand: DemandExtractionState;
     project: { id: string; name: string };
     verifiedBy: { name: string };
   }>("/demands/agent-chat", {
@@ -697,7 +727,7 @@ export async function chatWithDemandAgent(
   });
 }
 
-export async function submitDemandViaLink(token: string, demand: Record<string, any>) {
+export async function submitDemandViaLink(token: string, demand: SubmitDemandPayload) {
   return request<{
     ok: boolean;
     task: Task;

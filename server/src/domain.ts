@@ -204,7 +204,7 @@ async function visibleProject(actor: Actor, id: string) {
   return project;
 }
 
-async function notify(input: {
+export async function notify(input: {
   userId: string;
   type: string;
   title: string;
