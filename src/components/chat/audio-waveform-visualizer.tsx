@@ -5,11 +5,13 @@ import { useEffect, useRef } from "react";
 interface AudioWaveformVisualizerProps {
   stream: MediaStream | null;
   className?: string;
+  dense?: boolean;
 }
 
 export function AudioWaveformVisualizer({
   stream,
   className,
+  dense = false,
 }: AudioWaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -27,7 +29,7 @@ export function AudioWaveformVisualizer({
 
     const historyBuffer: number[] = [];
     let lastSampleTime = 0;
-    const SAMPLE_INTERVAL_MS = 38; // ~26 amostras por segundo para fluidez realista
+    const SAMPLE_INTERVAL_MS = dense ? 30 : 38;
 
     // Configuração do Web Audio API se houver stream ativo
     if (stream && stream.active) {
@@ -79,14 +81,14 @@ export function AudioWaveformVisualizer({
         document.documentElement.getAttribute("data-theme") === "dark";
 
       // Cores conforme referência
-      const dotColor = isDark ? "#48484a" : "#d1d5db";
-      const waveColor = isDark ? "#d4d4d8" : "#4b5563";
+      const dotColor = isDark ? "#525252" : "#9ca3af";
+      const waveColor = isDark ? "#d4d4d8" : "#727171";
       const peakColor = isDark ? "#ffffff" : "#18181b";
 
       // Parâmetros de espaçamento das barras e pontos
-      const barWidth = 2.5;
-      const barSpacing = 6.2;
-      const numSlots = Math.max(10, Math.floor(width / barSpacing));
+      const barWidth = dense ? 1.75 : 2.5;
+      const barSpacing = dense ? 3.8 : 6.2;
+      const numSlots = Math.max(8, Math.floor(width / barSpacing));
 
       // Garante tamanho do histórico correspondente à largura
       while (historyBuffer.length < numSlots) {
