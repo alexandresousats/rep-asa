@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { AudioWaveformVisualizer } from "./audio-waveform-visualizer";
 import { cn } from "@/lib/cn";
 import { useChat } from "@/lib/chat";
 import { AGENT_PRESETS, agentReady, usePrefs } from "@/lib/prefs";
@@ -122,6 +123,9 @@ export function ChatComposer({
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [isDictating, setIsDictating] = useState(false);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  const [liveTranscription, setLiveTranscription] = useState("");
+  const liveTranscriptionRef = useRef("");
 
   // Menus suspensos
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -271,12 +275,15 @@ export function ChatComposer({
     }
   }
 
-  // Gravação de Áudio via MediaRecorder (Anexo de áudio no menu +)
+  // Gravação de Áudio via MediaRecorder com Onda Sonora em Tempo Real e Transcrição Automática
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMediaStream(stream);
       audioChunksRef.current = [];
       recordingSecondsRef.current = 0;
+      liveTranscriptionRef.current = "";
+      setLiveTranscription("");
 
       let mimeType = "audio/webm";
       if (!MediaRecorder.isTypeSupported("audio/webm")) {
@@ -291,20 +298,9 @@ export function ChatComposer({
       };
 
       recorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         stream.getTracks().forEach((track) => track.stop());
-
-        const duration = recordingSecondsRef.current || 1;
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const dataUrl = reader.result as string;
-          setAttachedAudio({
-            url: dataUrl,
-            duration,
-            mimeType,
-          });
-        };
-        reader.readAsDataURL(audioBlob);
+        setMediaStream(null);
+        setIsRecording(false);
       };
 
       recorder.start(100);
@@ -315,6 +311,46 @@ export function ChatComposer({
         recordingSecondsRef.current += 1;
         setRecordingSeconds(recordingSecondsRef.current);
       }, 1000);
+
+      // Inicia transcrição de voz automática em tempo real em português
+      const SpeechClass =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechClass) {
+        try {
+          const speech: SpeechRecognitionInstance = new SpeechClass();
+          speech.continuous = true;
+          speech.interimResults = true;
+          speech.lang = "pt-BR";
+
+          speech.onresult = (event: any) => {
+            let finalTranscript = "";
+            let interimTranscript = "";
+
+            for (let i = 0; i < event.results.length; ++i) {
+              const item = event.results[i];
+              const text = item[0]?.transcript || "";
+              if (item.isFinal) {
+                finalTranscript += (finalTranscript ? " " : "") + text.trim();
+              } else {
+                interimTranscript += (interimTranscript ? " " : "") + text.trim();
+              }
+            }
+
+            const recognized = [finalTranscript, interimTranscript]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+
+            liveTranscriptionRef.current = recognized;
+            setLiveTranscription(recognized);
+          };
+
+          speech.onerror = () => {};
+          speech.onend = () => {};
+          speech.start();
+          speechRecognitionRef.current = speech;
+        } catch {}
+      }
     } catch {
       alert("Permissão de microfone negada ou microfone indisponível.");
     }
@@ -325,15 +361,118 @@ export function ChatComposer({
       window.clearInterval(recordTimerRef.current);
       recordTimerRef.current = null;
     }
+
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch {}
+      speechRecognitionRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       if (!save) {
         audioChunksRef.current = [];
         mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+        setMediaStream(null);
+        setIsRecording(false);
+        liveTranscriptionRef.current = "";
+        setLiveTranscription("");
       } else {
         mediaRecorderRef.current.stop();
+
+        // Insere o texto transcrito diretamente na caixa de mensagem como mensagem normal
+        const transcribed = liveTranscriptionRef.current.trim();
+        if (transcribed) {
+          setValue((prev) => {
+            const base = prev.trim();
+            return base ? `${base} ${transcribed}` : transcribed;
+          });
+        }
+        liveTranscriptionRef.current = "";
+        setLiveTranscription("");
+        setTimeout(() => {
+          ref.current?.focus();
+        }, 50);
       }
+    } else {
+      setMediaStream(null);
+      setIsRecording(false);
+      liveTranscriptionRef.current = "";
+      setLiveTranscription("");
     }
-    setIsRecording(false);
+  }
+
+  async function submitRecordingNow() {
+    if (recordTimerRef.current) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch {}
+      speechRecognitionRef.current = null;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") {
+      if (isRecording) stopRecording(false);
+      return;
+    }
+
+    const duration = recordingSecondsRef.current || 1;
+    const mimeType = recorder.mimeType || "audio/webm";
+
+    recorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+      recorder.stream.getTracks().forEach((track) => track.stop());
+      setMediaStream(null);
+      setIsRecording(false);
+
+      let textToSend = liveTranscriptionRef.current.trim() || value.trim();
+
+      // Fallback: se o navegador não transcreveu e temos chave de API configurada, transcreve via Whisper
+      if (!textToSend && agent.apiKey) {
+        try {
+          const form = new FormData();
+          form.append("file", audioBlob, "audio.webm");
+          form.append("apiKey", agent.apiKey);
+          form.append("baseUrl", agent.baseUrl);
+          const res = await fetch("/api/ai/transcribe-audio", {
+            method: "POST",
+            body: form,
+          });
+          const data = await res.json();
+          if (data.ok && data.text?.trim()) {
+            textToSend = data.text.trim();
+          }
+        } catch {}
+      }
+
+      if (!textToSend) {
+        return;
+      }
+
+      const imagesToSend = [...images];
+      const documentsToSend = [...documents];
+
+      setValue("");
+      setImages([]);
+      setAttachedAudio(null);
+      setDocuments([]);
+      setLiveTranscription("");
+      liveTranscriptionRef.current = "";
+
+      // Envia como mensagem de chat normal
+      void send({
+        text: textToSend,
+        images: imagesToSend,
+        documents: documentsToSend,
+      });
+    };
+
+    recorder.stop();
   }
 
   // Ditado de voz para texto (Speech-to-Text em tempo real no textarea)
@@ -495,11 +634,11 @@ export function ChatComposer({
           "relative flex flex-col rounded-[28px] transition-colors",
           "bg-white dark:bg-[#201f1d] text-ink",
           "border border-[#e6e5e3] dark:border-[#30302e]",
-          hero ? "p-4 pb-3" : "p-3 pb-2.5",
+          isRecording ? "p-2 sm:p-2.5" : hero ? "p-4 pb-3" : "p-3 pb-2.5",
         )}
       >
         {/* Documentos / PDFs Anexados */}
-        {documents.length > 0 && (
+        {!isRecording && documents.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 pt-0.5">
             {documents.map((doc, idx) => (
               <div
@@ -542,7 +681,7 @@ export function ChatComposer({
         )}
 
         {/* Pré-visualização de Imagens Anexadas */}
-        {images.length > 0 && (
+        {!isRecording && images.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 pt-0.5">
             {images.map((img, idx) => (
               <div
@@ -564,57 +703,60 @@ export function ChatComposer({
           </div>
         )}
 
-        {/* Pré-visualização de Áudio Gravado/Anexado */}
-        {attachedAudio && !isRecording && (
-          <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl bg-zinc-50 dark:bg-[#191919] px-3 py-2 border border-black/[0.05] dark:border-white/[0.06]">
-            <div className="flex items-center gap-2 text-xs text-ink">
-              <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
-              <span>Mensagem de voz anexada ({formatSeconds(attachedAudio.duration || 0)})</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAttachedAudio(null)}
-              className="text-muted hover:text-red-500 transition-colors"
-              aria-label="Remover áudio"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
 
-        {/* Barra Ativa de Gravação de Áudio */}
+
+        {/* Barra Ativa de Gravação de Áudio com visualizador em tempo real conforme referência */}
         {isRecording ? (
-          <div className="flex items-center justify-between gap-3 px-2 py-2">
-            <div className="flex items-center gap-3">
-              <span className="flex h-3 w-3 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
-              </span>
-              <span className="text-sm font-medium text-ink">
-                Gravando ({formatSeconds(recordingSeconds)})
-              </span>
-              <span className="hidden text-xs text-muted sm:inline">
-                Fale agora com o assistente...
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-1 px-1 py-1">
+            <div className="flex items-center justify-between gap-2">
+              {/* Botão Cancelar ( ✕ ) à esquerda */}
               <button
                 type="button"
                 onClick={() => stopRecording(false)}
-                title="Descartar gravação"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5 dark:hover:bg-white/10 hover:text-red-500 transition-colors"
+                title="Cancelar gravação"
+                aria-label="Cancelar gravação"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/10 bg-black/[0.04] dark:bg-white/[0.06] text-zinc-500 dark:text-zinc-400 hover:text-red-500 hover:border-red-500/40 hover:bg-red-500/10 transition-colors cursor-pointer"
               >
-                <Trash2 className="h-4 w-4" />
+                <X className="h-4 w-4" strokeWidth={2} />
               </button>
-              <button
-                type="button"
-                onClick={() => stopRecording(true)}
-                title="Concluir áudio"
-                className="flex h-8 px-3.5 items-center justify-center rounded-full bg-ink text-base text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
-              >
-                Concluir
-              </button>
+
+              {/* Onda Sonora em Tempo Real no centro */}
+              <div className="flex-1 min-w-0 h-9 flex items-center px-2 overflow-hidden">
+                <AudioWaveformVisualizer stream={mediaStream} className="w-full h-8" />
+              </div>
+
+              {/* Ações à direita: Parar ( ■ ) e Enviar Imediatamente ( ↑ ) */}
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Botão Parar / Concluir ( ■ ) */}
+                <button
+                  type="button"
+                  onClick={() => stopRecording(true)}
+                  title="Concluir áudio e manter transcrição"
+                  aria-label="Concluir gravação"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 dark:border-white/10 bg-black/[0.04] dark:bg-white/[0.06] text-zinc-700 dark:text-zinc-200 hover:bg-black/[0.08] dark:hover:bg-white/[0.12] transition-colors cursor-pointer"
+                >
+                  <div className="h-3 w-3 rounded-[2px] bg-zinc-800 dark:bg-white" />
+                </button>
+
+                {/* Botão Enviar Imediatamente ( ↑ ) */}
+                <button
+                  type="button"
+                  onClick={() => submitRecordingNow()}
+                  title="Enviar áudio transcrito agora"
+                  aria-label="Enviar áudio"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1d6eed] hover:bg-[#2563eb] text-white transition-all active:scale-95 shadow-none cursor-pointer"
+                >
+                  <ArrowUp className="h-4.5 w-4.5 stroke-[2.5]" />
+                </button>
+              </div>
             </div>
+
+            {/* Transcrição de voz em tempo real exibida suavemente enquanto fala */}
+            {liveTranscription && (
+              <div className="text-center text-[12px] text-muted italic truncate px-3 py-0.5 animate-in fade-in">
+                &ldquo;{liveTranscription}&rdquo;
+              </div>
+            )}
           </div>
         ) : (
           /* Campo de Texto Principal */
@@ -653,7 +795,8 @@ export function ChatComposer({
         )}
 
         {/* Barra de Ferramentas Inferior */}
-        <div className="flex items-center justify-between pt-2">
+        {!isRecording && (
+          <div className="flex items-center justify-between pt-2">
           {/* Lado Esquerdo: Botão "+" minimalista conforme referência */}
           <div className="relative">
             <button
@@ -797,19 +940,14 @@ export function ChatComposer({
               )}
             </div>
 
-            {/* Botão de Ditado com Microfone conforme referência */}
+            {/* Botão de Gravação de Áudio com Microfone */}
             <button
               type="button"
               disabled={!ready || parsingDoc}
-              onClick={toggleDictation}
-              title={isDictating ? "Parar ditado por voz" : "Ditar texto com microfone"}
-              aria-label="Microfone"
-              className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:opacity-40",
-                isDictating
-                  ? "bg-red-500/15 text-red-500 animate-pulse"
-                  : "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200",
-              )}
+              onClick={startRecording}
+              title="Gravar mensagem de áudio"
+              aria-label="Gravar áudio"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200 transition-colors disabled:opacity-40 cursor-pointer"
             >
               <Mic className="h-4 w-4 stroke-[1.75]" />
             </button>
@@ -847,6 +985,7 @@ export function ChatComposer({
             )}
           </div>
         </div>
+        )}
       </div>
 
       {hydrated && !ready ? (

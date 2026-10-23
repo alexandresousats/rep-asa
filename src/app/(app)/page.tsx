@@ -45,22 +45,19 @@ function ChatHero() {
   const ready = agentReady(agent);
 
   return (
-    <section className="mx-auto mb-12 flex w-full max-w-2xl flex-col items-center pt-6 sm:pt-10">
-      <h1 className="text-center text-3xl font-medium tracking-tight text-ink">
+    <section className="mx-auto mb-12 flex w-full max-w-3xl flex-col items-center pt-6 sm:pt-10">
+      <h1 className="mb-6 sm:mb-8 text-center text-3xl font-medium tracking-tight text-ink">
         Olá, {firstName}.
       </h1>
-      <p className="mt-2 mb-8 text-center text-sm text-faint">
-        Converse com o agente para criar e organizar tarefas.
-      </p>
       <ChatComposer hero autoFocus className="w-full" />
       {ready ? (
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
+        <div className="mt-5 flex w-full items-center justify-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {SUGGESTIONS.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => void send(item)}
-              className="rounded-full border border-line px-4 py-2 text-sm text-muted transition-colors hover:bg-hover hover:text-ink"
+              className="shrink-0 whitespace-nowrap rounded-full border border-line px-3.5 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm text-muted transition-colors hover:bg-hover hover:text-ink"
             >
               {item}
             </button>
