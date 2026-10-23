@@ -2,14 +2,17 @@
 
 import { ThemeProvider } from "next-themes";
 import { useEffect } from "react";
-import { loadSession, refreshNotifications } from "@/lib/api";
-import { usePrefs } from "@/lib/prefs";
-import { useWorkspace } from "@/lib/workspace";
+import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
+import { agentReady, usePrefs } from "@/lib/prefs";
+import { useAccess, useWorkspace } from "@/lib/workspace";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const setHasHydrated = usePrefs((state) => state.setHasHydrated);
   const userId = useWorkspace((state) => state.user?.id);
   const workspaceId = useWorkspace((state) => state.workspace?.id);
+  const agent = usePrefs((state) => state.agent);
+  const prefsHydrated = usePrefs((state) => state.hasHydrated);
+  const { canWrite } = useAccess();
 
   useEffect(() => {
     if (usePrefs.persist.hasHydrated()) {
@@ -32,6 +35,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", onFocus);
     };
   }, [setHasHydrated]);
+
+  useEffect(() => {
+    if (!userId || !workspaceId || !prefsHydrated || !canWrite) return;
+    if (!agentReady(agent)) return;
+    void syncWorkspaceAgent({
+      baseUrl: agent.baseUrl.trim(),
+      apiKey: agent.apiKey.trim(),
+      model: agent.model.trim(),
+    }).catch(() => undefined);
+  }, [userId, workspaceId, prefsHydrated, canWrite, agent.baseUrl, agent.apiKey, agent.model]);
 
   useEffect(() => {
     if (!userId) return;

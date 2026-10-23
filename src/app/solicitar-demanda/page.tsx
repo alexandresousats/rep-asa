@@ -2,44 +2,36 @@
 
 import {
   AlertCircle,
-  ArrowRight,
   ArrowUp,
   Calendar,
   Check,
   CheckCircle2,
-  ChevronRight,
-  ExternalLink,
   FileText,
   Film,
-  Image as ImageIcon,
   Layers,
-  Link2,
   Loader2,
   Mic,
   Paperclip,
   Radio,
-  Send,
   ShieldCheck,
   Smartphone,
   Sparkles,
   Square,
-  Tag as TagIcon,
   Trash2,
-  UploadCloud,
   Video as VideoIcon,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import { Markdown } from "@/components/chat/markdown";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import {
   type DemandLinkInfoResponse,
   chatWithDemandAgent,
   getDemandLinkInfo,
   submitDemandViaLink,
 } from "@/lib/api";
-import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 
 interface MessageItem {
@@ -51,6 +43,32 @@ interface MessageItem {
   documents?: { name: string; size: number; base64?: string }[];
   audio?: { url: string; duration?: number };
   createdAt: string;
+  uiAction?: "formats" | "review";
+  formatsOnly?: boolean;
+}
+
+function appendAssistantTurn(
+  prev: MessageItem[],
+  content: string,
+  uiAction?: MessageItem["uiAction"],
+): MessageItem[] {
+  const createdAt = new Date().toISOString();
+  const textId = `a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const next: MessageItem[] = [
+    ...prev,
+    { id: textId, role: "assistant", content, createdAt },
+  ];
+  if (uiAction === "formats") {
+    next.push({
+      id: `a-fmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      role: "assistant",
+      content: "",
+      uiAction: "formats",
+      formatsOnly: true,
+      createdAt,
+    });
+  }
+  return next;
 }
 
 interface AttachedFile {
@@ -128,7 +146,7 @@ function DemandChatContent() {
   // Estado da Demanda Extraída
   const [demandSubject, setDemandSubject] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<string | null>(null);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]); // tags de formato (automáticas)
   const [dueDate, setDueDate] = useState("");
   const [referenceUrls, setReferenceUrls] = useState("");
   const [requesterName, setRequesterName] = useState("");
@@ -162,13 +180,23 @@ function DemandChatContent() {
         setLinkInfo(data);
 
         // Mensagem inicial do agente: Pergunta o assunto logo de cara, sabendo o projeto!
-        const initialMsg: MessageItem = {
-          id: "welcome",
-          role: "assistant",
-          content: `Olá! Sou o agente de criação de demandas do projeto **${data.project.name}**.\n\nQual é o **assunto** ou tema principal da demanda que você deseja solicitar hoje?`,
-          createdAt: new Date().toISOString(),
-        };
-        setMessages([initialMsg]);
+        const createdAt = new Date().toISOString();
+        setMessages([
+          {
+            id: "welcome",
+            role: "assistant",
+            content: `Olá! Sou o agente de demandas do projeto ${data.project.name}.\n\nQual é o assunto ou tema principal da demanda?`,
+            createdAt,
+          },
+          {
+            id: "welcome-formats",
+            role: "assistant",
+            content: "",
+            uiAction: "formats",
+            formatsOnly: true,
+            createdAt,
+          },
+        ]);
       } catch (err: any) {
         setLoadError(err?.message || "Link de demanda inválido, expirado ou não autorizado.");
       } finally {
@@ -290,8 +318,32 @@ function DemandChatContent() {
     setVideoUrlModalOpen(false);
   }
 
+  function applyDemandState(upd: {
+    subject?: string;
+    format?: string;
+    tagIds?: string[];
+    dueDate?: string;
+    referenceUrls?: string;
+    isReadyToConfirm?: boolean;
+  }) {
+    if (upd.subject) setDemandSubject(upd.subject);
+    if (upd.format) setSelectedFormat(upd.format);
+    if (upd.dueDate) setDueDate(upd.dueDate);
+    if (upd.referenceUrls) setReferenceUrls(upd.referenceUrls);
+    if (upd.tagIds?.length) setSelectedTagIds(upd.tagIds);
+    if (typeof upd.isReadyToConfirm === "boolean") setIsReadyToConfirm(upd.isReadyToConfirm);
+  }
+
   // Envio de mensagem para o agente
-  async function handleSend(manualText?: string) {
+  async function handleSend(
+    manualText?: string,
+    demandOverride?: {
+      subject?: string;
+      format?: string;
+      dueDate?: string;
+      tagIds?: string[];
+    },
+  ) {
     const textToSend = (manualText !== undefined ? manualText : inputText).trim();
     const hasAttachments = attachedFiles.length > 0 || Boolean(attachedAudio);
 
@@ -339,35 +391,27 @@ function DemandChatContent() {
           documents: m.documents,
         })),
         {
-          subject: demandSubject,
-          format: selectedFormat || undefined,
-          tagIds: selectedTagIds,
-          dueDate: dueDate || undefined,
+          subject: demandOverride?.subject ?? demandSubject,
+          format: demandOverride?.format ?? selectedFormat ?? undefined,
+          tagIds: demandOverride?.tagIds ?? selectedTagIds,
+          dueDate: demandOverride?.dueDate ?? dueDate ?? undefined,
           referenceUrls: referenceUrls || undefined,
           requesterName: requesterName || undefined,
+          isReadyToConfirm,
         },
       );
 
-      if (response && response.reply) {
-        const assistantMessage: MessageItem = {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          content: response.reply,
-          createdAt: new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
+      if (response?.reply) {
+        setMessages((prev) =>
+          appendAssistantTurn(prev, response.reply, response.uiAction === "formats" ? "formats" : undefined),
+        );
 
-        // Atualiza estado extraído
         if (response.updatedDemand) {
-          const upd = response.updatedDemand;
-          if (upd.subject && !demandSubject) setDemandSubject(upd.subject);
-          if (upd.format && !selectedFormat) setSelectedFormat(upd.format);
-          if (upd.dueDate && !dueDate) setDueDate(upd.dueDate);
-          if (upd.referenceUrls) setReferenceUrls(upd.referenceUrls);
-          if (upd.tagIds && upd.tagIds.length > 0) {
-            setSelectedTagIds(Array.from(new Set([...selectedTagIds, ...upd.tagIds])));
-          }
-          if (upd.isReadyToConfirm) setIsReadyToConfirm(true);
+          applyDemandState(response.updatedDemand);
+        }
+
+        if (response.submitRequested && response.updatedDemand) {
+          await handleConfirmSubmit(response.updatedDemand);
         }
       }
     } catch (err: any) {
@@ -383,26 +427,30 @@ function DemandChatContent() {
     }
   }
 
-  // Clique em um formato das pílulas visuais
   function handleSelectFormat(fmtId: string) {
+    if (sending) return;
     setSelectedFormat(fmtId);
     const fmt = FORMAT_OPTIONS.find((f) => f.id === fmtId);
     if (fmt) {
-      void handleSend(`Formato selecionado: ${fmt.label}`);
+      void handleSend(`Formato: ${fmt.label}`, { format: fmtId });
     }
   }
 
-  // Toggle de tag
-  function handleToggleTag(tagId: string) {
-    setSelectedTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
-    );
-  }
-
-  // Enviar a demanda definitiva para o banco
-  async function handleConfirmSubmit() {
+  async function handleConfirmSubmit(override?: {
+    subject?: string;
+    format?: string;
+    tagIds?: string[];
+    dueDate?: string;
+    referenceUrls?: string;
+  }) {
     if (submitting) return;
     setSubmitting(true);
+
+    const subject = override?.subject ?? demandSubject;
+    const format = override?.format ?? selectedFormat;
+    const tagIds = override?.tagIds ?? selectedTagIds;
+    const due = override?.dueDate ?? dueDate;
+    const refs = override?.referenceUrls ?? referenceUrls;
 
     try {
       // Coleta todos os anexos já enviados na conversa
@@ -461,13 +509,13 @@ function DemandChatContent() {
         .join("\n\n");
 
       const res = await submitDemandViaLink(token, {
-        title: demandSubject || `Demanda: ${selectedFormat || "Conteúdo"}`,
-        subject: demandSubject,
+        title: subject || `Demanda: ${format || "Conteúdo"}`,
+        subject,
         description: conversationSummary,
-        demandFormat: selectedFormat || undefined,
-        tagIds: selectedTagIds,
-        dueDate: dueDate || undefined,
-        referenceUrls: referenceUrls || undefined,
+        demandFormat: format || undefined,
+        tagIds,
+        dueDate: due || undefined,
+        referenceUrls: refs || undefined,
         requesterName: requesterName || undefined,
         requesterEmail: requesterEmail || undefined,
         attachments: allAttachments,
@@ -586,12 +634,21 @@ function DemandChatContent() {
                 setDueDate("");
                 setReferenceUrls("");
                 setIsReadyToConfirm(false);
+                const createdAt = new Date().toISOString();
                 setMessages([
                   {
                     id: `new-${Date.now()}`,
                     role: "assistant",
-                    content: `Olá novamente! O que mais você gostaria de solicitar para o projeto **${linkInfo.project.name}**?`,
-                    createdAt: new Date().toISOString(),
+                    content: `Olá novamente! O que mais você gostaria de solicitar para o projeto ${linkInfo.project.name}?`,
+                    createdAt,
+                  },
+                  {
+                    id: `new-fmt-${Date.now()}`,
+                    role: "assistant",
+                    content: "",
+                    uiAction: "formats",
+                    formatsOnly: true,
+                    createdAt,
                   },
                 ]);
               }}
@@ -608,11 +665,16 @@ function DemandChatContent() {
 
   // FORMAT_OPTIONS ativos
   const activeFormatObj = FORMAT_OPTIONS.find((f) => f.id === selectedFormat);
+  const lastFormatPromptId = messages
+    .filter((m) => m.formatsOnly && m.uiAction === "formats")
+    .at(-1)?.id;
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-[#0e0e0e] text-zinc-100 font-sans selection:bg-sky-500/30 selection:text-white">
-      {/* 1. Header do Link Verificado */}
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-[#141414]/90 px-4 sm:px-6 backdrop-blur-md z-30">
+    <div
+      className="flex h-screen w-full flex-col overflow-hidden bg-base text-ink"
+      data-theme="dark"
+    >
+      <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-line-subtle bg-base/90 px-4 sm:px-6 backdrop-blur-md z-30">
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm text-white font-bold"
@@ -622,15 +684,15 @@ function DemandChatContent() {
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold text-white truncate max-w-[160px] sm:max-w-[280px]">
+              <h1 className="text-sm font-medium text-ink truncate max-w-[160px] sm:max-w-[280px]">
                 {linkInfo.project.name}
               </h1>
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
                 <ShieldCheck className="h-3 w-3 shrink-0" />
-                <span>Link Verificado</span>
+                <span>Link verificado</span>
               </span>
             </div>
-            <span className="text-[11px] text-zinc-400 truncate">
+            <span className="text-[11px] text-faint truncate">
               {linkInfo.workspace.name} · Verificado por {linkInfo.verifiedBy.name}
             </span>
           </div>
@@ -639,14 +701,14 @@ function DemandChatContent() {
         {/* Status da Demanda no topo direito */}
         <div className="hidden sm:flex items-center gap-2">
           {activeFormatObj && (
-            <span className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-sky-400">
-              <activeFormatObj.icon className="h-3.5 w-3.5" />
+            <span className="flex items-center gap-1.5 rounded-full border border-line bg-elevated px-3 py-1 text-xs text-muted">
+              <activeFormatObj.icon className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>{activeFormatObj.label}</span>
             </span>
           )}
           {dueDate && (
-            <span className="flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-300">
-              <Calendar className="h-3.5 w-3.5 text-amber-400" />
+            <span className="flex items-center gap-1.5 rounded-full border border-line bg-elevated px-3 py-1 text-xs text-muted">
+              <Calendar className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>Prazo: {formatDay(dueDate)}</span>
             </span>
           )}
@@ -660,6 +722,25 @@ function DemandChatContent() {
           <div className="mx-auto max-w-3xl space-y-5">
             {messages.map((msg) => {
               const isAssistant = msg.role === "assistant";
+
+              if (msg.formatsOnly) {
+                if (selectedFormat || msg.id !== lastFormatPromptId) return null;
+                return (
+                  <div key={msg.id} className="flex gap-3 text-sm">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated text-muted">
+                      <Sparkles className="h-4 w-4" strokeWidth={1.5} />
+                    </div>
+                    <div className="max-w-[85%] sm:max-w-[78%] rounded-2xl border border-line-subtle bg-elevated px-4 py-3">
+                      <DemandFormatPicker
+                        selected={selectedFormat}
+                        disabled={sending}
+                        onSelect={handleSelectFormat}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={msg.id}
@@ -669,21 +750,26 @@ function DemandChatContent() {
                   )}
                 >
                   {isAssistant && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-md">
-                      <Sparkles className="h-4 w-4" />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated text-muted">
+                      <Sparkles className="h-4 w-4" strokeWidth={1.5} />
                     </div>
                   )}
 
                   <div
                     className={cn(
-                      "flex flex-col max-w-[85%] sm:max-w-[78%] rounded-2xl px-4 py-3 leading-relaxed",
+                      "flex flex-col max-w-[85%] sm:max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
                       isAssistant
-                        ? "bg-[#1c1c1c] text-zinc-200 border border-white/5 shadow-md"
-                        : "bg-[#1d6eed] text-white shadow-md ml-auto",
+                        ? "border border-line-subtle bg-elevated text-ink"
+                        : "bg-ink text-base ml-auto",
                     )}
                   >
-                    {/* Texto da mensagem */}
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    {isAssistant ? (
+                      <div className="[&_.space-y-3]:space-y-2 [&_p]:text-sm [&_p]:leading-relaxed">
+                        <Markdown text={msg.content} />
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    )}
 
                     {/* Imagens Anexadas */}
                     {msg.images && msg.images.length > 0 && (
@@ -744,7 +830,7 @@ function DemandChatContent() {
                   </div>
 
                   {!isAssistant && (
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white font-medium text-xs">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated text-xs font-medium text-muted">
                       VC
                     </div>
                   )}
@@ -754,115 +840,14 @@ function DemandChatContent() {
 
             {/* Indicador de Digitação do Agente */}
             {sending && (
-              <div className="flex gap-3 text-sm animate-fadeIn">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-md">
-                  <Sparkles className="h-4 w-4" />
+              <div className="flex gap-3 text-sm">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated text-muted">
+                  <Sparkles className="h-4 w-4" strokeWidth={1.5} />
                 </div>
-                <div className="flex items-center gap-1.5 rounded-2xl bg-[#1c1c1c] px-4 py-3 border border-white/5">
-                  <span className="h-2 w-2 rounded-full bg-sky-400 animate-pulse" />
-                  <span className="h-2 w-2 rounded-full bg-sky-400 animate-pulse delay-150" />
-                  <span className="h-2 w-2 rounded-full bg-sky-400 animate-pulse delay-300" />
-                </div>
-              </div>
-            )}
-
-            {/* Card Interativo de Revisão da Demanda (Exibido quando reunimos as informações) */}
-            {isReadyToConfirm && (
-              <div className="mt-4 rounded-3xl border border-sky-500/30 bg-[#161616] p-5 shadow-2xl animate-scaleUp">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-500/20 text-sky-400">
-                      <Sparkles className="h-3.5 w-3.5" />
-                    </span>
-                    <h3 className="text-sm font-semibold text-white">Resumo da Demanda Solicitada</h3>
-                  </div>
-                  <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">
-                    Pendente de Confirmação
-                  </span>
-                </div>
-
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <span className="text-zinc-400">Assunto / Tema:</span>
-                    <input
-                      type="text"
-                      value={demandSubject}
-                      onChange={(e) => setDemandSubject(e.target.value)}
-                      placeholder="Ex: Campanha de Black Friday"
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-sky-500 font-medium"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <span className="text-zinc-400">Formato Escolhido:</span>
-                      <div className="mt-1 flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2">
-                        {activeFormatObj ? (
-                          <>
-                            <activeFormatObj.icon className={cn("h-4 w-4", activeFormatObj.color)} />
-                            <span className="font-medium text-white">{activeFormatObj.label}</span>
-                          </>
-                        ) : (
-                          <span className="text-zinc-500">Nenhum formato selecionado</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="text-zinc-400">Prazo de Entrega:</span>
-                      <input
-                        type="date"
-                        value={dueDate}
-                        onChange={(e) => setDueDate(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-sky-500"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Informações do Solicitante (opcional) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <div>
-                      <span className="text-zinc-400">Seu Nome (opcional):</span>
-                      <input
-                        type="text"
-                        value={requesterName}
-                        onChange={(e) => setRequesterName(e.target.value)}
-                        placeholder="Nome do solicitante"
-                        className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-sky-500"
-                      />
-                    </div>
-                    <div>
-                      <span className="text-zinc-400">Seu E-mail (opcional):</span>
-                      <input
-                        type="email"
-                        value={requesterEmail}
-                        onChange={(e) => setRequesterEmail(e.target.value)}
-                        placeholder="email@empresa.com"
-                        className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-sky-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Botão de Confirmação Final */}
-                <div className="mt-5 flex items-center justify-end gap-3 pt-3 border-t border-white/10">
-                  <Button
-                    onClick={handleConfirmSubmit}
-                    disabled={submitting}
-                    className="w-full sm:w-auto gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold shadow-lg hover:opacity-95 text-xs py-2.5 px-6 rounded-xl"
-                  >
-                    {submitting ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Enviando Demanda...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check className="h-4 w-4" />
-                        <span>Confirmar e Enviar Demanda</span>
-                      </>
-                    )}
-                  </Button>
+                <div className="flex items-center gap-1.5 rounded-2xl border border-line-subtle bg-elevated px-4 py-3">
+                  <span className="h-2 w-2 rounded-full bg-muted animate-pulse" />
+                  <span className="h-2 w-2 rounded-full bg-muted animate-pulse delay-150" />
+                  <span className="h-2 w-2 rounded-full bg-muted animate-pulse delay-300" />
                 </div>
               </div>
             )}
@@ -871,72 +856,7 @@ function DemandChatContent() {
           </div>
         </div>
 
-        {/* 3. Barra de Formatos e Tags (Idêntica à Imagem do Usuário) */}
-        <div className="border-t border-white/10 bg-[#121212] px-4 py-3 sm:px-6 z-20">
-          <div className="mx-auto max-w-3xl space-y-2.5">
-            {/* Pílulas de Formatos Exatamente como no print */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-              <span className="hidden sm:inline-block text-[11px] font-medium text-zinc-400 shrink-0 mr-1">
-                Formato:
-              </span>
-              {FORMAT_OPTIONS.map((opt) => {
-                const Icon = opt.icon;
-                const isSelected = selectedFormat === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => handleSelectFormat(opt.id)}
-                    className={cn(
-                      "flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all shrink-0 cursor-pointer",
-                      isSelected
-                        ? opt.bgActive
-                        : "border-white/10 bg-[#1f1f1f] text-zinc-300 hover:border-white/20 hover:bg-[#282828] hover:text-white",
-                    )}
-                  >
-                    <Icon className={cn("h-3.5 w-3.5 shrink-0", opt.color)} />
-                    <span>{opt.label}</span>
-                    {isSelected && <Check className="h-3 w-3 shrink-0 ml-0.5 text-current" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Tags do Projeto Disponíveis */}
-            {linkInfo.tags && linkInfo.tags.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-                <span className="hidden sm:inline-block text-[10px] font-medium text-zinc-500 shrink-0 mr-1">
-                  Tags:
-                </span>
-                {linkInfo.tags.map((tag) => {
-                  const isSelected = selectedTagIds.includes(tag.id);
-                  return (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      onClick={() => handleToggleTag(tag.id)}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all shrink-0 cursor-pointer border",
-                        isSelected
-                          ? "border-sky-500/50 bg-sky-500/15 text-sky-300 shadow-2xs"
-                          : "border-white/5 bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-200",
-                      )}
-                    >
-                      <span
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: tag.color || "#38bdf8" }}
-                      />
-                      <span>{tag.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 4. Chat Composer para Envio de Textos, Dados, Imagens e Vídeos */}
-        <div className="bg-[#121212] px-4 pb-4 sm:px-6">
+        <div className="border-t border-line-subtle bg-base px-4 pb-4 pt-2 sm:px-6">
           <div className="mx-auto max-w-3xl">
             {/* Input oculto para arquivos de imagem, vídeo e documentos */}
             <input
@@ -951,7 +871,7 @@ function DemandChatContent() {
               }}
             />
 
-            <div className="relative flex flex-col rounded-[24px] bg-[#212121] text-zinc-100 p-3 shadow-xl border border-white/10 transition-all">
+            <div className="relative flex flex-col rounded-[24px] border border-border-chat bg-chat-composer p-3 transition-all">
               {/* Pré-visualização de Anexos no Composer */}
               {attachedFiles.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
@@ -1047,11 +967,17 @@ function DemandChatContent() {
                     }
                   }}
                   placeholder={
-                    !demandSubject
-                      ? "Digite o assunto da demanda..."
-                      : "Digite mais detalhes, briefing, referências..."
+                    isReadyToConfirm
+                      ? 'Revise o resumo acima e responda "sim" para enviar…'
+                      : !demandSubject
+                        ? "Assunto da demanda…"
+                        : !selectedFormat
+                          ? "Ou descreva o formato desejado…"
+                          : !dueDate
+                            ? "Prazo (ex.: 25/11 ou sexta-feira) e detalhes…"
+                            : "Briefing, referências ou anexos…"
                   }
-                  className="w-full resize-none bg-transparent text-white outline-none placeholder:text-zinc-500 text-[14px] leading-relaxed py-1 px-1 max-h-[180px] overflow-y-auto"
+                  className="w-full resize-none bg-transparent text-ink outline-none placeholder:text-faint text-sm leading-relaxed py-1 px-1 max-h-[180px] overflow-y-auto"
                 />
               )}
 
@@ -1091,23 +1017,12 @@ function DemandChatContent() {
 
                 {/* Botão de Ação Direita */}
                 <div className="flex items-center gap-2">
-                  {!isReadyToConfirm && demandSubject && (
-                    <button
-                      type="button"
-                      onClick={() => setIsReadyToConfirm(true)}
-                      className="hidden sm:inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-zinc-300 hover:bg-white/20 hover:text-white transition-colors"
-                    >
-                      <span>Revisar Demanda</span>
-                      <ChevronRight className="h-3 w-3" />
-                    </button>
-                  )}
-
                   <button
                     type="button"
                     onClick={() => handleSend()}
                     disabled={sending || (!inputText.trim() && attachedFiles.length === 0 && !attachedAudio)}
                     aria-label="Enviar mensagem"
-                    className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[#1d6eed] text-white shadow-md hover:bg-[#2563eb] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-base transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <ArrowUp className="h-4.5 w-4.5 stroke-[2.5]" />
                   </button>
@@ -1171,6 +1086,43 @@ function DemandChatContent() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DemandFormatPicker({
+  selected,
+  disabled,
+  onSelect,
+}: {
+  selected: string | null;
+  disabled?: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {FORMAT_OPTIONS.map((opt) => {
+        const Icon = opt.icon;
+        const isSelected = selected === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(opt.id)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all disabled:opacity-50",
+              isSelected
+                ? opt.bgActive
+                : "border-white/10 bg-base text-muted hover:border-white/20 hover:bg-hover hover:text-ink",
+            )}
+          >
+            <Icon className={cn("h-3.5 w-3.5 shrink-0", opt.color)} />
+            {opt.label}
+            {isSelected ? <Check className="h-3 w-3 shrink-0" /> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

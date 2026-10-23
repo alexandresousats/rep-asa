@@ -3,21 +3,18 @@
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronRight,
   Clock,
-  Film,
-  Layers,
   Link2,
   Paperclip,
   Plus,
   Search,
-  Smartphone,
   Sparkles,
-  Square,
-  ThumbsDown,
-  ThumbsUp,
 } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { CreateDemandDialog, FORMAT_OPTIONS } from "@/components/demands/create-demand-dialog";
 import { ShareDemandLinkDialog } from "@/components/demands/share-demand-link-dialog";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
@@ -29,6 +26,30 @@ import type { DemandFormat, Task } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 type TabMode = "demandas" | "aprovacoes";
+
+const TABS: { id: TabMode; label: string }[] = [
+  { id: "demandas", label: "Todas" },
+  { id: "aprovacoes", label: "Aprovações" },
+];
+
+function demandTasksFrom(
+  allTasks: Task[],
+  tags: { id: string; name: string }[],
+) {
+  return allTasks.filter((t) => {
+    if (t.id.startsWith("hist-")) return false;
+    const isDem =
+      t.isDemand ||
+      Boolean(t.demandFormat) ||
+      (t.approvalStatus && t.approvalStatus !== "none") ||
+      t.section.toLowerCase().includes("demanda") ||
+      t.tagIds.some((tagId) => {
+        const name = tags.find((item) => item.id === tagId)?.name.toLowerCase() ?? "";
+        return ["card", "carrossel", "reels", "vídeo longo", "video longo"].includes(name);
+      });
+    return isDem;
+  });
+}
 
 export default function DemandsPage() {
   const [tab, setTab] = useState<TabMode>("demandas");
@@ -46,26 +67,13 @@ export default function DemandsPage() {
   const tags = useWorkspace((state) => state.tags);
   const taskView = usePrefs((state) => state.taskView);
   const setTaskView = usePrefs((state) => state.setTaskView);
-  const { isClient, isAdmin, canWrite } = useAccess();
+  const { isClient } = useAccess();
 
-  // All demand tasks (either isDemand, has demandFormat, has format tags, or in demand sections)
-  const demandTasks = useMemo(() => {
-    return allTasks.filter((t) => {
-      if (t.id.startsWith("hist-")) return false;
-      const isDem =
-        t.isDemand ||
-        Boolean(t.demandFormat) ||
-        (t.approvalStatus && t.approvalStatus !== "none") ||
-        t.section.toLowerCase().includes("demanda") ||
-        t.tagIds.some((tagId) => {
-          const name = tags.find((item) => item.id === tagId)?.name.toLowerCase() ?? "";
-          return ["card", "carrossel", "reels", "vídeo longo", "video longo"].includes(name);
-        });
-      return isDem;
-    });
-  }, [allTasks, tags]);
+  const demandTasks = useMemo(
+    () => demandTasksFrom(allTasks, tags),
+    [allTasks, tags],
+  );
 
-  // Counts
   const countPending = useMemo(
     () => demandTasks.filter((t) => t.approvalStatus === "pending").length,
     [demandTasks],
@@ -79,7 +87,6 @@ export default function DemandsPage() {
     [demandTasks],
   );
 
-  // Filtered list
   const filtered = useMemo(() => {
     return demandTasks.filter((t) => {
       if (projectFilter !== "all" && t.projectId !== projectFilter) return false;
@@ -118,140 +125,128 @@ export default function DemandsPage() {
     [allTasks, selectedId],
   );
 
+  function openApprovals(status: string) {
+    setTab("aprovacoes");
+    setStatusFilter(status);
+  }
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base">
-        {/* Top Header */}
-        <div className="border-b border-line-subtle px-6 py-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto w-full max-w-6xl px-6 py-8">
+          {/* Header */}
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-sm">
-                  <Layers className="h-3.5 w-3.5" />
-                </span>
-                <h1 className="text-xl font-medium tracking-tight text-ink">
-                  Central de Demandas & Aprovações
-                </h1>
-              </div>
-              <p className="mt-1 text-xs text-faint">
-                {isClient
-                  ? "Faça suas solicitações de conteúdo (cards, carrosséis, vídeos longos e reels) e aprove os materiais produzidos pela equipe."
-                  : "Acompanhe todas as demandas recebidas dos clientes e gerencie o fluxo de aprovação."}
-              </p>
+              <h1 className="text-2xl font-medium tracking-tight text-ink">
+                Demandas
+              </h1>
+              {isClient ? (
+                <p className="mt-1 max-w-xl text-sm text-faint">
+                  Solicite conteúdo e aprove entregas da equipe — cards, carrosséis, vídeos e reels.
+                </p>
+              ) : null}
             </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => setShareLinkDialogOpen(true)}
-                className="gap-2 border-line bg-elevated/80 text-ink hover:bg-hover hover:border-line-subtle shadow-xs"
+                className="gap-1.5"
               >
-                <Link2 className="h-4 w-4 text-sky-400" />
-                <span>Link Verificado do Agente</span>
+                <Link2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                Link do agente
               </Button>
-
-              <Button
-                onClick={() => setDemandDialogOpen(true)}
-                className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-md hover:opacity-95"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Solicitar Demanda</span>
+              <Button size="sm" onClick={() => setDemandDialogOpen(true)} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                Solicitar demanda
               </Button>
             </div>
           </div>
 
-          {/* Stats Bar */}
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-2xl border border-line bg-elevated/70 p-3.5">
-              <span className="text-[11px] font-medium text-faint">Total de Demandas</span>
-              <p className="mt-1 text-2xl font-semibold text-ink">{demandTasks.length}</p>
-            </div>
-
-            <div
-              onClick={() => {
-                setTab("aprovacoes");
-                setStatusFilter("pending");
-              }}
-              className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 cursor-pointer transition-colors hover:border-amber-500/50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-amber-300">Em Aprovação</span>
-                <Clock className="h-3.5 w-3.5 text-amber-400" />
+          {/* Agent strip */}
+          <button
+            type="button"
+            onClick={() => setShareLinkDialogOpen(true)}
+            className="mb-6 flex w-full items-center justify-between gap-3 rounded-[20px] bg-elevated px-5 py-4 text-left transition-colors hover:bg-hover"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-base">
+                <Sparkles className="h-4 w-4 text-muted" strokeWidth={1.5} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm text-ink">Agente de demandas</p>
+                <p className="mt-0.5 truncate text-xs text-faint">
+                  Envie um link verificado para o cliente conversar e abrir solicitações.
+                </p>
               </div>
-              <p className="mt-1 text-2xl font-semibold text-amber-200">{countPending}</p>
             </div>
+            <ChevronRight className="h-4 w-4 shrink-0 text-faint" strokeWidth={1.5} />
+          </button>
 
-            <div
-              onClick={() => {
-                setTab("aprovacoes");
-                setStatusFilter("changes_requested");
-              }}
-              className="rounded-2xl border border-red-500/30 bg-red-500/10 p-3.5 cursor-pointer transition-colors hover:border-red-500/50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-red-300">Ajustes Solicitados</span>
-                <AlertCircle className="h-3.5 w-3.5 text-red-400" />
-              </div>
-              <p className="mt-1 text-2xl font-semibold text-red-200">{countChanges}</p>
+          {/* Metrics */}
+          <Card className="mb-6 border-none">
+            <p className="mb-5 text-sm text-faint">Resumo</p>
+            <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+              <MetricStat label="Total" value={String(demandTasks.length)} />
+              <MetricStat
+                label="Em aprovação"
+                value={String(countPending)}
+                accent="amber"
+                onClick={() => openApprovals("pending")}
+              />
+              <MetricStat
+                label="Ajustes"
+                value={String(countChanges)}
+                accent="red"
+                onClick={() => openApprovals("changes_requested")}
+              />
+              <MetricStat
+                label="Aprovadas"
+                value={String(countApproved)}
+                accent="emerald"
+                onClick={() => openApprovals("approved")}
+              />
             </div>
+          </Card>
 
-            <div
-              onClick={() => {
-                setTab("aprovacoes");
-                setStatusFilter("approved");
-              }}
-              className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 cursor-pointer transition-colors hover:border-emerald-500/50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-emerald-300">Aprovadas</span>
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-              </div>
-              <p className="mt-1 text-2xl font-semibold text-emerald-200">{countApproved}</p>
+          {/* Tabs + project filter */}
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-1">
+              {TABS.map((item) => {
+                const active = tab === item.id;
+                const count =
+                  item.id === "demandas" ? filtered.length : countPending;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setTab(item.id);
+                      if (item.id === "demandas") setStatusFilter("all");
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm transition-colors",
+                      active
+                        ? "bg-elevated text-ink"
+                        : "text-muted hover:bg-hover hover:text-ink",
+                    )}
+                  >
+                    {item.label}
+                    <span className="text-xs text-faint">{count}</span>
+                    {item.id === "aprovacoes" && countPending > 0 ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
-          </div>
-
-          {/* Tab Navigation */}
-          <div className="mt-5 flex items-center justify-between border-t border-line-subtle pt-3">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTab("demandas")}
-                className={cn(
-                  "rounded-full px-4 py-1.5 text-xs font-medium transition-colors",
-                  tab === "demandas"
-                    ? "bg-elevated text-ink shadow-sm"
-                    : "text-faint hover:text-ink",
-                )}
-              >
-                Todas as Demandas ({filtered.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("aprovacoes")}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition-colors",
-                  tab === "aprovacoes"
-                    ? "bg-elevated text-ink shadow-sm"
-                    : "text-faint hover:text-ink",
-                )}
-              >
-                <span>Painel de Aprovações</span>
-                {countPending > 0 ? (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-black">
-                    {countPending}
-                  </span>
-                ) : null}
-              </button>
-            </div>
-
-            {/* Project Filter if multiple */}
             {projects.length > 1 ? (
               <select
                 value={projectFilter}
                 onChange={(e) => setProjectFilter(e.target.value)}
-                className="h-8 rounded-full border border-line bg-elevated px-3 text-xs text-ink outline-none"
+                className="h-9 rounded-full border border-line bg-elevated px-3.5 text-sm text-ink outline-none transition-colors hover:bg-hover"
               >
-                <option value="all">Todos os Projetos</option>
+                <option value="all">Todos os projetos</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -260,287 +255,40 @@ export default function DemandsPage() {
               </select>
             ) : null}
           </div>
-        </div>
 
-        {/* Content Body */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {tab === "demandas" ? (
-            <div>
-              {/* Filter controls */}
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                {/* Format Pills */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setFormatFilter("all")}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                      formatFilter === "all"
-                        ? "bg-ink text-base font-semibold"
-                        : "bg-elevated text-muted hover:text-ink",
-                    )}
-                  >
-                    Todos os formatos
-                  </button>
-                  {FORMAT_OPTIONS.map((f) => {
-                    const active = formatFilter === f.id;
-                    const Icon = f.icon;
-                    return (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => setFormatFilter(f.id)}
-                        className={cn(
-                          "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                          active
-                            ? "bg-ink text-base font-semibold"
-                            : "bg-elevated text-muted hover:text-ink",
-                        )}
-                      >
-                        <Icon className="h-3 w-3" />
-                        {f.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Search input */}
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-                  <input
-                    type="text"
-                    placeholder="Filtrar por título..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="h-8 w-44 rounded-full border border-line bg-elevated pl-8 pr-3 text-xs text-ink placeholder:text-faint outline-none focus:w-56 focus:border-ink transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Grid of Demands */}
-              {filtered.length === 0 ? (
-                <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-line p-8 text-center">
-                  <Layers className="mb-3 h-8 w-8 text-faint" />
-                  <p className="text-sm font-medium text-ink">Nenhuma solicitação encontrada</p>
-                  <p className="mt-1 text-xs text-faint">
-                    Faça sua primeira solicitação de demanda clicando no botão abaixo.
-                  </p>
-                  <Button onClick={() => setDemandDialogOpen(true)} size="sm" className="mt-4 gap-1.5">
-                    <Plus className="h-3.5 w-3.5" />
-                    Solicitar Demanda
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {filtered.map((task) => {
-                    const proj = projects.find((p) => p.id === task.projectId);
-                    const assignee = users.find((u) => u.id === task.assigneeId);
-                    const refCount = task.referenceUrls
-                      ?.split(/\r?\n/)
-                      .filter((l) => Boolean(l.trim())).length ?? 0;
-                    const attachmentsCount = task.attachments?.length ?? 0;
-
-                    return (
-                      <div
-                        key={task.id}
-                        onClick={() => setSelectedId(task.id)}
-                        className="group flex flex-col justify-between rounded-2xl border border-line/70 bg-elevated p-4 shadow-sm transition-all hover:border-line hover:shadow-md cursor-pointer"
-                      >
-                        <div>
-                          {/* Top Meta */}
-                          <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <TaskFormatBadge format={task.demandFormat} />
-                              <TaskApprovalBadge status={task.approvalStatus} />
-                            </div>
-                            {task.dueDate ? (
-                              <span className="text-[11px] text-faint">
-                                {formatDay(task.dueDate)}
-                              </span>
-                            ) : null}
-                          </div>
-
-                          {/* Title */}
-                          <h3 className="line-clamp-2 text-sm font-medium text-ink leading-snug">
-                            {task.title}
-                          </h3>
-
-                          {/* Description snippet */}
-                          {task.description ? (
-                            <p className="mt-1.5 line-clamp-2 text-xs text-muted leading-relaxed">
-                              {task.description}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        {/* Footer Meta */}
-                        <div className="mt-4 flex items-center justify-between border-t border-line-subtle pt-3 text-xs text-faint">
-                          <div className="flex items-center gap-2">
-                            {proj ? (
-                              <span
-                                className="flex items-center gap-1 text-[11px] font-medium"
-                                style={{ color: proj.color }}
-                              >
-                                <span
-                                  className="h-1.5 w-1.5 rounded-full"
-                                  style={{ backgroundColor: proj.color }}
-                                />
-                                {proj.name}
-                              </span>
-                            ) : null}
-                            {refCount > 0 ? (
-                              <span className="flex items-center gap-1 text-[11px] text-sky-400">
-                                <Link2 className="h-3 w-3" />
-                                {refCount}
-                              </span>
-                            ) : null}
-                            {attachmentsCount > 0 ? (
-                              <span className="flex items-center gap-1 text-[11px] text-muted">
-                                <Paperclip className="h-3 w-3" />
-                                {attachmentsCount}
-                              </span>
-                            ) : null}
-                          </div>
-
-                          <span className="text-[11px] text-muted truncate max-w-28">
-                            {assignee ? assignee.name.split(" ")[0] : "Equipe"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <DemandsList
+              filtered={filtered}
+              formatFilter={formatFilter}
+              setFormatFilter={setFormatFilter}
+              search={search}
+              setSearch={setSearch}
+              projects={projects}
+              users={users}
+              onSelect={setSelectedId}
+              onCreate={() => setDemandDialogOpen(true)}
+            />
           ) : (
-            /* Tab: Aprovações Board */
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              {/* Coluna 1: Aguardando Aprovação */}
-              <div className="flex flex-col rounded-2xl border border-amber-500/30 bg-elevated/40 p-4 min-h-[350px]">
-                <div className="mb-3 flex items-center justify-between border-b border-line-subtle pb-2">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-amber-400" />
-                    <span className="text-xs font-semibold text-ink">Aguardando Aprovação</span>
-                  </div>
-                  <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
-                    {countPending}
-                  </span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {demandTasks
-                    .filter((t) => t.approvalStatus === "pending")
-                    .map((task) => (
-                      <div
-                        key={task.id}
-                        onClick={() => setSelectedId(task.id)}
-                        className="rounded-xl border border-line bg-base p-3 shadow-sm hover:border-line-subtle cursor-pointer transition-all"
-                      >
-                        <div className="mb-1.5 flex items-center justify-between">
-                          <TaskFormatBadge format={task.demandFormat} />
-                          {task.dueDate ? (
-                            <span className="text-[10px] text-faint">{formatDay(task.dueDate)}</span>
-                          ) : null}
-                        </div>
-                        <h4 className="text-xs font-medium text-ink">{task.title}</h4>
-                      </div>
-                    ))}
-                  {countPending === 0 ? (
-                    <p className="py-10 text-center text-xs text-faint">
-                      Nenhuma demanda aguardando aprovação
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* Coluna 2: Ajustes Solicitados */}
-              <div className="flex flex-col rounded-2xl border border-red-500/30 bg-elevated/40 p-4 min-h-[350px]">
-                <div className="mb-3 flex items-center justify-between border-b border-line-subtle pb-2">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-red-400" />
-                    <span className="text-xs font-semibold text-ink">Ajustes Solicitados</span>
-                  </div>
-                  <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold text-red-300">
-                    {countChanges}
-                  </span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {demandTasks
-                    .filter((t) => t.approvalStatus === "changes_requested")
-                    .map((task) => (
-                      <div
-                        key={task.id}
-                        onClick={() => setSelectedId(task.id)}
-                        className="rounded-xl border border-line bg-base p-3 shadow-sm hover:border-line-subtle cursor-pointer transition-all"
-                      >
-                        <div className="mb-1.5 flex items-center justify-between">
-                          <TaskFormatBadge format={task.demandFormat} />
-                          {task.dueDate ? (
-                            <span className="text-[10px] text-faint">{formatDay(task.dueDate)}</span>
-                          ) : null}
-                        </div>
-                        <h4 className="text-xs font-medium text-ink">{task.title}</h4>
-                        {task.approvalFeedback ? (
-                          <p className="mt-1.5 rounded-lg bg-red-950/30 border border-red-500/20 p-2 text-[11px] text-red-200 line-clamp-2">
-                            {task.approvalFeedback}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  {countChanges === 0 ? (
-                    <p className="py-10 text-center text-xs text-faint">
-                      Nenhum ajuste pendente
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* Coluna 3: Aprovadas */}
-              <div className="flex flex-col rounded-2xl border border-emerald-500/30 bg-elevated/40 p-4 min-h-[350px]">
-                <div className="mb-3 flex items-center justify-between border-b border-line-subtle pb-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    <span className="text-xs font-semibold text-ink">Aprovadas pelo Cliente</span>
-                  </div>
-                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-                    {countApproved}
-                  </span>
-                </div>
-
-                <div className="space-y-2.5">
-                  {demandTasks
-                    .filter((t) => t.approvalStatus === "approved")
-                    .map((task) => (
-                      <div
-                        key={task.id}
-                        onClick={() => setSelectedId(task.id)}
-                        className="rounded-xl border border-line bg-base p-3 shadow-sm hover:border-line-subtle cursor-pointer transition-all"
-                      >
-                        <div className="mb-1.5 flex items-center justify-between">
-                          <TaskFormatBadge format={task.demandFormat} />
-                          {task.approvedAt ? (
-                            <span className="text-[10px] text-emerald-400">
-                              {formatDay(task.approvedAt)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <h4 className="text-xs font-medium text-ink">{task.title}</h4>
-                      </div>
-                    ))}
-                  {countApproved === 0 ? (
-                    <p className="py-10 text-center text-xs text-faint">
-                      Nenhuma demanda aprovada ainda
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </div>
+            <ApprovalsBoard
+              tasks={demandTasks}
+              statusFilter={statusFilter}
+              onSelect={setSelectedId}
+              countPending={countPending}
+              countChanges={countChanges}
+              countApproved={countApproved}
+            />
           )}
+
+          <p className="mt-10 text-center text-xs text-faint">
+            <Link href="/agente" className="hover:text-ink transition-colors">
+              Abrir Agente IA
+            </Link>
+            <span className="mx-2">·</span>
+            <span>mesmo assistente do Overview</span>
+          </p>
         </div>
       </div>
 
-      {/* Task Viewer Sidebar / Modal */}
       {selected ? (
         <TaskViewer
           task={selected}
@@ -555,19 +303,331 @@ export default function DemandsPage() {
         />
       ) : null}
 
-      {/* Demand Dialog */}
       <CreateDemandDialog
         open={demandDialogOpen}
         onClose={() => setDemandDialogOpen(false)}
         onDemandCreated={(task) => setSelectedId(task.id)}
       />
 
-      {/* Share Verified Demand Link Dialog */}
       <ShareDemandLinkDialog
         open={shareLinkDialogOpen}
         onClose={() => setShareLinkDialogOpen(false)}
         defaultProjectId={projectFilter !== "all" ? projectFilter : undefined}
       />
+    </div>
+  );
+}
+
+function MetricStat({
+  label,
+  value,
+  accent,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  accent?: "amber" | "red" | "emerald";
+  onClick?: () => void;
+}) {
+  const dot =
+    accent === "amber"
+      ? "bg-amber-400"
+      : accent === "red"
+        ? "bg-red-400"
+        : accent === "emerald"
+          ? "bg-emerald-400"
+          : null;
+
+  const inner = (
+    <>
+      <div className="flex items-center gap-2">
+        {dot ? <span className={cn("h-1.5 w-1.5 rounded-full", dot)} /> : null}
+        <p className="text-xs text-faint">{label}</p>
+      </div>
+      <p className="mt-1 text-3xl font-medium tracking-tight text-ink">{value}</p>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-left transition-opacity hover:opacity-80"
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return <div>{inner}</div>;
+}
+
+function DemandsList({
+  filtered,
+  formatFilter,
+  setFormatFilter,
+  search,
+  setSearch,
+  projects,
+  users,
+  onSelect,
+  onCreate,
+}: {
+  filtered: Task[];
+  formatFilter: DemandFormat | "all";
+  setFormatFilter: (v: DemandFormat | "all") => void;
+  search: string;
+  setSearch: (v: string) => void;
+  projects: { id: string; name: string; color: string }[];
+  users: { id: string; name: string }[];
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterPill active={formatFilter === "all"} onClick={() => setFormatFilter("all")}>
+            Todos
+          </FilterPill>
+          {FORMAT_OPTIONS.map((f) => {
+            const Icon = f.icon;
+            return (
+              <FilterPill
+                key={f.id}
+                active={formatFilter === f.id}
+                onClick={() => setFormatFilter(f.id)}
+              >
+                <Icon className="h-3 w-3" strokeWidth={1.5} />
+                {f.label}
+              </FilterPill>
+            );
+          })}
+        </div>
+        <div className="relative w-full sm:w-56">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"
+            strokeWidth={1.5}
+          />
+          <input
+            type="search"
+            placeholder="Buscar por título…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 w-full rounded-full border border-line bg-elevated pl-9 pr-3 text-sm text-ink placeholder:text-faint outline-none transition-colors focus:border-ink/30"
+          />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <Card className="border-none py-16 text-center">
+          <p className="text-sm text-ink">Nenhuma solicitação encontrada</p>
+          <p className="mt-1 text-sm text-faint">
+            Crie uma demanda ou compartilhe o link do agente com o cliente.
+          </p>
+          <Button size="sm" onClick={onCreate} className="mt-5 gap-1.5">
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+            Solicitar demanda
+          </Button>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((task) => (
+            <DemandCard
+              key={task.id}
+              task={task}
+              project={projects.find((p) => p.id === task.projectId)}
+              assignee={users.find((u) => u.id === task.assigneeId)}
+              onSelect={() => onSelect(task.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterPill({
+  children,
+  active,
+  onClick,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
+        active
+          ? "border-line bg-elevated text-ink"
+          : "border-transparent text-muted hover:border-line hover:bg-hover hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DemandCard({
+  task,
+  project,
+  assignee,
+  onSelect,
+}: {
+  task: Task;
+  project?: { name: string; color: string };
+  assignee?: { name: string };
+  onSelect: () => void;
+}) {
+  const refCount =
+    task.referenceUrls?.split(/\r?\n/).filter((l) => Boolean(l.trim())).length ?? 0;
+  const attachmentsCount = task.attachments?.length ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group flex flex-col rounded-[20px] bg-elevated p-5 text-left transition-colors hover:bg-hover"
+    >
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <TaskFormatBadge format={task.demandFormat} />
+          <TaskApprovalBadge status={task.approvalStatus} />
+        </div>
+        {task.dueDate ? (
+          <span className="shrink-0 text-xs text-faint">{formatDay(task.dueDate)}</span>
+        ) : null}
+      </div>
+      <h3 className="line-clamp-2 text-sm font-medium leading-snug text-ink">{task.title}</h3>
+      {task.description ? (
+        <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted">{task.description}</p>
+      ) : null}
+      <div className="mt-4 flex items-center justify-between gap-2 border-t border-line-subtle pt-3 text-xs text-faint">
+        <div className="flex min-w-0 items-center gap-2">
+          {project ? (
+            <span className="flex min-w-0 items-center gap-1.5 truncate">
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: project.color }}
+              />
+              <span className="truncate">{project.name}</span>
+            </span>
+          ) : null}
+          {refCount > 0 ? (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Link2 className="h-3 w-3" strokeWidth={1.5} />
+              {refCount}
+            </span>
+          ) : null}
+          {attachmentsCount > 0 ? (
+            <span className="flex shrink-0 items-center gap-0.5">
+              <Paperclip className="h-3 w-3" strokeWidth={1.5} />
+              {attachmentsCount}
+            </span>
+          ) : null}
+        </div>
+        <span className="shrink-0 truncate">
+          {assignee ? assignee.name.split(" ")[0] : "Equipe"}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function ApprovalsBoard({
+  tasks,
+  statusFilter,
+  onSelect,
+  countPending,
+  countChanges,
+  countApproved,
+}: {
+  tasks: Task[];
+  statusFilter: string;
+  onSelect: (id: string) => void;
+  countPending: number;
+  countChanges: number;
+  countApproved: number;
+}) {
+  const columns = [
+    {
+      id: "pending",
+      title: "Aguardando",
+      icon: Clock,
+      count: countPending,
+      filter: (t: Task) => t.approvalStatus === "pending",
+    },
+    {
+      id: "changes_requested",
+      title: "Ajustes",
+      icon: AlertCircle,
+      count: countChanges,
+      filter: (t: Task) => t.approvalStatus === "changes_requested",
+    },
+    {
+      id: "approved",
+      title: "Aprovadas",
+      icon: CheckCircle2,
+      count: countApproved,
+      filter: (t: Task) => t.approvalStatus === "approved",
+    },
+  ] as const;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      {columns.map((col) => {
+        const Icon = col.icon;
+        const items = tasks.filter(col.filter);
+        const dimmed = statusFilter !== "all" && statusFilter !== col.id;
+        return (
+          <div
+            key={col.id}
+            className={cn(
+              "flex min-h-[320px] flex-col rounded-[20px] bg-elevated p-4 transition-opacity",
+              dimmed && "opacity-50",
+            )}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2 border-b border-line-subtle pb-3">
+              <div className="flex items-center gap-2 text-sm text-ink">
+                <Icon className="h-4 w-4 text-faint" strokeWidth={1.5} />
+                <span className="font-medium">{col.title}</span>
+              </div>
+              <span className="text-xs text-faint">{col.count}</span>
+            </div>
+            <div className="space-y-2">
+              {items.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => onSelect(task.id)}
+                  className="w-full rounded-2xl border border-line-subtle bg-base p-3 text-left transition-colors hover:bg-hover"
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <TaskFormatBadge format={task.demandFormat} />
+                    {task.dueDate ? (
+                      <span className="text-[10px] text-faint">{formatDay(task.dueDate)}</span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs font-medium text-ink">{task.title}</p>
+                  {task.approvalFeedback && col.id === "changes_requested" ? (
+                    <p className="mt-2 line-clamp-2 text-[11px] text-muted">
+                      {task.approvalFeedback}
+                    </p>
+                  ) : null}
+                </button>
+              ))}
+              {items.length === 0 ? (
+                <p className="py-12 text-center text-xs text-faint">Nada aqui</p>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

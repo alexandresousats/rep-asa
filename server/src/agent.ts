@@ -389,12 +389,32 @@ export async function runAgent(
 
 export async function testAgent(rawConfig: AgentConfig) {
   const config = normalizeConfig(rawConfig);
-  const response = await postCompletion(config, {
-    messages: [{ role: "user", content: "Responda apenas: ok" }],
+  const reply = await completeOneShot(
+    config,
+    "Responda em uma palavra.",
+    "Responda apenas: ok",
+  );
+  return { ok: true, reply };
+}
+
+export async function completeOneShot(
+  config: AgentConfig,
+  system: string,
+  user: string,
+): Promise<string> {
+  const normalized = normalizeConfig(config);
+  const response = await postCompletion(normalized, {
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     stream: false,
+    temperature: 0,
   });
   const data = (await response.json()) as {
     choices?: { message?: { content?: string | null } }[];
   };
-  return { ok: true, reply: data.choices?.[0]?.message?.content?.trim() ?? "" };
+  const content = data.choices?.[0]?.message?.content?.trim() ?? "";
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  return jsonMatch ? jsonMatch[0] : content;
 }

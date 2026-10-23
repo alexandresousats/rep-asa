@@ -658,7 +658,10 @@ export interface DemandLinkInfoResponse {
   }[];
 }
 
-export async function generateDemandLink(projectId: string) {
+export async function generateDemandLink(
+  projectId: string,
+  agent?: { baseUrl: string; apiKey: string; model: string },
+) {
   return request<{
     token: string;
     project: { id: string; name: string; color: string };
@@ -666,7 +669,21 @@ export async function generateDemandLink(projectId: string) {
     verifiedBy: { id: string; name: string; role: string; verified: boolean };
   }>("/demands/generate-link", {
     method: "POST",
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify({
+      projectId,
+      ...(agent?.baseUrl && agent.apiKey && agent.model ? { agent } : {}),
+    }),
+  });
+}
+
+export async function syncWorkspaceAgent(agent: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}) {
+  return request<{ ok: boolean }>("/workspace/agent", {
+    method: "PUT",
+    body: JSON.stringify(agent),
   });
 }
 
@@ -719,6 +736,8 @@ export async function chatWithDemandAgent(
     ok: boolean;
     reply: string;
     updatedDemand: DemandExtractionState;
+    uiAction?: "formats" | "review";
+    submitRequested?: boolean;
     project: { id: string; name: string };
     verifiedBy: { name: string };
   }>("/demands/agent-chat", {

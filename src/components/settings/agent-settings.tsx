@@ -39,11 +39,22 @@ export function AgentSettingsCard() {
 
   function handleSave(e?: React.FormEvent) {
     if (e) e.preventDefault();
-    setAgent({
+    const config = {
       preset,
       baseUrl: baseUrl.trim(),
       model: model.trim(),
       apiKey: apiKey.trim(),
+    };
+    setAgent(config);
+    void request("/workspace/agent", {
+      method: "PUT",
+      body: JSON.stringify({
+        baseUrl: config.baseUrl,
+        model: config.model,
+        apiKey: config.apiKey,
+      }),
+    }).catch(() => {
+      // Mantém no navegador mesmo se o servidor estiver indisponível.
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -68,6 +79,10 @@ export function AgentSettingsCard() {
       };
       // Salva imediatamente
       setAgent({ preset, ...currentConfig });
+      void request("/workspace/agent", {
+        method: "PUT",
+        body: JSON.stringify(currentConfig),
+      }).catch(() => undefined);
 
       const res = await request<{ ok: boolean; reply?: string }>("/ai/test", {
         method: "POST",
@@ -223,8 +238,8 @@ export function AgentSettingsCard() {
               </button>
             </div>
             <p className="mt-1 text-[11px] text-faint">
-              A chave fica armazenada com segurança apenas neste navegador e nunca é exposta para
-              outros usuários.
+              A chave fica neste navegador e é sincronizada com o espaço (servidor) para o chat do
+              Overview e o link de demandas do cliente. Outros usuários não veem sua chave.
             </p>
           </div>
 

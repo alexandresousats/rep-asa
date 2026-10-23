@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { generateDemandLink } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { agentReady, usePrefs } from "@/lib/prefs";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 export function ShareDemandLinkDialog({
@@ -33,6 +34,7 @@ export function ShareDemandLinkDialog({
   const projects = useWorkspace((state) => state.projects);
   const workspace = useWorkspace((state) => state.workspace);
   const { user, isAdmin, canWrite } = useAccess();
+  const agent = usePrefs((state) => state.agent);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     () => defaultProjectId || projects[0]?.id || "",
@@ -58,7 +60,10 @@ export function ShareDemandLinkDialog({
       setLoading(true);
       setError("");
       try {
-        const res = await generateDemandLink(selectedProjectId);
+        const agentPayload = agentReady(agent)
+          ? { baseUrl: agent.baseUrl, apiKey: agent.apiKey, model: agent.model }
+          : undefined;
+        const res = await generateDemandLink(selectedProjectId, agentPayload);
         if (!cancelled && res.token) {
           setToken(res.token);
         }
@@ -76,7 +81,7 @@ export function ShareDemandLinkDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, selectedProjectId]);
+  }, [open, selectedProjectId, agent.baseUrl, agent.apiKey, agent.model]);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const shareUrl = token ? `${origin}/solicitar-demanda?token=${token}` : "";

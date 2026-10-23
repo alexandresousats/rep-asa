@@ -45,13 +45,25 @@ export function parseAndVerifyDemandLink(token: string): DemandLinkPayload | nul
   }
 }
 
-export async function generateDemandLinkToken(actor: Actor, projectId: string) {
+export async function generateDemandLinkToken(
+  actor: Actor,
+  projectId: string,
+  agent?: AgentConfig,
+) {
   if (actor.access !== "admin" && actor.access !== "editor") {
     throw new ApiError(403, "Apenas administradores ou editores podem gerar links verificados de demanda.");
   }
 
   if (!actor.workspaceId) {
     throw new ApiError(400, "Espaço de trabalho não selecionado.");
+  }
+
+  if (agent?.baseUrl?.trim() && agent.apiKey?.trim() && agent.model?.trim()) {
+    try {
+      await saveWorkspaceAgent(actor, agent);
+    } catch (error) {
+      console.error("Não foi possível sincronizar o agente do espaço:", error);
+    }
   }
 
   const workspaceId: string = actor.workspaceId;
@@ -394,23 +406,217 @@ export async function submitDemandViaVerifiedLink(
   };
 }
 
-export interface DemandChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  images?: string[];
-  videos?: string[];
-  documents?: { name: string; size: number; type?: string; text?: string }[];
+export type { DemandChatMessage, DemandExtractionState } from "./demand-types";
+import type { DemandChatMessage, DemandExtractionState } from "./demand-types";
+import { interpretDemandWithAgent } from "./demand-ai";
+import { loadWorkspaceAgentForDemand, saveWorkspaceAgent } from "./workspace-agent";
+import type { AgentConfig } from "./agent";
+
+const FORMAT_LABELS: Record<string, string> = {
+  card: "Card / Post",
+  carrossel: "Carrossel",
+  video_longo: "Vídeo Longo",
+  reels: "Reels / TikTok",
+};
+
+function isAttachmentPlaceholder(text: string) {
+  return text === "(Anexos enviados para a demanda)";
 }
 
-export interface DemandExtractionState {
-  subject?: string;
-  format?: string;
-  tagIds?: string[];
-  dueDate?: string;
-  referenceUrls?: string;
-  notes?: string;
-  requesterName?: string;
-  isReadyToConfirm?: boolean;
+function extractFormatFromText(lower: string) {
+  if (lower.includes("card") || lower.includes("post") || lower.includes("estático") || lower.includes("estatico")) {
+    return "card";
+  }
+  if (lower.includes("carrossel") || lower.includes("slides") || lower.includes("carrosséis")) {
+    return "carrossel";
+  }
+  if (
+    lower.includes("vídeo longo") ||
+    lower.includes("video longo") ||
+    lower.includes("youtube") ||
+    lower.includes("vsl") ||
+    lower.includes("aula")
+  ) {
+    return "video_longo";
+  }
+  if (lower.includes("reels") || lower.includes("tiktok") || lower.includes("vertical") || lower.includes("shorts")) {
+    return "reels";
+  }
+  return null;
+}
+
+const PT_MONTHS: Record<string, number> = {
+  janeiro: 1,
+  jan: 1,
+  fevereiro: 2,
+  fev: 2,
+  marco: 3,
+  mar: 3,
+  abril: 4,
+  abr: 4,
+  maio: 5,
+  mai: 5,
+  junho: 6,
+  jun: 6,
+  julho: 7,
+  jul: 7,
+  agosto: 8,
+  ago: 8,
+  setembro: 9,
+  set: 9,
+  outubro: 10,
+  out: 10,
+  novembro: 11,
+  nov: 11,
+  dezembro: 12,
+  dez: 12,
+};
+
+function normalizePtToken(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+function nextWeekday(today: Date, targetDay: number) {
+  const d = new Date(today);
+  const day = d.getDay();
+  const diff = (targetDay - day + 7) % 7 || 7;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().split("T")[0];
+}
+
+function extractDueDateFromText(text: string, lower: string) {
+  const today = new Date();
+  const normalized = normalizePtToken(lower);
+
+  if (/\bhoje\b/.test(normalized)) return todayISO();
+  if (/\bamanha\b/.test(normalized)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  }
+  if (/\bdomingo\b/.test(normalized)) return nextWeekday(today, 0);
+  if (/\bsegunda/.test(normalized)) return nextWeekday(today, 1);
+  if (/\bterca\b/.test(normalized)) return nextWeekday(today, 2);
+  if (/\bquarta\b/.test(normalized)) return nextWeekday(today, 3);
+  if (/\bquinta\b/.test(normalized)) return nextWeekday(today, 4);
+  if (/\bsexta\b/.test(normalized)) return nextWeekday(today, 5);
+  if (/\bsabado\b/.test(normalized)) return nextWeekday(today, 6);
+
+  const iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const matchSlash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (matchSlash) {
+    const day = matchSlash[1].padStart(2, "0");
+    const month = matchSlash[2].padStart(2, "0");
+    const year = matchSlash[3]
+      ? matchSlash[3].length === 2
+        ? `20${matchSlash[3]}`
+        : matchSlash[3]
+      : String(today.getFullYear());
+    return `${year}-${month}-${day}`;
+  }
+
+  const written = normalized.match(
+    /(?:dia\s+)?(\d{1,2})\s+de\s+([a-z]+)(?:\s+de\s+(\d{4}))?/,
+  );
+  if (written) {
+    const day = written[1].padStart(2, "0");
+    const monthNum = PT_MONTHS[written[2]];
+    if (monthNum) {
+      const year = written[3] || String(today.getFullYear());
+      return `${year}-${String(monthNum).padStart(2, "0")}-${day}`;
+    }
+  }
+
+  const dayOnly = normalized.match(/\bdia\s+(\d{1,2})\b/);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    if (day >= 1 && day <= 31) {
+      const month = today.getMonth() + 1;
+      const year = today.getFullYear();
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  return null;
+}
+
+function formatDueDateLabel(iso: string) {
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+function buildReviewMessage(state: DemandExtractionState, projectName: string) {
+  const fmt = state.format ? FORMAT_LABELS[state.format] || state.format : "—";
+  const lines = [
+    "Resumo da sua demanda:",
+    "",
+    `Assunto: ${state.subject}`,
+    `Formato: ${fmt}`,
+    `Prazo: ${state.dueDate ? formatDueDateLabel(state.dueDate) : "—"}`,
+    `Projeto: ${projectName}`,
+  ];
+  if (state.notes?.trim()) {
+    lines.push("", "Detalhes e briefing:", state.notes.trim());
+  }
+  if (state.referenceUrls?.trim()) {
+    lines.push("", "Referências:", state.referenceUrls.trim());
+  }
+  lines.push(
+    "",
+    'Se estiver tudo certo, responda "sim" para enviar. Se quiser mudar algo, diga o que ajustar (assunto, formato ou prazo).',
+  );
+  return lines.join("\n");
+}
+
+function userConfirmed(lower: string) {
+  const clean = lower
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[.!?…,"'"]/g, "")
+    .trim();
+  return /^(sim|confirmo|confirmar|pode enviar|enviar|ok|esta certo|tudo certo|manda|mandar|yes|y)$/i.test(
+    clean,
+  );
+}
+
+function demandIsComplete(state: DemandExtractionState) {
+  return Boolean(state.subject?.trim() && state.format && state.dueDate);
+}
+
+function submitDemandResult(
+  state: DemandExtractionState,
+  verified: Awaited<ReturnType<typeof verifyDemandLinkToken>>,
+) {
+  syncFormatTag(state, verified.tags);
+  return {
+    ok: true,
+    reply: "Perfeito. Estou registrando sua demanda agora.",
+    updatedDemand: state,
+    uiAction: undefined as undefined,
+    submitRequested: true,
+    project: verified.project,
+    verifiedBy: verified.verifiedBy,
+  };
+}
+
+function syncFormatTag(state: DemandExtractionState, tags: { id: string; name: string }[]) {
+  if (!state.format || tags.length === 0) return;
+  const formatTagName =
+    state.format === "card"
+      ? "Card"
+      : state.format === "carrossel"
+        ? "Carrossel"
+        : state.format === "reels"
+          ? "Reels"
+          : "Vídeo Longo";
+  const tag = tags.find((t) => t.name.toLowerCase() === formatTagName.toLowerCase());
+  if (tag) state.tagIds = [tag.id];
 }
 
 export async function processDemandChatTurn(
@@ -425,145 +631,159 @@ export async function processDemandChatTurn(
   const state: DemandExtractionState = { ...currentState };
   const text = (lastUserMsg?.content || "").trim();
   const lower = text.toLowerCase();
-
-  // 1. Extração de formato a partir de palavras-chave
-  if (!state.format) {
-    if (lower.includes("card") || lower.includes("post") || lower.includes("estático") || lower.includes("estatico")) {
-      state.format = "card";
-    } else if (lower.includes("carrossel") || lower.includes("slides") || lower.includes("carrosséis")) {
-      state.format = "carrossel";
-    } else if (lower.includes("vídeo longo") || lower.includes("video longo") || lower.includes("youtube") || lower.includes("vsl") || lower.includes("aula")) {
-      state.format = "video_longo";
-    } else if (lower.includes("reels") || lower.includes("tiktok") || lower.includes("vertical") || lower.includes("shorts")) {
-      state.format = "reels";
-    }
-  }
-
-  // 2. Extração de prazo/data
-  if (!state.dueDate) {
-    const today = new Date();
-    if (lower.includes("hoje")) {
-      state.dueDate = todayISO();
-    } else if (lower.includes("amanhã") || lower.includes("amanha")) {
-      const d = new Date(today);
-      d.setDate(d.getDate() + 1);
-      state.dueDate = d.toISOString().split("T")[0];
-    } else if (lower.includes("sexta")) {
-      const d = new Date(today);
-      const day = d.getDay();
-      const diff = (5 - day + 7) % 7 || 7;
-      d.setDate(d.getDate() + diff);
-      state.dueDate = d.toISOString().split("T")[0];
-    } else if (lower.includes("segunda")) {
-      const d = new Date(today);
-      const day = d.getDay();
-      const diff = (1 - day + 7) % 7 || 7;
-      d.setDate(d.getDate() + diff);
-      state.dueDate = d.toISOString().split("T")[0];
-    } else {
-      // Regex para datas como 25/11, 25/11/2026, 2026-11-25
-      const matchSlash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
-      if (matchSlash) {
-        const day = matchSlash[1].padStart(2, "0");
-        const month = matchSlash[2].padStart(2, "0");
-        const year = matchSlash[3] ? (matchSlash[3].length === 2 ? `20${matchSlash[3]}` : matchSlash[3]) : String(today.getFullYear());
-        state.dueDate = `${year}-${month}-${day}`;
-      }
-    }
-  }
-
-  // 3. Extração de URLs de referência
-  const urlMatches = text.match(/https?:\/\/[^\s]+/g);
-  if (urlMatches && urlMatches.length > 0) {
-    const currentUrls = state.referenceUrls ? state.referenceUrls.split("\n") : [];
-    const newUrls = Array.from(new Set([...currentUrls, ...urlMatches]));
-    state.referenceUrls = newUrls.join("\n");
-  }
-
-  // 4. Extração ou definição de assunto
-  if (!state.subject) {
-    // Se o usuário digitou algo substantivo no primeiro turno
-    if (text.length > 2) {
-      // Remove menções diretas de formato do assunto se for apenas o formato
-      const clean = text
-        .replace(/\b(card|post|carrossel|reels|tiktok|vídeo longo|video longo)\b/gi, "")
-        .trim();
-      state.subject = clean.length > 3 ? clean : text;
-    }
-  } else if (text.length > 3 && !state.notes) {
-    state.notes = text;
-  } else if (text.length > 3 && state.notes) {
-    state.notes = `${state.notes}\n${text}`;
-  }
-
-  // Tags do projeto correspondentes
-  if (verified.tags && verified.tags.length > 0) {
-    const activeTags = new Set(state.tagIds || []);
-    for (const tag of verified.tags) {
-      if (lower.includes(tag.name.toLowerCase())) {
-        activeTags.add(tag.id);
-      }
-    }
-    state.tagIds = Array.from(activeTags);
-  }
-
-  const formatNames: Record<string, string> = {
-    card: "Card / Post",
-    carrossel: "Carrossel",
-    video_longo: "Vídeo Longo",
-    reels: "Reels / TikTok",
-  };
-
-  // Construção da resposta do agente
-  let reply = "";
   const hasImages = (lastUserMsg?.images?.length || 0) > 0;
   const hasVideos = (lastUserMsg?.videos?.length || 0) > 0;
   const hasDocs = (lastUserMsg?.documents?.length || 0) > 0;
+  const hasAttachments = hasImages || hasVideos || hasDocs;
+  const meaningfulText = text.length > 0 && !isAttachmentPlaceholder(text);
+
+  let uiAction: "formats" | "review" | undefined;
+  let submitRequested = false;
+
+  const confirmIntent = userConfirmed(lower);
+
+  if (!state.format) {
+    const fromText = extractFormatFromText(lower);
+    if (fromText) state.format = fromText;
+  }
+
+  const parsedDate = extractDueDateFromText(text, lower);
+  if (parsedDate) state.dueDate = parsedDate;
+
+  const urlMatches = text.match(/https?:\/\/[^\s]+/g);
+  if (urlMatches && urlMatches.length > 0) {
+    const currentUrls = state.referenceUrls ? state.referenceUrls.split("\n") : [];
+    state.referenceUrls = Array.from(new Set([...currentUrls, ...urlMatches])).join("\n");
+  }
+
+  const agentConfig = await loadWorkspaceAgentForDemand(verified.workspace.id);
+  if (agentConfig) {
+    try {
+      const ai = await interpretDemandWithAgent(agentConfig, messages, state);
+      if (ai) {
+        Object.assign(state, ai.state);
+        if (ai.submitRequested && demandIsComplete(state) && meaningfulText) {
+          return submitDemandResult(state, verified);
+        }
+      }
+    } catch (error) {
+      console.error("Falha ao interpretar demanda com agente:", error);
+    }
+  }
+
+  if (meaningfulText && confirmIntent && demandIsComplete(state)) {
+    return submitDemandResult(state, verified);
+  }
+
+  if (state.isReadyToConfirm && meaningfulText) {
+    if (confirmIntent) {
+      return submitDemandResult(state, verified);
+    }
+
+    if (lower.includes("assunto") || lower.includes("tema")) {
+      const cleaned = text.replace(/^assunto:?\s*/i, "").trim();
+      if (cleaned.length > 2) state.subject = cleaned;
+    } else if (!parsedDate && extractFormatFromText(lower)) {
+      state.format = extractFormatFromText(lower)!;
+    } else if (parsedDate) {
+      state.dueDate = parsedDate;
+    } else if (text.length > 2) {
+      state.notes = state.notes ? `${state.notes}\n${text}` : text;
+    }
+    state.isReadyToConfirm = true;
+    syncFormatTag(state, verified.tags);
+    return {
+      ok: true,
+      reply: buildReviewMessage(state, project.name),
+      updatedDemand: state,
+      uiAction: "review",
+      submitRequested: false,
+      project: verified.project,
+      verifiedBy: verified.verifiedBy,
+    };
+  }
+
+  if (!state.subject && meaningfulText && !/^formato:/i.test(text)) {
+    const onlyFormat = extractFormatFromText(lower);
+    const stripped = text
+      .replace(/\b(card|post|carrossel|reels|tiktok|vídeo longo|video longo)\b/gi, "")
+      .trim();
+    if (stripped.length > 2) {
+      state.subject = stripped;
+    } else if (!onlyFormat) {
+      state.subject = text;
+    }
+  }
+
+  if (state.subject && meaningfulText && !confirmIntent) {
+    const dateOnlyMessage = Boolean(parsedDate) && normalizePtToken(lower).replace(/\s+/g, " ").length < 40;
+    if (!state.notes && state.format && state.dueDate && !dateOnlyMessage) {
+      state.notes = text;
+    } else if (
+      state.notes &&
+      meaningfulText &&
+      !parsedDate &&
+      !extractFormatFromText(lower)
+    ) {
+      state.notes = `${state.notes}\n${text}`;
+    }
+  }
+
+  syncFormatTag(state, verified.tags);
 
   const fileFeedback = [
-    hasImages ? "📸 Imagem recebida com sucesso." : null,
-    hasVideos ? "🎥 Vídeo recebido com sucesso." : null,
-    hasDocs ? "📄 Documento recebido para análise." : null,
+    hasImages ? "Recebi sua imagem." : null,
+    hasVideos ? "Recebi seu vídeo." : null,
+    hasDocs ? "Recebi seu documento." : null,
   ]
     .filter(Boolean)
     .join(" ");
 
+  let reply = "";
+
   if (!state.subject) {
-    reply = `Olá! Sou o agente de conteúdo do projeto **${project.name}**.\n\nQual é o **assunto** ou tema principal da demanda que você deseja solicitar hoje?`;
-  } else if (!state.format) {
     reply = [
       fileFeedback,
-      `Excelente! Anotei o assunto: **"${state.subject}"**.`,
-      `Agora, selecione ou digite o **formato de mídia** desejado para este conteúdo:`,
+      hasAttachments
+        ? "Recebi seus anexos. Qual é o assunto ou tema principal desta demanda?"
+        : null,
     ]
       .filter(Boolean)
       .join("\n\n");
-  } else if (!state.notes && !hasImages && !hasVideos && !hasDocs) {
-    const fmt = formatNames[state.format] || state.format;
+    if (!reply) {
+      reply = "Qual é o assunto ou tema principal da demanda?";
+    }
+  } else if (!state.format) {
     reply = [
       fileFeedback,
-      `Perfeito! Vamos estruturar um **${fmt}** sobre **"${state.subject}"**.`,
-      `Para a equipe produzir com máxima qualidade, envie:\n- **Textos ou pontos principais** da mensagem\n- **Imagens ou vídeos de referência** (pode anexar aqui embaixo)\n- **Prazo desejado** de entrega (ex: sexta-feira, 25/11)`,
+      `Anotei o assunto: "${state.subject}".`,
+      "Qual formato você precisa? Escolha uma opção abaixo ou digite o nome do formato.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    uiAction = "formats";
+  } else if (!state.dueDate) {
+    const fmt = FORMAT_LABELS[state.format] || state.format;
+    reply = [
+      fileFeedback,
+      `Formato ${fmt} para "${state.subject}".`,
+      "Qual é o prazo de entrega? Pode ser uma data (ex.: 25/11, 25 de outubro ou dia 25 de outubro) ou algo como amanhã ou sexta-feira.",
+      "Se quiser, já inclua briefing, referências ou anexos na mesma mensagem.",
     ]
       .filter(Boolean)
       .join("\n\n");
   } else {
-    // Temos assunto, formato e informações adicionais!
     state.isReadyToConfirm = true;
-    const fmt = formatNames[state.format] || state.format;
-    reply = [
-      fileFeedback,
-      `Ótimo! Coletei todas as informações essenciais para a sua demanda de **${fmt}** no projeto **${project.name}**.`,
-      `Revise o cartão resumo abaixo. Quando estiver pronto, clique em **Confirmar e Enviar Demanda** para enviá-la diretamente à equipe!`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    reply = [fileFeedback, buildReviewMessage(state, project.name)].filter(Boolean).join("\n\n");
+    uiAction = "review";
   }
 
   return {
     ok: true,
     reply,
     updatedDemand: state,
+    uiAction,
+    submitRequested,
     project: verified.project,
     verifiedBy: verified.verifiedBy,
   };

@@ -7,6 +7,7 @@ import { stream, streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { subscribe } from "./events";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
+import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
 import {
   generateDemandLinkToken,
   processDemandChatTurn,
@@ -70,6 +71,12 @@ const access = z.enum(["admin", "editor", "leitura", "cliente"]);
 const approvalStatus = z.enum(["none", "pending", "approved", "changes_requested"]);
 const priority = z.enum(["baixa", "media", "alta", "urgente"]);
 const status = z.enum(["todo", "doing", "done"]);
+
+const agentConfig = z.object({
+  baseUrl: z.string().max(300),
+  apiKey: z.string().max(500),
+  model: z.string().max(200),
+});
 
 const app = new Hono();
 
@@ -202,6 +209,13 @@ app.post("/workspaces/:id/select", async (c) => {
 app.patch("/workspaces/current", async (c) => {
   const body = parse(z.object({ name: z.string() }), await c.req.json());
   return c.json(await renameWorkspace(await actorOf(c), body.name));
+});
+
+app.get("/workspace/agent", async (c) => c.json(await readWorkspaceAgent(await actorOf(c))));
+
+app.put("/workspace/agent", async (c) => {
+  const body = parse(agentConfig, await c.req.json());
+  return c.json(await saveWorkspaceAgent(await actorOf(c), body));
 });
 
 app.delete("/workspaces/:id", async (c) => {
@@ -542,12 +556,6 @@ app.delete("/api-keys/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const agentConfig = z.object({
-  baseUrl: z.string().max(300),
-  apiKey: z.string().max(500),
-  model: z.string().max(200),
-});
-
 app.post("/ai/test", async (c) => {
   await actorOf(c);
   const body = parse(z.object({ agent: agentConfig }), await c.req.json());
@@ -610,8 +618,14 @@ app.post("/ai/chat", async (c) => {
 
 app.post("/demands/generate-link", async (c) => {
   const actor = await actorOf(c);
-  const body = parse(z.object({ projectId: z.string() }), await c.req.json());
-  return c.json(await generateDemandLinkToken(actor, body.projectId));
+  const body = parse(
+    z.object({
+      projectId: z.string(),
+      agent: agentConfig.optional(),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await generateDemandLinkToken(actor, body.projectId, body.agent));
 });
 
 app.get("/demands/link-info", async (c) => {

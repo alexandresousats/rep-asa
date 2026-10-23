@@ -68,9 +68,12 @@ model User {
 }
 
 model Workspace {
-  id        String   @id
-  name      String
-  createdAt DateTime @default(now())
+  id           String   @id
+  name         String
+  agentBaseUrl String?
+  agentModel   String?
+  agentApiKey  String?  @db.Text
+  createdAt    DateTime @default(now())
 
   members       WorkspaceMember[]
   projects      Project[]
