@@ -674,7 +674,7 @@ function DemandChatContent() {
       className="grid h-dvh w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-base text-ink"
       data-theme="dark"
     >
-      <header className="z-20 flex min-h-[68px] shrink-0 items-center justify-between border-b border-line-subtle bg-base px-4 pt-[env(safe-area-inset-top)] sm:px-6">
+      <header className="z-20 flex min-h-[68px] shrink-0 items-center justify-between bg-base px-4 pt-[env(safe-area-inset-top)] sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm text-white font-bold"
@@ -856,7 +856,7 @@ function DemandChatContent() {
         </div>
       </div>
 
-      <footer className="z-20 shrink-0 border-t border-line-subtle bg-base px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+      <footer className="z-20 shrink-0 bg-base px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
           <div className="mx-auto max-w-3xl">
             {/* Input oculto para arquivos de imagem, vídeo e documentos */}
             <input
