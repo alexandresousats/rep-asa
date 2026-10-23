@@ -36,7 +36,6 @@ interface SpeechRecognitionInstance extends EventTarget {
 
 export const DEFAULT_CHAT_PLACEHOLDERS = [
   "Arraste e solte pastas no chat",
-  "Alterne para o Modo Build para criar apps",
   "Criar uma tarefa urgente para amanhã...",
   "Solicitar uma nova demanda de carrossel ou reels...",
   "Quais tarefas da equipe estão atrasadas?",

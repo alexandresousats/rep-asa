@@ -94,7 +94,7 @@ export default function DatasComemorativasPage() {
   const apiDown = detail.error;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="mb-8">
         <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-3xl">
           Datas comemorativas
@@ -373,70 +373,75 @@ export default function DatasComemorativasPage() {
   );
 }
 
-function DateList({ items, today }: { items: OpenDate[]; today: Date }) {
+function DateListItem({ item, today }: { item: OpenDate; today: Date }) {
+  const days = daysUntil(item.data, today);
+  const important = isImportant(item);
   return (
-    <div className="overflow-hidden rounded-[20px] border border-line bg-elevated">
-      <ul className="divide-y divide-line">
-        {items.map((item, index) => {
-          const days = daysUntil(item.data, today);
-          const firstOfDay = items[index - 1]?.dia !== item.dia;
-          const important = isImportant(item);
-          return (
-            <li
-              key={item.id}
-              className={cn(
-                "flex items-center gap-4 px-4 py-3 transition hover:bg-hover/60 sm:px-5",
-                days < 0 && "opacity-55",
-              )}
-            >
-              <span
-                className={cn(
-                  "flex w-11 shrink-0 flex-col items-center leading-none",
-                  !firstOfDay && "invisible",
-                )}
-                aria-hidden={!firstOfDay}
-              >
-                <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
-                  {item.dia_semana.slice(0, 3)}
-                </span>
-                <span
-                  className={cn(
-                    "mt-1 text-lg font-medium",
-                    days === 0 ? "text-ink underline decoration-2" : "text-ink",
-                  )}
-                >
-                  {item.dia}
-                </span>
-              </span>
+    <li
+      className={cn(
+        "flex items-center gap-3.5 rounded-2xl border border-line bg-elevated px-4 py-3 transition hover:bg-hover/60",
+        days < 0 && "opacity-55",
+      )}
+    >
+      <span className="flex w-11 shrink-0 flex-col items-center leading-none">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
+          {item.dia_semana.slice(0, 3)}
+        </span>
+        <span
+          className={cn(
+            "mt-1 text-lg font-medium",
+            days === 0 ? "text-ink underline decoration-2" : "text-ink",
+          )}
+        >
+          {item.dia}
+        </span>
+      </span>
 
-              <span
-                className={cn(
-                  "h-8 w-0.5 shrink-0 rounded-full",
-                  important ? KIND_META[item.tipo].dot : "bg-line",
-                )}
-              />
+      <span
+        className={cn(
+          "h-8 w-0.5 shrink-0 rounded-full",
+          important ? KIND_META[item.tipo].dot : "bg-line",
+        )}
+      />
 
-              <span className="min-w-0 flex-1">
-                <span
-                  className={cn(
-                    "block truncate text-sm",
-                    important ? "font-medium text-ink" : "text-ink",
-                  )}
-                >
-                  {item.titulo}
-                </span>
-                <span className="block truncate text-xs text-faint">
-                  {item.categoria}
-                  {days >= 0 && days <= 14 ? (
-                    <Fragment> · {relativeLabel(days).toLowerCase()}</Fragment>
-                  ) : null}
-                </span>
-              </span>
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "block truncate text-sm",
+            important ? "font-medium text-ink" : "text-ink",
+          )}
+        >
+          {item.titulo}
+        </span>
+        <span className="block truncate text-xs text-faint">
+          {item.categoria}
+          {days >= 0 && days <= 14 ? (
+            <Fragment> · {relativeLabel(days).toLowerCase()}</Fragment>
+          ) : null}
+        </span>
+      </span>
 
-              <KindBadge kind={item.tipo} className="hidden sm:inline-flex" />
-            </li>
-          );
-        })}
+      <KindBadge kind={item.tipo} className="shrink-0" />
+    </li>
+  );
+}
+
+function DateList({ items, today }: { items: OpenDate[]; today: Date }) {
+  const midpoint = Math.ceil(items.length / 2);
+  const firstCol = items.slice(0, midpoint);
+  const secondCol = items.slice(midpoint);
+
+  return (
+    <div className="grid grid-cols-1 items-start gap-2.5 sm:gap-3 md:grid-cols-2">
+      <ul className="flex flex-col gap-2.5 sm:gap-3">
+        {firstCol.map((item) => (
+          <DateListItem key={item.id} item={item} today={today} />
+        ))}
+      </ul>
+      <ul className="flex flex-col gap-2.5 sm:gap-3">
+        {secondCol.map((item) => (
+          <DateListItem key={item.id} item={item} today={today} />
+        ))}
       </ul>
     </div>
   );
