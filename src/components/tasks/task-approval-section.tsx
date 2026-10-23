@@ -181,14 +181,14 @@ export function TaskApprovalSection({ task }: { task: Task }) {
 
       {/* Approval Status Card */}
       {status === "pending" ? (
-        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3.5">
+        <div className="rounded-2xl border border-amber-500/35 bg-elevated p-3.5">
           <div className="flex items-start gap-2.5">
-            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-400 animate-pulse" />
+            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 animate-pulse" />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-amber-300">
+              <p className="text-xs font-semibold text-ink">
                 Aguardando Aprovação do Cliente
               </p>
-              <p className="mt-0.5 text-xs text-amber-200/80">
+              <p className="mt-0.5 text-xs text-muted">
                 O material foi enviado para aprovação do cliente.
               </p>
 
@@ -197,7 +197,8 @@ export function TaskApprovalSection({ task }: { task: Task }) {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     size="sm"
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5 shadow-sm"
+                    variant="outline"
+                    className="gap-1.5 border-emerald-600/50 !bg-emerald-600 !text-white hover:!bg-emerald-500 hover:border-emerald-500"
                     onClick={() => setApproveDialogOpen(true)}
                     disabled={isUpdating}
                   >
@@ -206,8 +207,8 @@ export function TaskApprovalSection({ task }: { task: Task }) {
                   </Button>
                   <Button
                     size="sm"
-                    variant="ghost"
-                    className="border border-amber-500/30 text-amber-200 hover:bg-amber-500/20 gap-1.5"
+                    variant="outline"
+                    className="gap-1.5 border-line text-ink hover:bg-hover"
                     onClick={() => setRejectDialogOpen(true)}
                     disabled={isUpdating}
                   >
@@ -220,26 +221,26 @@ export function TaskApprovalSection({ task }: { task: Task }) {
           </div>
         </div>
       ) : status === "approved" ? (
-        <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3.5">
+        <div className="rounded-2xl border border-emerald-600/30 bg-elevated p-3.5">
           <div className="flex items-start gap-2.5">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold text-emerald-300">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold text-ink">
                   Aprovado pelo Cliente ✅
                 </p>
                 {task.approvedAt ? (
-                  <span className="text-[10px] text-emerald-400/80">
+                  <span className="text-[10px] text-faint">
                     {formatDay(task.approvedAt)}
                   </span>
                 ) : null}
               </div>
-              <p className="mt-0.5 text-xs text-emerald-200/80">
-                Aprovado por <span className="font-medium text-emerald-100">{approver}</span>.
+              <p className="mt-0.5 text-xs text-muted">
+                Aprovado por <span className="font-medium text-ink">{approver}</span>.
               </p>
               {task.approvalFeedback ? (
-                <div className="mt-2 rounded-xl bg-emerald-950/40 border border-emerald-500/20 p-2 text-xs text-emerald-100">
-                  <span className="text-[10px] uppercase text-emerald-400 font-semibold block mb-0.5">
+                <div className="mt-2 rounded-xl border border-line bg-base p-2 text-xs text-ink">
+                  <span className="mb-0.5 block text-[10px] font-semibold uppercase text-faint">
                     Nota de aprovação
                   </span>
                   &ldquo;{task.approvalFeedback}&rdquo;
@@ -253,7 +254,7 @@ export function TaskApprovalSection({ task }: { task: Task }) {
                     type="button"
                     onClick={handleSendForApproval}
                     disabled={isUpdating}
-                    className="text-[11px] text-emerald-300/80 hover:text-emerald-200 underline"
+                    className="text-[11px] text-muted underline hover:text-ink"
                   >
                     Reabrir aprovação
                   </button>
@@ -263,23 +264,23 @@ export function TaskApprovalSection({ task }: { task: Task }) {
           </div>
         </div>
       ) : status === "changes_requested" ? (
-        <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-3.5">
+        <div className="rounded-2xl border border-red-500/35 bg-elevated p-3.5">
           <div className="flex items-start gap-2.5">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold text-red-300">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold text-ink">
                   Ajustes Solicitados ⚠️
                 </p>
                 {task.approvedAt ? (
-                  <span className="text-[10px] text-red-400/80">
+                  <span className="text-[10px] text-faint">
                     {formatDay(task.approvedAt)}
                   </span>
                 ) : null}
               </div>
               {task.approvalFeedback ? (
-                <div className="mt-2 rounded-xl bg-red-950/40 border border-red-500/20 p-2.5 text-xs text-red-100">
-                  <span className="text-[10px] uppercase text-red-300 font-semibold block mb-0.5">
+                <div className="mt-2 rounded-xl border border-line bg-base p-2.5 text-xs text-ink">
+                  <span className="mb-0.5 block text-[10px] font-semibold uppercase text-faint">
                     Ajustes indicados pelo cliente:
                   </span>
                   &ldquo;{task.approvalFeedback}&rdquo;
@@ -360,7 +361,8 @@ export function TaskApprovalSection({ task }: { task: Task }) {
             </Button>
             <Button
               type="button"
-              className="bg-emerald-600 hover:bg-emerald-500 text-white gap-1.5"
+              variant="outline"
+              className="gap-1.5 border-emerald-600/50 !bg-emerald-600 !text-white hover:!bg-emerald-500 hover:border-emerald-500"
               onClick={handleApprove}
               disabled={isUpdating}
             >
@@ -403,7 +405,8 @@ export function TaskApprovalSection({ task }: { task: Task }) {
             </Button>
             <Button
               type="button"
-              className="bg-red-600 hover:bg-red-500 text-white gap-1.5"
+              variant="outline"
+              className="gap-1.5 border-red-600/50 !bg-red-600 !text-white hover:!bg-red-500 hover:border-red-500"
               onClick={handleRequestChanges}
               disabled={isUpdating || !feedback.trim()}
             >
