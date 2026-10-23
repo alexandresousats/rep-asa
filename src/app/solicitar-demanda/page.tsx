@@ -671,10 +671,10 @@ function DemandChatContent() {
 
   return (
     <div
-      className="flex h-screen w-full flex-col overflow-hidden bg-base text-ink"
+      className="grid h-dvh w-full grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-base text-ink"
       data-theme="dark"
     >
-      <header className="flex h-[68px] shrink-0 items-center justify-between border-b border-line-subtle bg-base/90 px-4 sm:px-6 backdrop-blur-md z-30">
+      <header className="z-20 flex min-h-[68px] shrink-0 items-center justify-between border-b border-line-subtle bg-base px-4 pt-[env(safe-area-inset-top)] sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-sm text-white font-bold"
@@ -715,11 +715,11 @@ function DemandChatContent() {
         </div>
       </header>
 
-      {/* 2. Área Central do Chat */}
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {/* Thread com histórico de mensagens */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 space-y-5">
-          <div className="mx-auto max-w-3xl space-y-5">
+      <div
+        className="min-h-0 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6 md:px-8"
+        data-chat-scroll
+      >
+        <div className="mx-auto max-w-3xl space-y-5">
             {messages.map((msg) => {
               const isAssistant = msg.role === "assistant";
 
@@ -853,10 +853,10 @@ function DemandChatContent() {
             )}
 
             <div ref={threadEndRef} />
-          </div>
         </div>
+      </div>
 
-        <div className="border-t border-line-subtle bg-base px-4 pb-4 pt-2 sm:px-6">
+      <footer className="z-20 shrink-0 border-t border-line-subtle bg-base px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
           <div className="mx-auto max-w-3xl">
             {/* Input oculto para arquivos de imagem, vídeo e documentos */}
             <input
@@ -871,7 +871,7 @@ function DemandChatContent() {
               }}
             />
 
-            <div className="relative flex flex-col rounded-[24px] border border-border-chat bg-chat-composer p-3 transition-all">
+            <div className="relative flex flex-col rounded-[24px] border border-border-chat bg-chat-composer p-3 transition-all touch-manipulation">
               {/* Pré-visualização de Anexos no Composer */}
               {attachedFiles.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
@@ -977,7 +977,9 @@ function DemandChatContent() {
                             ? "Prazo (ex.: 25/11 ou sexta-feira) e detalhes…"
                             : "Briefing, referências ou anexos…"
                   }
-                  className="w-full resize-none bg-transparent text-ink outline-none placeholder:text-faint text-sm leading-relaxed py-1 px-1 max-h-[180px] overflow-y-auto"
+                  enterKeyHint="send"
+                  inputMode="text"
+                  className="w-full resize-none bg-transparent text-ink outline-none placeholder:text-faint text-base leading-relaxed py-1 px-1 max-h-[180px] overflow-y-auto touch-manipulation"
                 />
               )}
 
@@ -1030,8 +1032,7 @@ function DemandChatContent() {
               </div>
             </div>
           </div>
-        </div>
-      </main>
+      </footer>
 
       {/* Modal para Inserir Link de Vídeo Externo */}
       {videoUrlModalOpen && (
@@ -1056,7 +1057,6 @@ function DemandChatContent() {
             </p>
 
             <input
-              autoFocus
               type="url"
               placeholder="https://www.youtube.com/watch?v=..."
               value={videoUrlInput}
@@ -1064,7 +1064,7 @@ function DemandChatContent() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleAddVideoUrl();
               }}
-              className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-pink-500"
+              className="mt-3 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-base text-white outline-none focus:border-pink-500"
             />
 
             <div className="mt-4 flex justify-end gap-2">
