@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import {
@@ -19,11 +19,23 @@ export function MonthHighlights() {
   const today = useMemo(() => new Date(), []);
   const month = today.getMonth() + 1;
   const { data, loading, error, retry } = useOpenDataMonth(month);
+  const [showAll, setShowAll] = useState(false);
 
-  const important = useMemo(
-    () => (data ? data.datas.filter(isImportant) : []),
-    [data],
-  );
+  const dates = useMemo(() => {
+    if (!data) return [];
+    // Prioriza todas as datas importantes
+    const importantList = data.datas.filter(isImportant);
+    // Se a lista tiver menos de 14 datas, complementa com outras comemorativas relevantes do mês
+    if (importantList.length < 14) {
+      const remaining = data.datas.filter((item) => !isImportant(item));
+      return [...importantList, ...remaining.slice(0, 16 - importantList.length)].sort(
+        (a, b) => a.dia - b.dia,
+      );
+    }
+    return importantList;
+  }, [data]);
+
+  const visibleDates = showAll ? dates : dates.slice(0, 10);
 
   return (
     <Card className="mb-6 border-none">
@@ -31,12 +43,24 @@ export function MonthHighlights() {
         <p className="text-sm text-faint">
           Datas importantes de {MONTH_NAMES[month - 1].toLowerCase()}
         </p>
-        <Link
-          href="/datas-comemorativas"
-          className="text-xs text-faint hover:text-ink"
-        >
-          Ver todas
-        </Link>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-faint">{dates.length}</span>
+          {dates.length > 10 ? (
+            <button
+              type="button"
+              onClick={() => setShowAll((open) => !open)}
+              className="text-xs text-faint hover:text-ink cursor-pointer"
+            >
+              {showAll ? "Mostrar menos" : "Ver mais"}
+            </button>
+          ) : null}
+          <Link
+            href="/datas-comemorativas"
+            className="text-xs text-faint hover:text-ink"
+          >
+            Ver todas
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -52,12 +76,12 @@ export function MonthHighlights() {
             Tentar novamente
           </button>
         </p>
-      ) : important.length === 0 ? (
+      ) : dates.length === 0 ? (
         <p className="text-sm text-faint">Nenhuma data importante neste mês.</p>
       ) : (
         <>
-          <div className="space-y-1">
-            {important.map((item) => {
+          <div className="grid gap-2 sm:grid-cols-2">
+            {visibleDates.map((item) => {
               const days = daysUntil(item.data, today);
               const past = days < 0;
               return (
@@ -65,7 +89,7 @@ export function MonthHighlights() {
                   key={item.id}
                   href="/datas-comemorativas"
                   className={cn(
-                    "flex items-center gap-4 rounded-xl px-3 py-2.5 transition hover:bg-hover",
+                    "flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition hover:bg-hover",
                     past && "opacity-50",
                   )}
                 >
@@ -81,11 +105,11 @@ export function MonthHighlights() {
                     <span className="block truncate text-sm text-ink">
                       {item.titulo}
                     </span>
-                    <span className="block text-xs text-faint">
-                      {item.dia_semana}
+                    <span className="block truncate text-xs text-faint">
+                      {item.categoria}
                     </span>
                   </span>
-                  <KindBadge kind={item.tipo} className="hidden sm:inline-flex" />
+                  <KindBadge kind={item.tipo} className="hidden sm:inline-flex shrink-0" />
                   <span
                     className={cn(
                       "w-20 shrink-0 text-right text-xs",

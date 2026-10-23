@@ -1,7 +1,6 @@
 "use client";
 
-import { endOfWeek, format, startOfDay, startOfWeek } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { endOfWeek, startOfDay, startOfWeek } from "date-fns";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowUpRight, SquarePen } from "lucide-react";
@@ -16,6 +15,7 @@ import { ChatComposer } from "@/components/chat/chat-composer";
 import { ChatThread } from "@/components/chat/chat-thread";
 import { useChat } from "@/lib/chat";
 import { agentReady, usePrefs } from "@/lib/prefs";
+import type { Project, Tag, Task, User } from "@/lib/types";
 
 const SUGGESTIONS = [
   "Criar uma tarefa para amanhã",
@@ -144,26 +144,9 @@ function Dashboard() {
       .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
   }, [tasks]);
   const visibleWeekPosts = showAllWeek ? weekPosts : weekPosts.slice(0, 10);
-  const upcomingDates = useMemo(() => {
-    const today = startOfDay(new Date());
-    const year = today.getFullYear();
-    return tasks
-      .filter((task) => {
-        if (
-          task.id.startsWith("hist-") ||
-          task.parentId ||
-          task.status === "done" ||
-          !task.dueDate
-        ) {
-          return false;
-        }
-        if (task.priority !== "alta" && task.priority !== "urgente") return false;
-        const due = startOfDay(parseDate(task.dueDate));
-        return due.getFullYear() === year && due >= today;
-      })
-      .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
-      .slice(0, 6);
-  }, [tasks]);
+  const midpoint = Math.ceil(visibleWeekPosts.length / 2);
+  const firstCol = visibleWeekPosts.slice(0, midpoint);
+  const secondCol = visibleWeekPosts.slice(midpoint);
 
   return (
     <div>
@@ -210,91 +193,34 @@ function Dashboard() {
         {weekPosts.length === 0 ? (
           <p className="text-sm text-faint">Nenhum post saindo esta semana.</p>
         ) : (
-          <div className="space-y-1">
-            {visibleWeekPosts.map((task) => {
-              const project = projects.find((item) => item.id === task.projectId);
-              const assignee = users.find((item) => item.id === task.assigneeId);
-              const tag = tags.find((item) => item.id === task.tagIds[0]);
-              const overdue = task.dueDate
-                ? startOfDay(parseDate(task.dueDate)) < startOfDay(new Date())
-                : false;
-              return (
-                <Link
+          <div className="grid grid-cols-1 items-start gap-x-6 gap-y-1 sm:grid-cols-2">
+            <div className="space-y-1">
+              {firstCol.map((task) => (
+                <WeekPostRow
                   key={task.id}
-                  href={`/projetos/${task.projectId}?task=${task.id}`}
-                  className="flex items-center gap-4 rounded-2xl px-2 py-2.5 hover:bg-hover"
-                >
-                  <span className="w-16 shrink-0 text-xs capitalize text-faint">
-                    {task.dueDate ? formatDay(task.dueDate) : "—"}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-ink">{task.title}</span>
-                    <span className="mt-0.5 flex items-center gap-2 text-xs text-faint">
-                      <span
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: project?.color }}
-                      />
-                      {project?.name}
-                      {overdue ? <span>atrasado</span> : null}
-                    </span>
-                  </span>
-                  {tag ? <TagChip name={tag.name} color={tag.color} /> : null}
-                  <span className="hidden w-20 shrink-0 text-right text-xs text-faint sm:block">
-                    {assignee?.name.split(" ")[0]}
-                  </span>
-                </Link>
-              );
-            })}
+                  task={task}
+                  projects={projects}
+                  users={users}
+                  tags={tags}
+                />
+              ))}
+            </div>
+            <div className="space-y-1">
+              {secondCol.map((task) => (
+                <WeekPostRow
+                  key={task.id}
+                  task={task}
+                  projects={projects}
+                  users={users}
+                  tags={tags}
+                />
+              ))}
+            </div>
           </div>
         )}
       </Card>
 
       <MonthHighlights />
-
-      <Card className="mb-6 border-none">
-        <div className="mb-5 flex items-center justify-between">
-          <p className="text-sm text-faint">Próximas datas importantes da equipe</p>
-          <Link href="/calendario" className="text-xs text-faint hover:text-ink">
-            {new Date().getFullYear()}
-          </Link>
-        </div>
-        {upcomingDates.length === 0 ? (
-          <p className="text-sm text-faint">Nenhuma data importante no restante do ano.</p>
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {upcomingDates.map((task) => {
-              const project = projects.find((item) => item.id === task.projectId);
-              const due = parseDate(task.dueDate as string);
-              return (
-                <Link
-                  key={task.id}
-                  href={`/projetos/${task.projectId}?task=${task.id}`}
-                  className="flex items-center gap-4 rounded-2xl px-2 py-2.5 hover:bg-hover"
-                >
-                  <span className="w-12 shrink-0 text-center">
-                    <span className="block text-lg font-medium leading-none text-ink">
-                      {format(due, "d")}
-                    </span>
-                    <span className="mt-1 block text-[11px] capitalize text-faint">
-                      {format(due, "MMM", { locale: ptBR })}
-                    </span>
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm text-ink">{task.title}</span>
-                    <span className="mt-0.5 flex items-center gap-2 text-xs text-faint">
-                      <span
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: project?.color }}
-                      />
-                      {project?.name}
-                    </span>
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </Card>
 
       <div className="mb-6 grid gap-6 md:grid-cols-2">
         <Card className="border-none">
@@ -390,6 +316,51 @@ function QuickLink({
         <p className="mt-1 text-sm text-faint">{text}</p>
       </div>
       <ArrowUpRight className="h-4 w-4 text-faint" />
+    </Link>
+  );
+}
+
+function WeekPostRow({
+  task,
+  projects,
+  users,
+  tags,
+}: {
+  task: Task;
+  projects: Project[];
+  users: User[];
+  tags: Tag[];
+}) {
+  const project = projects.find((item) => item.id === task.projectId);
+  const assignee = users.find((item) => item.id === task.assigneeId);
+  const tag = tags.find((item) => item.id === task.tagIds[0]);
+  const overdue = task.dueDate
+    ? startOfDay(parseDate(task.dueDate)) < startOfDay(new Date())
+    : false;
+
+  return (
+    <Link
+      href={`/projetos/${task.projectId}?task=${task.id}`}
+      className="flex items-center gap-3 rounded-2xl px-2 py-2 transition hover:bg-hover sm:gap-4"
+    >
+      <span className="w-14 shrink-0 text-xs capitalize text-faint sm:w-16">
+        {task.dueDate ? formatDay(task.dueDate) : "—"}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm text-ink">{task.title}</span>
+        <span className="mt-0.5 flex items-center gap-2 text-xs text-faint">
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: project?.color }}
+          />
+          <span className="truncate">{project?.name}</span>
+          {overdue ? <span>atrasado</span> : null}
+        </span>
+      </span>
+      {tag ? <TagChip name={tag.name} color={tag.color} className="shrink-0" /> : null}
+      <span className="hidden w-16 shrink-0 text-right text-xs text-faint sm:block truncate sm:w-20">
+        {assignee?.name.split(" ")[0]}
+      </span>
     </Link>
   );
 }

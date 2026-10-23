@@ -135,7 +135,7 @@ export const MONTH_SHORT = [
 
 /** Datas comemorativas populares que também contam como "importantes". */
 const POPULAR_TITLE =
-  /^(dia das mães|dia dos pais|dia dos namorados|dia das crianças|dia do consumidor|dia mundial do consumidor|dia internacional da mulher|dia do professor|dia do trabalhador|dia dos avós|dia do cliente|dia da consciência negra|páscoa|halloween|black friday|natal|véspera de natal|réveillon|ano novo)\b/i;
+  /^(dia das mães|dia dos pais|dia dos namorados|dia das crianças|dia do consumidor|dia mundial do consumidor|dia internacional da mulher|dia do professor|dia do trabalhador|dia dos avós|dia do cliente|dia da consciência negra|páscoa|halloween|black friday|natal|véspera de natal|réveillon|ano novo|dia nacional do idoso|dia internacional do café|dia do café|dia dos animais|dia da constituição|dia do nordestino|dia mundial da saúde mental|dia da mpb|dia da música popular brasileira|dia da música|dia do médico|dia do profissional de tecnologia da informação|dia do profissional de ti|dia nacional da inovação|dia do podcast|dia do aviador|dia das nações unidas|dia da onu|dia do cirurgião-dentista|dia do dentista|dia da democracia|dia do servidor público|dia nacional do livro|dia do comerciário|dia das bruxas|dia do saci|dia nacional da poesia|dia da propaganda|dia do publicitário|dia da água|dia do meio ambiente|dia do amigo|dia do estudante|dia do jornalista|dia do folclore|dia da árvore)\b/i;
 
 /** Importantes = feriados, pontos facultativos, campanhas de saúde e as comemorativas populares. */
 export function isImportant(item: OpenDate) {
