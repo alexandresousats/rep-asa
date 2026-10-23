@@ -6,7 +6,6 @@ import {
   Folder as FolderIcon,
   FolderOpen,
   FolderPlus,
-  GripVertical,
   MoreVertical,
   Pencil,
   SquarePen,
@@ -418,28 +417,20 @@ export function AgentSidebar({
                         setDragOverFolderId(null);
                       }}
                       className={cn(
-                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-[14px] transition-all cursor-pointer select-none",
+                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-[14px] transition-all cursor-pointer active:cursor-grabbing select-none",
                         isActive
                           ? "bg-active font-medium text-ink shadow-2xs"
                           : "text-muted hover:bg-hover hover:text-ink",
-                        isBeingDragged && "opacity-40 scale-95 shadow-md",
+                        isBeingDragged && "opacity-40 scale-95 shadow-md cursor-grabbing",
                       )}
                     >
-                      <div
-                        title="Arraste para mover para uma pasta"
-                        className="mr-1 -ml-1 flex cursor-grab items-center text-faint opacity-0 group-hover:opacity-70 hover:opacity-100 active:cursor-grabbing transition-opacity shrink-0"
-                      >
-                        <GripVertical className="h-3.5 w-3.5" />
-                      </div>
-
                       <button
                         type="button"
-                        draggable={false}
                         onClick={() => {
                           selectSession(session.id);
                           onClose?.();
                         }}
-                        className="min-w-0 flex-1 text-left"
+                        className="min-w-0 flex-1 text-left cursor-pointer active:cursor-grabbing"
                       >
                         <span className="block truncate text-[14px] leading-5">{session.title}</span>
                         {folder && (
