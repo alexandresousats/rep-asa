@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -16,7 +16,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { SectionBar, SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
-import { ProjectApprovalsView } from "@/components/demands/project-approvals-view";
 import { addProjectMember, createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
@@ -66,7 +65,7 @@ function ProjectWorkspace() {
   const tags = useWorkspace((state) => state.tags);
   const taskView = usePrefs((state) => state.taskView);
   const setTaskView = usePrefs((state) => state.setTaskView);
-  const { isAdmin, canWrite, isClient } = useAccess();
+  const { isAdmin, canWrite } = useAccess();
   const project = projects.find((item) => item.id === params.id);
   const tasks = useMemo(
     () =>
@@ -181,34 +180,14 @@ function ProjectWorkspace() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {(canWrite || isClient) ? (
-              <Button
-                onClick={() => setDemandDialogOpen(true)}
-                className="gap-2 bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-sm hover:opacity-90"
-              >
-                <Plus className="h-4 w-4" />
-                Nova Demanda
-              </Button>
-            ) : null}
             {canWrite ? (
               <>
-                {isAdmin ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeleteError("");
-                      setConfirmDelete(true);
-                    }}
-                    className="text-xs text-faint hover:text-ink"
-                  >
-                    Excluir projeto
-                  </button>
-                ) : null}
                 <div ref={addMenuRef} className="relative">
                   <Button
                     aria-expanded={addMenu}
                     aria-haspopup="menu"
                     variant="outline"
+                    className="border-line !bg-white !text-ink hover:!bg-neutral-100"
                     onClick={() => setAddMenu((open) => !open)}
                   >
                     <Plus className="h-4 w-4" />
@@ -264,6 +243,19 @@ function ProjectWorkspace() {
                     </div>
                   ) : null}
                 </div>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    aria-label="Excluir projeto"
+                    onClick={() => {
+                      setDeleteError("");
+                      setConfirmDelete(true);
+                    }}
+                    className="rounded-full p-2 text-faint transition-colors hover:bg-hover hover:text-ink"
+                  >
+                    <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -357,24 +349,16 @@ function ProjectWorkspace() {
           />
         ) : null}
 
-        {view === "demandas" ? (
+        {view === "demandas" || view === "aprovacoes" ? (
           <ProjectDemandsView
+            key={view}
             project={current}
             tasks={tasks}
             users={users}
             tags={tags}
+            initialTab={view === "aprovacoes" ? "aprovacoes" : "demandas"}
             onSelectTask={(id) => setQuery({ task: id })}
             onCreateDemand={() => setDemandDialogOpen(true)}
-          />
-        ) : null}
-
-        {view === "aprovacoes" ? (
-          <ProjectApprovalsView
-            project={current}
-            tasks={tasks}
-            users={users}
-            tags={tags}
-            onSelectTask={(id) => setQuery({ task: id })}
           />
         ) : null}
         </div>
