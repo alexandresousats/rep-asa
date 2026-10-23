@@ -19,7 +19,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useChat } from "@/lib/chat";
-import { agentReady, usePrefs } from "@/lib/prefs";
+import { AGENT_PRESETS, agentReady, usePrefs } from "@/lib/prefs";
 import type { ChatAudioAttachment, ChatDocumentAttachment } from "@/lib/types";
 
 // Tipagem para Web Speech Recognition
@@ -35,22 +35,74 @@ interface SpeechRecognitionInstance extends EventTarget {
   onend: () => void;
 }
 
-const MODEL_OPTIONS = [
-  { id: "fast", label: "Fast", desc: "Ultra-rápido e econômico" },
-  { id: "gpt-6.1", label: "GPT-6.1 Sol Leve", desc: "Equilíbrio de raciocínio e precisão" },
-  { id: "grok-4", label: "Grok-4", desc: "Raciocínio avançado e análise xAI" },
-  { id: "claude-3.5", label: "Claude 3.5 Sonnet", desc: "Alta precisão para código e tarefas" },
+export const DEFAULT_CHAT_PLACEHOLDERS = [
+  "Arraste e solte pastas no chat",
+  "Alterne para o Modo Build para criar apps",
+  "Criar uma tarefa urgente para amanhã...",
+  "Solicitar uma nova demanda de carrossel ou reels...",
+  "Quais tarefas da equipe estão atrasadas?",
+  "O que vence nos meus projetos nos próximos 7 dias?",
+  "Analisar um briefing ou PDF anexado...",
+  "Como está o desempenho e entregas do mês?",
 ];
+
+function useTypewriterPlaceholder(phrases: string[], enabled = true) {
+  const [currentText, setCurrentText] = useState("");
+  const phraseIndexRef = useRef(0);
+  const charIndexRef = useRef(0);
+  const isDeletingRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled || phrases.length === 0) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    function tick() {
+      const currentPhrase = phrases[phraseIndexRef.current % phrases.length];
+
+      if (isDeletingRef.current) {
+        charIndexRef.current--;
+        setCurrentText(currentPhrase.slice(0, charIndexRef.current));
+
+        if (charIndexRef.current <= 0) {
+          isDeletingRef.current = false;
+          phraseIndexRef.current = (phraseIndexRef.current + 1) % phrases.length;
+          timeoutId = setTimeout(tick, 350);
+          return;
+        }
+        timeoutId = setTimeout(tick, 22);
+      } else {
+        charIndexRef.current++;
+        setCurrentText(currentPhrase.slice(0, charIndexRef.current));
+
+        if (charIndexRef.current >= currentPhrase.length) {
+          isDeletingRef.current = true;
+          timeoutId = setTimeout(tick, 2200);
+          return;
+        }
+        timeoutId = setTimeout(tick, 45);
+      }
+    }
+
+    timeoutId = setTimeout(tick, 350);
+
+    return () => clearTimeout(timeoutId);
+  }, [enabled, phrases]);
+
+  return currentText;
+}
 
 export function ChatComposer({
   hero = false,
   autoFocus = false,
-  placeholder = "Alterne para o Modo Build para criar apps",
+  placeholder,
+  placeholderPhrases,
   className,
 }: {
   hero?: boolean;
   autoFocus?: boolean;
   placeholder?: string;
+  placeholderPhrases?: string[];
   className?: string;
 }) {
   const agent = usePrefs((state) => state.agent);
@@ -74,7 +126,6 @@ export function ChatComposer({
   // Menus suspensos
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
 
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,15 +134,22 @@ export function ChatComposer({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<number | null>(null);
+  const recordingSecondsRef = useRef(0);
   const speechRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const dictationBaseTextRef = useRef("");
 
   const ready = agentReady(agent);
 
-  // Quando não houver seleção manual:
-  // Se houver texto digitado -> exibe "GPT-6.1 Sol Leve" (como na imagem 1)
-  // Se o campo estiver vazio -> exibe "Fast" (como na imagem 2)
-  const currentModelLabel =
-    selectedModel ?? (value.trim().length > 0 ? "GPT-6.1 Sol Leve" : "Fast");
+  const phrasesToUse = placeholderPhrases || DEFAULT_CHAT_PLACEHOLDERS;
+  const animatedPlaceholder = useTypewriterPlaceholder(
+    phrasesToUse,
+    !placeholder && value.length === 0,
+  );
+
+  const presetInfo =
+    (agent.preset && AGENT_PRESETS[agent.preset as keyof typeof AGENT_PRESETS]) || null;
+  const presetLabel = presetInfo?.label || (agent.preset ? String(agent.preset) : "Personalizado");
+  const configuredModelName = agent.model?.trim() || "";
 
   // Ajusta altura do textarea dinamicamente
   useEffect(() => {
@@ -213,11 +271,12 @@ export function ChatComposer({
     }
   }
 
-  // Gravação de Áudio / Modo Voz
+  // Gravação de Áudio via MediaRecorder (Anexo de áudio no menu +)
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunksRef.current = [];
+      recordingSecondsRef.current = 0;
 
       let mimeType = "audio/webm";
       if (!MediaRecorder.isTypeSupported("audio/webm")) {
@@ -235,12 +294,13 @@ export function ChatComposer({
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         stream.getTracks().forEach((track) => track.stop());
 
+        const duration = recordingSecondsRef.current || 1;
         const reader = new FileReader();
         reader.onloadend = () => {
           const dataUrl = reader.result as string;
           setAttachedAudio({
             url: dataUrl,
-            duration: recordingSeconds,
+            duration,
             mimeType,
           });
         };
@@ -252,7 +312,8 @@ export function ChatComposer({
       setRecordingSeconds(0);
 
       recordTimerRef.current = window.setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
+        recordingSecondsRef.current += 1;
+        setRecordingSeconds(recordingSecondsRef.current);
       }, 1000);
     } catch {
       alert("Permissão de microfone negada ou microfone indisponível.");
@@ -275,7 +336,7 @@ export function ChatComposer({
     setIsRecording(false);
   }
 
-  // Ditado de voz para texto (Speech-to-Text no textarea)
+  // Ditado de voz para texto (Speech-to-Text em tempo real no textarea)
   function toggleDictation() {
     if (isDictating) {
       if (speechRecognitionRef.current) {
@@ -285,13 +346,14 @@ export function ChatComposer({
         speechRecognitionRef.current = null;
       }
       setIsDictating(false);
+      dictationBaseTextRef.current = value.trim();
       return;
     }
 
     const SpeechClass =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechClass) {
-      void startRecording();
+      alert("Reconhecimento de fala não suportado neste navegador. Recomendamos Google Chrome, Edge ou Safari.");
       return;
     }
 
@@ -300,25 +362,54 @@ export function ChatComposer({
       speech.continuous = true;
       speech.interimResults = true;
       speech.lang = "pt-BR";
+
+      // Fix do bug de duplicação: armazena a base inicial antes do início do ditado
+      dictationBaseTextRef.current = value.trim();
+
       speech.onresult = (event: any) => {
-        let transcript = "";
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          transcript += event.results[i][0].transcript;
+        let finalTranscript = "";
+        let interimTranscript = "";
+
+        // Itera sobre todos os blocos de fala reconhecidos na sessão
+        for (let i = 0; i < event.results.length; ++i) {
+          const item = event.results[i];
+          const text = item[0]?.transcript || "";
+          if (item.isFinal) {
+            finalTranscript += (finalTranscript ? " " : "") + text.trim();
+          } else {
+            interimTranscript += (interimTranscript ? " " : "") + text.trim();
+          }
         }
-        if (transcript.trim()) {
-          setValue((prev) => {
-            const base = prev.trim() ? `${prev.trim()} ` : "";
-            return `${base}${transcript.trim()}`;
-          });
+
+        const recognizedText = [finalTranscript, interimTranscript]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+
+        const base = dictationBaseTextRef.current;
+        const combined = base
+          ? (recognizedText ? `${base} ${recognizedText}` : base)
+          : recognizedText;
+
+        setValue(combined);
+      };
+
+      speech.onerror = (event: any) => {
+        if (event.error !== "no-speech") {
+          setIsDictating(false);
         }
       };
-      speech.onerror = () => setIsDictating(false);
-      speech.onend = () => setIsDictating(false);
+
+      speech.onend = () => {
+        setIsDictating(false);
+      };
+
       speech.start();
       speechRecognitionRef.current = speech;
       setIsDictating(true);
     } catch {
-      void startRecording();
+      alert("Não foi possível acessar o microfone para ditado.");
+      setIsDictating(false);
     }
   }
 
@@ -334,7 +425,14 @@ export function ChatComposer({
     if (!hasContent || sending || !ready || parsingDoc) return;
 
     if (isDictating) {
-      toggleDictation();
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch {}
+        speechRecognitionRef.current = null;
+      }
+      setIsDictating(false);
+      dictationBaseTextRef.current = "";
     }
 
     const textToSend = value;
@@ -391,11 +489,13 @@ export function ChatComposer({
         }}
       />
 
-      {/* Caixa do Chat Unificada: Estilo visual escuro idêntico às imagens anexadas */}
+      {/* Caixa do Chat Unificada: Estilo correspondente as referencias visuais de modo claro e escuro */}
       <div
         className={cn(
-          "relative flex flex-col rounded-[26px] bg-[#212121] text-zinc-100 shadow-lg transition-all",
-          hero ? "p-4 pb-3" : "p-3.5 pb-2.5",
+          "relative flex flex-col rounded-[28px] transition-colors",
+          "bg-white dark:bg-[#201f1d] text-ink",
+          "border border-[#e6e5e3] dark:border-[#30302e]",
+          hero ? "p-4 pb-3" : "p-3 pb-2.5",
         )}
       >
         {/* Documentos / PDFs Anexados */}
@@ -404,16 +504,16 @@ export function ChatComposer({
             {documents.map((doc, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-2.5 rounded-2xl bg-[#191919] px-3 py-1.5 text-xs text-zinc-200 shadow-2xs"
+                className="flex items-center gap-2.5 rounded-2xl bg-zinc-50 dark:bg-[#191919] px-3 py-1.5 text-xs text-ink border border-black/[0.05] dark:border-white/[0.06] shadow-2xs"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/15 text-red-400">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/10 text-red-500">
                   <FileText className="h-4 w-4" />
                 </div>
                 <div className="flex flex-col min-w-0 pr-1">
                   <span className="font-medium truncate max-w-[180px] sm:max-w-[240px]">
                     {doc.name}
                   </span>
-                  <span className="text-[10px] text-zinc-400">
+                  <span className="text-[10px] text-muted">
                     {(doc.size / (1024 * 1024)).toFixed(1)} MB
                     {doc.pageCount ? ` · ${doc.pageCount} pág.` : ""} · Pronto para análise
                   </span>
@@ -421,7 +521,7 @@ export function ChatComposer({
                 <button
                   type="button"
                   onClick={() => setDocuments((prev) => prev.filter((_, i) => i !== idx))}
-                  className="rounded-full p-1 text-zinc-400 hover:bg-white/10 hover:text-red-400 transition-colors"
+                  className="rounded-full p-1 text-muted hover:bg-black/5 dark:hover:bg-white/10 hover:text-red-500 transition-colors"
                   aria-label="Remover documento"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -433,10 +533,10 @@ export function ChatComposer({
 
         {/* Indicador de Processamento do PDF / Documento */}
         {parsingDoc && (
-          <div className="mb-2 flex items-center gap-2.5 rounded-2xl bg-[#191919] px-3 py-2 text-xs text-zinc-300">
-            <LoaderCircle className="h-4 w-4 animate-spin text-blue-400 shrink-0" />
+          <div className="mb-2 flex items-center gap-2.5 rounded-2xl bg-zinc-50 dark:bg-[#191919] px-3 py-2 text-xs text-muted border border-black/[0.05] dark:border-white/[0.06]">
+            <LoaderCircle className="h-4 w-4 animate-spin text-blue-500 shrink-0" />
             <span className="truncate">
-              Processando <strong>{parsingFileName}</strong> (lendo texto e páginas do PDF)...
+              Processando <strong className="text-ink">{parsingFileName}</strong> (lendo texto e páginas do PDF)...
             </span>
           </div>
         )}
@@ -447,7 +547,7 @@ export function ChatComposer({
             {images.map((img, idx) => (
               <div
                 key={idx}
-                className="group relative h-16 w-16 overflow-hidden rounded-xl bg-black/40"
+                className="group relative h-16 w-16 overflow-hidden rounded-xl bg-zinc-100 dark:bg-[#191919] border border-black/[0.05] dark:border-white/[0.06]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={img} alt={`Preview ${idx}`} className="h-full w-full object-cover" />
@@ -466,15 +566,15 @@ export function ChatComposer({
 
         {/* Pré-visualização de Áudio Gravado/Anexado */}
         {attachedAudio && !isRecording && (
-          <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl bg-[#191919] px-3 py-2">
-            <div className="flex items-center gap-2 text-xs text-zinc-200">
-              <Radio className="h-4 w-4 text-emerald-400 animate-pulse" />
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl bg-zinc-50 dark:bg-[#191919] px-3 py-2 border border-black/[0.05] dark:border-white/[0.06]">
+            <div className="flex items-center gap-2 text-xs text-ink">
+              <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
               <span>Mensagem de voz anexada ({formatSeconds(attachedAudio.duration || 0)})</span>
             </div>
             <button
               type="button"
               onClick={() => setAttachedAudio(null)}
-              className="text-zinc-400 hover:text-red-400 transition-colors"
+              className="text-muted hover:text-red-500 transition-colors"
               aria-label="Remover áudio"
             >
               <X className="h-4 w-4" />
@@ -490,10 +590,10 @@ export function ChatComposer({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
               </span>
-              <span className="text-sm font-medium text-white">
+              <span className="text-sm font-medium text-ink">
                 Gravando ({formatSeconds(recordingSeconds)})
               </span>
-              <span className="hidden text-xs text-zinc-400 sm:inline">
+              <span className="hidden text-xs text-muted sm:inline">
                 Fale agora com o assistente...
               </span>
             </div>
@@ -502,7 +602,7 @@ export function ChatComposer({
                 type="button"
                 onClick={() => stopRecording(false)}
                 title="Descartar gravação"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-white/10 hover:text-red-400 transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5 dark:hover:bg-white/10 hover:text-red-500 transition-colors"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -510,7 +610,7 @@ export function ChatComposer({
                 type="button"
                 onClick={() => stopRecording(true)}
                 title="Concluir áudio"
-                className="flex h-8 px-3.5 items-center justify-center rounded-full bg-white text-black text-xs font-semibold hover:bg-zinc-200 transition-all"
+                className="flex h-8 px-3.5 items-center justify-center rounded-full bg-ink text-base text-xs font-semibold hover:opacity-90 transition-all shadow-sm"
               >
                 Concluir
               </button>
@@ -525,7 +625,10 @@ export function ChatComposer({
               value={value}
               disabled={hydrated && !ready}
               onPaste={handlePaste}
-              onChange={(event) => setValue(event.target.value)}
+              onChange={(event) => {
+                setValue(event.target.value);
+                dictationBaseTextRef.current = event.target.value.trim();
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
@@ -535,11 +638,13 @@ export function ChatComposer({
               placeholder={
                 hydrated && !ready
                   ? "Conecte um agente nas configurações para conversar"
-                  : placeholder
+                  : placeholder || animatedPlaceholder || "Arraste e solte pastas no chat"
               }
               aria-label="Mensagem para o agente"
               className={cn(
-                "w-full resize-none bg-transparent text-white outline-none placeholder:text-[#8e8e8e] disabled:cursor-not-allowed text-[15px] leading-6",
+                "w-full resize-none bg-transparent text-ink outline-none",
+                "placeholder:text-zinc-500 dark:placeholder:text-zinc-400",
+                "disabled:cursor-not-allowed text-[15px] leading-6",
                 "overflow-y-auto max-h-[220px] chat-textarea-scroll py-1",
               )}
               style={{ minHeight: "28px" }}
@@ -547,9 +652,9 @@ export function ChatComposer({
           </div>
         )}
 
-        {/* Barra de Ferramentas Inferior: Exatamente como nas imagens anexadas */}
+        {/* Barra de Ferramentas Inferior */}
         <div className="flex items-center justify-between pt-2">
-          {/* Lado Esquerdo: Botão "+" com menu suspenso */}
+          {/* Lado Esquerdo: Botão "+" minimalista conforme referência */}
           <div className="relative">
             <button
               type="button"
@@ -557,9 +662,9 @@ export function ChatComposer({
               onClick={() => setPlusMenuOpen((prev) => !prev)}
               title="Anexar arquivos, imagens ou gravar áudio"
               aria-label="Adicionar anexo"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200 transition-colors disabled:opacity-40"
             >
-              <Plus className="h-5 w-5 stroke-[2.2]" />
+              <Plus className="h-4.5 w-4.5 stroke-[2]" />
             </button>
 
             {plusMenuOpen && (
@@ -568,19 +673,19 @@ export function ChatComposer({
                   className="fixed inset-0 z-40"
                   onClick={() => setPlusMenuOpen(false)}
                 />
-                <div className="absolute bottom-full left-0 mb-2 z-50 w-64 rounded-2xl border border-white/10 bg-[#1c1c1c] p-1.5 text-xs text-zinc-200 shadow-2xl backdrop-blur-md">
+                <div className="absolute bottom-full left-0 mb-2 z-50 w-64 rounded-2xl bg-white dark:bg-[#1c1a18] border border-[#e6e5e3] dark:border-[#30302e] p-1.5 text-xs text-ink shadow-2xl backdrop-blur-md">
                   <button
                     type="button"
                     onClick={() => {
                       setPlusMenuOpen(false);
                       docInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-white/10 hover:text-white transition-colors"
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                   >
-                    <FileText className="h-4 w-4 text-red-400" />
+                    <FileText className="h-4 w-4 text-red-500 shrink-0" />
                     <div className="flex flex-col">
-                      <span className="font-medium">Documento ou PDF</span>
-                      <span className="text-[10px] text-zinc-400">Analisa arquivos até 25MB</span>
+                      <span className="font-medium text-ink">Documento ou PDF</span>
+                      <span className="text-[10px] text-muted">Analisa arquivos até 25MB</span>
                     </div>
                   </button>
 
@@ -590,12 +695,12 @@ export function ChatComposer({
                       setPlusMenuOpen(false);
                       fileInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-white/10 hover:text-white transition-colors"
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                   >
-                    <ImageIcon className="h-4 w-4 text-emerald-400" />
+                    <ImageIcon className="h-4 w-4 text-emerald-500 shrink-0" />
                     <div className="flex flex-col">
-                      <span className="font-medium">Anexar imagens</span>
-                      <span className="text-[10px] text-zinc-400">Fotos e diagramas</span>
+                      <span className="font-medium text-ink">Anexar imagens</span>
+                      <span className="text-[10px] text-muted">Fotos e diagramas</span>
                     </div>
                   </button>
 
@@ -605,12 +710,12 @@ export function ChatComposer({
                       setPlusMenuOpen(false);
                       startRecording();
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-white/10 hover:text-white transition-colors"
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
                   >
-                    <Mic className="h-4 w-4 text-amber-400" />
+                    <Mic className="h-4 w-4 text-amber-500 shrink-0" />
                     <div className="flex flex-col">
-                      <span className="font-medium">Gravar áudio</span>
-                      <span className="text-[10px] text-zinc-400">Enviar gravação de voz</span>
+                      <span className="font-medium text-ink">Gravar áudio</span>
+                      <span className="text-[10px] text-muted">Enviar gravação de voz</span>
                     </div>
                   </button>
                 </div>
@@ -620,16 +725,16 @@ export function ChatComposer({
 
           {/* Lado Direito: Seletor de Modelo, Microfone e Botão de Ação */}
           <div className="flex items-center gap-2">
-            {/* Seletor de Modelo (ex: "Fast ⌵" ou "GPT-6.1 Sol Leve ⌵") */}
+            {/* Seletor de Modelo - 'Auto ⌵' conforme as imagens de referência */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setModelMenuOpen((prev) => !prev)}
-                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                title="Selecionar modelo"
+                className="flex items-center gap-1 px-1.5 py-1 text-[13px] text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-white transition-colors cursor-pointer"
+                title={`Modelo ativo: ${configuredModelName || presetLabel}`}
               >
-                <span>{currentModelLabel}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-zinc-400" />
+                <span>{configuredModelName || "Auto"}</span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-70 shrink-0" strokeWidth={1.75} />
               </button>
 
               {modelMenuOpen && (
@@ -638,49 +743,61 @@ export function ChatComposer({
                     className="fixed inset-0 z-40"
                     onClick={() => setModelMenuOpen(false)}
                   />
-                  <div className="absolute bottom-full right-0 mb-2 z-50 w-56 rounded-2xl border border-white/10 bg-[#1c1c1c] p-1.5 text-xs text-zinc-200 shadow-2xl backdrop-blur-md">
-                    <div className="px-2.5 py-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  <div className="absolute bottom-full right-0 mb-2 z-50 w-64 rounded-2xl bg-white dark:bg-[#1c1a18] border border-[#e6e5e3] dark:border-[#30302e] p-2 text-xs text-ink shadow-2xl backdrop-blur-md">
+                    <div className="px-2.5 py-1 text-[10px] font-semibold text-muted uppercase tracking-wider">
                       Modelo do Assistente
                     </div>
-                    {MODEL_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedModel(opt.label);
-                          setModelMenuOpen(false);
-                        }}
-                        className={cn(
-                          "flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left hover:bg-white/10 transition-colors",
-                          currentModelLabel === opt.label
-                            ? "text-blue-400 font-medium"
-                            : "text-zinc-200",
-                        )}
-                      >
-                        <div className="flex flex-col">
-                          <span>{opt.label}</span>
-                          <span className="text-[10px] text-zinc-400">{opt.desc}</span>
+
+                    {ready ? (
+                      <div className="mt-1 rounded-xl bg-black/[0.03] dark:bg-white/[0.05] p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                            Ativo e Conectado
+                          </span>
+                          <span className="rounded-md bg-black/5 dark:bg-white/10 px-2 py-0.5 text-[10px] text-muted font-mono">
+                            {presetLabel}
+                          </span>
                         </div>
-                        {currentModelLabel === opt.label && (
-                          <Check className="h-3.5 w-3.5 shrink-0" />
-                        )}
-                      </button>
-                    ))}
-                    <div className="my-1 border-t border-white/10" />
+
+                        <div className="mt-2 font-semibold text-ink text-sm truncate" title={configuredModelName}>
+                          {configuredModelName}
+                        </div>
+
+                        <p className="mt-1 text-[11px] text-muted leading-relaxed">
+                          Executando com sua própria chave de API configurada.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-1 rounded-xl bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+                          <span className="h-2 w-2 rounded-full bg-amber-500" />
+                          Nenhum modelo configurado
+                        </div>
+                        <p className="mt-1 text-[11px] leading-relaxed opacity-90">
+                          Adicione sua chave de API e modelo nas configurações para ativar as respostas do agente.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="my-1.5 h-px bg-black/[0.06] dark:bg-white/[0.08]" />
+
                     <Link
                       href="/configuracoes?tab=agente"
                       onClick={() => setModelMenuOpen(false)}
-                      className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-zinc-400 hover:bg-white/10 hover:text-white transition-colors"
+                      className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-muted hover:bg-black/5 dark:hover:bg-white/10 hover:text-ink transition-colors"
                     >
-                      <Settings className="h-3.5 w-3.5" />
-                      <span>Configurações da API...</span>
+                      <Settings className="h-3.5 w-3.5 shrink-0" />
+                      <span className="font-medium">
+                        {ready ? "Alterar modelo ou chave de API..." : "Configurar modelo de IA..."}
+                      </span>
                     </Link>
                   </div>
                 </>
               )}
             </div>
 
-            {/* Botão de Ditado com Microfone */}
+            {/* Botão de Ditado com Microfone conforme referência */}
             <button
               type="button"
               disabled={!ready || parsingDoc}
@@ -690,17 +807,16 @@ export function ChatComposer({
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:opacity-40",
                 isDictating
-                  ? "bg-red-500/20 text-red-400 animate-pulse"
-                  : "text-zinc-400 hover:text-white hover:bg-white/10",
+                  ? "bg-red-500/15 text-red-500 animate-pulse"
+                  : "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200",
               )}
             >
               <Mic className="h-4 w-4 stroke-[1.75]" />
             </button>
 
             {/* Botão Principal à Direita:
-                1. Em execução -> Parar (quadrado branco/preto)
-                2. Com texto / anexos -> Botão circular Azul com Seta para cima (Imagem 1)
-                3. Sem texto / Vazio -> Botão circular escuro com Barras de Onda Azul (Modo Voz) (Imagem 2)
+                1. Em execução -> Parar
+                2. Padrão -> Botão circular com Seta para cima (habilitado quando há conteúdo, desabilitado quando vazio)
             */}
             {sending ? (
               <button
@@ -708,39 +824,25 @@ export function ChatComposer({
                 onClick={stop}
                 aria-label="Parar resposta"
                 title="Parar resposta"
-                className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-white text-black hover:bg-zinc-200 transition-all shadow-md active:scale-95"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-base hover:opacity-90 transition-all active:scale-95 cursor-pointer"
               >
                 <Square className="h-3.5 w-3.5 fill-current" />
               </button>
-            ) : hasContent ? (
-              /* Imagem 1: Círculo Azul com seta branca apontando para cima */
+            ) : (
               <button
                 type="button"
                 onClick={submit}
                 disabled={!canSubmit}
                 aria-label="Enviar mensagem"
-                title="Enviar"
-                className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[#1d6eed] hover:bg-[#2563eb] text-white shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={canSubmit ? "Enviar mensagem" : "Digite uma mensagem para enviar"}
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-full transition-all active:scale-95",
+                  canSubmit
+                    ? "bg-[#1d6eed] hover:bg-[#2563eb] text-white cursor-pointer"
+                    : "bg-black/5 dark:bg-white/10 text-zinc-400 dark:text-zinc-600 cursor-not-allowed opacity-50",
+                )}
               >
                 <ArrowUp className="h-4.5 w-4.5 stroke-[2.5]" />
-              </button>
-            ) : (
-              /* Imagem 2: Pílula circular escura com barras azuis de forma de onda (Modo Voz) */
-              <button
-                type="button"
-                disabled={!ready || parsingDoc}
-                onClick={startRecording}
-                title="Modo Voz / Conversa em tempo real"
-                aria-label="Iniciar modo voz"
-                className="group relative flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[#171717] hover:bg-[#262626] shadow-sm transition-all active:scale-95 disabled:opacity-40"
-              >
-                <div className="flex items-center gap-[2.5px] h-4">
-                  <span className="w-[2.5px] h-2 bg-[#38bdf8] rounded-full group-hover:h-3 transition-all duration-200" />
-                  <span className="w-[2.5px] h-3.5 bg-[#38bdf8] rounded-full group-hover:h-4 transition-all duration-200" />
-                  <span className="w-[2.5px] h-4.5 bg-[#38bdf8] rounded-full group-hover:h-5 transition-all duration-200" />
-                  <span className="w-[2.5px] h-3 bg-[#38bdf8] rounded-full group-hover:h-3.5 transition-all duration-200" />
-                  <span className="w-[2.5px] h-1.5 bg-[#38bdf8] rounded-full group-hover:h-2.5 transition-all duration-200" />
-                </div>
               </button>
             )}
           </div>
@@ -748,10 +850,10 @@ export function ChatComposer({
       </div>
 
       {hydrated && !ready ? (
-        <p className="mt-3 text-center text-xs text-zinc-500">
+        <p className="mt-3 text-center text-xs text-muted">
           <Link
             href="/configuracoes?tab=agente"
-            className="text-zinc-400 underline underline-offset-2 hover:text-white"
+            className="text-ink font-medium underline underline-offset-2 hover:opacity-80"
           >
             Conectar meu agente
           </Link>{" "}

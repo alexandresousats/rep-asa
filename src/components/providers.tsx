@@ -76,7 +76,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [userId, workspaceId]);
 
   return (
-    <ThemeProvider attribute="data-theme" defaultTheme="dark" enableSystem={false}>
+    <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="dark" enableSystem={false}>
       {children}
     </ThemeProvider>
   );

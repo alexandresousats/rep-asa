@@ -458,7 +458,7 @@ export function AgentSidebar({
                           {menuSessionId === session.id && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="absolute top-full right-0 z-50 mt-1 w-44 rounded-xl bg-elevated p-1 text-xs shadow-xl ring-1 ring-black/5 animate-in fade-in"
+                              className="absolute top-full right-0 z-50 mt-1 w-44 rounded-xl bg-elevated p-1 text-xs shadow-xl border border-line animate-in fade-in"
                             >
                               <div className="px-2 py-1 text-[10px] uppercase font-semibold text-faint">
                                 Mover para pasta

@@ -188,14 +188,13 @@ export default function AgentPage() {
         <div data-chat-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
           {messages.length === 0 ? (
             <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center">
-              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-ink text-center mb-6">
+              <h1 className="text-xl sm:text-[22px] font-semibold tracking-tight text-ink text-center mb-6">
                 O que devemos explorar?
               </h1>
 
               <ChatComposer
                 autoFocus
                 hero
-                placeholder="Alterne para o Modo Build para criar apps"
                 className="w-full"
               />
 
@@ -237,7 +236,6 @@ export default function AgentPage() {
           <div className="shrink-0 bg-base/80 p-4 backdrop-blur-xs">
             <ChatComposer
               autoFocus
-              placeholder="Alterne para o Modo Build para criar apps"
               className="mx-auto w-full max-w-3xl"
             />
           </div>

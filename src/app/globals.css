@@ -1,42 +1,62 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
+
 :root,
-[data-theme="light"] {
-  --bg-base: #ffffff;
-  --bg-subtle: #f7f7f7;
-  --bg-elevated: #fafafa;
-  --bg-sidebar: #fafafa;
-  --bg-active: #e8e8e8;
-  --bg-hover: #ececec;
+[data-theme="light"],
+.light {
+  --bg-base: #f9f8f7;
+  --bg-subtle: #f2f1ef;
+  --bg-elevated: #ffffff;
+  --bg-sidebar: #f4f3f1;
+  --bg-active: #e8e7e4;
+  --bg-hover: #eceae8;
   --text-primary: #171717;
   --text-secondary: #525252;
   --text-tertiary: #737373;
-  --border-default: #e5e5e5;
-  --border-subtle: #efefef;
+  --border-default: #e6e5e3;
+  --border-subtle: #eceae8;
   --overlay: rgba(255, 255, 255, 0.72);
   --heat-1: #dbeafe;
   --heat-2: #93c5fd;
   --heat-3: #3b82f6;
   --heat-4: #1d4ed8;
+
+  /* Superfícies dedicadas do chat conforme referência visual exata */
+  --bg-chat-composer: #ffffff;
+  --bg-chat-menu: #ffffff;
+  --bg-chat-item: #f9f8f7;
+  --bg-chat-voice-btn: #f9f8f7;
+  --border-chat: #e6e5e3;
+  --border-chat-menu: #e6e5e3;
 }
 
-[data-theme="dark"] {
-  --bg-base: #151515;
-  --bg-subtle: #0a0a0a;
-  --bg-elevated: #1a1a1a;
-  --bg-sidebar: #111111;
-  --bg-active: #1a1a1a;
-  --bg-hover: #222222;
+[data-theme="dark"],
+.dark {
+  --bg-base: #141211;
+  --bg-subtle: #0d0c0c;
+  --bg-elevated: #1e1d1b;
+  --bg-sidebar: #171615;
+  --bg-active: #232220;
+  --bg-hover: #262523;
   --text-primary: #f5f5f5;
   --text-secondary: #d4d4d4;
   --text-tertiary: #a3a3a3;
-  --border-default: #2a2a2a;
-  --border-subtle: #1f1f1f;
+  --border-default: #30302e;
+  --border-subtle: #242321;
   --overlay: rgba(0, 0, 0, 0.72);
   --heat-1: #172554;
   --heat-2: #1e3a8a;
   --heat-3: #2563eb;
   --heat-4: #60a5fa;
+
+  /* Superfícies dedicadas do chat conforme referência visual exata */
+  --bg-chat-composer: #201f1d;
+  --bg-chat-menu: #1c1a18;
+  --bg-chat-item: #171615;
+  --bg-chat-voice-btn: #141211;
+  --border-chat: #30302e;
+  --border-chat-menu: #30302e;
 }
 
 @theme inline {
@@ -56,6 +76,12 @@
   --color-heat-2: var(--heat-2);
   --color-heat-3: var(--heat-3);
   --color-heat-4: var(--heat-4);
+  --color-chat-composer: var(--bg-chat-composer);
+  --color-chat-menu: var(--bg-chat-menu);
+  --color-chat-item: var(--bg-chat-item);
+  --color-chat-voice-btn: var(--bg-chat-voice-btn);
+  --color-border-chat: var(--border-chat);
+  --color-border-chat-menu: var(--border-chat-menu);
   --default-font-family: var(--font-universal-sans, var(--font-inter)), ui-sans-serif,
     system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
     "Segoe UI Symbol", "Noto Color Emoji";

@@ -466,11 +466,12 @@ export const useChat = create<ChatState>()(
               (m) =>
                 m.content.trim() ||
                 (m.images && m.images.length > 0) ||
-                (m.documents && m.documents.length > 0),
+                (m.documents && m.documents.length > 0) ||
+                Boolean(m.audio),
             )
             .map((m) => ({
               role: m.role,
-              content: m.content,
+              content: m.content || (m.audio ? "[Mensagem de áudio enviada pelo usuário]" : ""),
               images: m.images,
               documents: m.documents,
             }));
