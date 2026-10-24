@@ -2,9 +2,10 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Building2, Cpu, Hash, Sparkles, User } from "lucide-react";
+import { Building2, Cpu, Hash, Sparkles, User, Users } from "lucide-react";
 import { CreateWorkspaceDialog } from "@/components/layout/create-workspace-dialog";
 import { MemberForm } from "@/components/team/member-dialog";
+import { WorkspaceTeamSection } from "@/components/team/workspace-team-section";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -24,10 +25,11 @@ import { usePrefs } from "@/lib/prefs";
 import type { McpTransport, WorkspaceMembership } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
 
-type SettingsTab = "perfil" | "workspace" | "agente" | "mcp" | "tags";
+type SettingsTab = "perfil" | "equipe" | "workspace" | "agente" | "mcp" | "tags";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof User }[] = [
   { id: "perfil", label: "Perfil", icon: User },
+  { id: "equipe", label: "Equipe", icon: Users },
   { id: "workspace", label: "Espaço de trabalho", icon: Building2 },
   { id: "agente", label: "Agente de IA", icon: Sparkles },
   { id: "mcp", label: "MCP", icon: Cpu },
@@ -45,6 +47,7 @@ function normalizeTab(param: string | null): SettingsTab {
   ) {
     return "workspace";
   }
+  if (lower === "equipe" || lower === "team") return "equipe";
   if (lower === "agente" || lower === "ai" || lower === "ia" || lower === "agent") {
     return "agente";
   }
@@ -97,7 +100,12 @@ function SettingsContent() {
   }, [workspace?.name]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
+    <div
+      className={cn(
+        "mx-auto w-full px-6 py-8",
+        activeTab === "equipe" ? "max-w-5xl" : "max-w-3xl",
+      )}
+    >
       <h1 className="mb-6 text-2xl font-medium tracking-tight text-ink">Configurações</h1>
 
       <div className="mb-8 flex items-center gap-1.5 overflow-x-auto border-b border-line pb-3">
@@ -122,6 +130,8 @@ function SettingsContent() {
           );
         })}
       </div>
+
+      {activeTab === "equipe" && <WorkspaceTeamSection />}
 
       {activeTab === "perfil" && (
         <div>

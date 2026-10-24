@@ -15,7 +15,6 @@ import {
   Search,
   Sparkles,
   Sun,
-  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -40,7 +39,6 @@ const NAV = [
   { href: "/calendario", label: "Calendário", icon: CalendarDays },
   { href: "/datas-comemorativas", label: "Datas Comemorativas", icon: PartyPopper, match: "/datas-comemorativas" },
   { href: "/mensagens", label: "Mensagens", icon: MessageSquare, match: "/mensagens" },
-  { href: "/equipe", label: "Equipe", icon: Users },
   { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];

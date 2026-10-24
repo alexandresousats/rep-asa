@@ -77,7 +77,7 @@ export function AddProjectMemberDialog({
       ) : null}
       {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
       <p className="mt-5 text-sm text-faint">
-        <Link href="/equipe" className="text-ink hover:underline" onClick={onClose}>
+        <Link href="/configuracoes?tab=equipe" className="text-ink hover:underline" onClick={onClose}>
           Convidar para o espaço
         </Link>
       </p>

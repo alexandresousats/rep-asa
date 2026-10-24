@@ -55,7 +55,7 @@ export default function InsightsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-8">
+    <div className="w-full p-4 sm:p-6 sm:py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-medium tracking-tight text-ink">Insights</h1>
         <p className="mt-2 text-sm text-faint">
@@ -63,7 +63,7 @@ export default function InsightsPage() {
         </p>
       </div>
 
-      <div className="sticky top-0 z-10 -mx-6 mb-6 border-b border-line-subtle bg-base px-6 py-3">
+      <div className="sticky top-0 z-10 -mx-4 mb-6 border-b border-line-subtle bg-base px-4 py-3 sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center gap-2">
           {PERIODS.map((item) => (
             <button
