@@ -18,6 +18,9 @@ function devOrigins() {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: devOrigins(),
+  // pdf.js carrega o worker por um import relativo. Se o Next empacotar o
+  // pacote, esse arquivo some e a leitura do PDF quebra no servidor.
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
   async rewrites() {
     return [
       {

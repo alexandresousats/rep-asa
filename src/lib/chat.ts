@@ -676,7 +676,16 @@ export const useChat = create<ChatState>()(
       name: "asa-agent-sessions",
       partialize: (state) => ({
         folders: state.folders,
-        sessions: state.sessions,
+        sessions: state.sessions.map((session) => ({
+          ...session,
+          messages: session.messages.map((message) => {
+            if (!message.documents?.some((doc) => doc.pageImages?.length)) return message;
+            return {
+              ...message,
+              documents: message.documents.map(({ pageImages: _pageImages, ...doc }) => doc),
+            };
+          }),
+        })),
         activeSessionId: state.activeSessionId,
       }),
       onRehydrateStorage: () => (state) => {

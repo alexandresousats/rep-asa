@@ -227,7 +227,8 @@ function Bubble({
                     <p className="truncate text-sm font-medium">{doc.name}</p>
                     <p className="mt-0.5 text-[11px] text-faint">
                       {(doc.size / (1024 * 1024)).toFixed(1)} MB
-                      {doc.pageCount ? ` · ${doc.pageCount} páginas` : ""} · Analisado pela IA
+                      {doc.pageCount ? ` · ${doc.pageCount} páginas` : ""}
+                      {doc.pageImages?.length ? " · conteúdo visual" : ""} · Analisado pela IA
                     </p>
                   </div>
                 </div>

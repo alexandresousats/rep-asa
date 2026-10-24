@@ -583,6 +583,7 @@ app.post("/ai/chat", async (c) => {
                   type: z.string().optional(),
                   pageCount: z.number().optional(),
                   text: z.string(),
+                  pageImages: z.array(z.string().max(2_000_000)).max(40).optional(),
                 }),
               )
               .optional(),

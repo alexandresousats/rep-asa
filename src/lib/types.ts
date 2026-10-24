@@ -203,6 +203,8 @@ export interface ChatDocumentAttachment {
   type: string;
   pageCount?: number;
   text: string;
+  // Páginas renderizadas quando o PDF não tem texto selecionável (ex.: Illustrator).
+  pageImages?: string[];
 }
 
 export interface ChatMessage {

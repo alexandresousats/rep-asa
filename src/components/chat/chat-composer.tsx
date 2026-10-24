@@ -35,7 +35,7 @@ interface SpeechRecognitionInstance extends EventTarget {
 }
 
 export const DEFAULT_CHAT_PLACEHOLDERS = [
-  "Arraste e solte pastas no chat",
+  "Arraste PDFs e imagens para o chat",
   "Criar uma tarefa urgente para amanhã...",
   "Solicitar uma nova demanda de carrossel ou reels...",
   "Quais tarefas da equipe estão atrasadas?",
@@ -127,6 +127,9 @@ export function ChatComposer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const valueRef = useRef(value);
   useEffect(() => {
@@ -218,6 +221,7 @@ export function ChatComposer({
           type: data.type,
           pageCount: data.pageCount,
           text: data.text,
+          pageImages: Array.isArray(data.pageImages) ? data.pageImages : undefined,
         },
       ]);
     } catch (err: any) {
@@ -228,11 +232,59 @@ export function ChatComposer({
     }
   }
 
+  function isImageFile(file: File) {
+    return (
+      file.type.startsWith("image/") ||
+      /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif)$/i.test(file.name)
+    );
+  }
+
+  function isDocumentFile(file: File) {
+    if (file.type === "application/pdf" || file.type.startsWith("text/")) return true;
+    return /\.(pdf|txt|csv|md|json)$/i.test(file.name);
+  }
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!ready || parsingDoc) return;
+    dragDepthRef.current += 1;
+    if (e.dataTransfer.types.includes("Files")) {
+      setIsDragOver(true);
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!ready || parsingDoc) return;
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current -= 1;
+    if (dragDepthRef.current <= 0) {
+      dragDepthRef.current = 0;
+      setIsDragOver(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDragOver(false);
+    if (!ready || parsingDoc) return;
+    handleFileSelect(e.dataTransfer.files);
+  }
+
   function handleFileSelect(files: FileList | null) {
     if (!files || files.length === 0) return;
     const list = Array.from(files);
     list.forEach((file) => {
-      if (file.type.startsWith("image/")) {
+      if (isImageFile(file)) {
         const reader = new FileReader();
         reader.onload = (e) => {
           const result = e.target?.result as string;
@@ -251,8 +303,7 @@ export function ChatComposer({
           }
         };
         reader.readAsDataURL(file);
-      } else {
-        // PDF ou documentos de texto (até 25MB)
+      } else if (isDocumentFile(file)) {
         void uploadDocument(file);
       }
     });
@@ -548,8 +599,27 @@ export function ChatComposer({
           "bg-white dark:bg-[#201f1d] text-ink",
           "border border-[#e6e5e3] dark:border-[#30302e]",
           hero ? "p-4 pb-3" : "p-3 pb-2.5",
+          isDragOver && "border-[#1d6eed] ring-2 ring-[#1d6eed]/25",
         )}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+        {isDragOver && (
+          <div
+            className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-[28px] bg-[#1d6eed]/[0.06] dark:bg-[#1d6eed]/10"
+            aria-hidden
+          >
+            <div className="flex items-center gap-2 text-[#1d6eed]">
+              <FileText className="h-5 w-5 shrink-0" />
+              <ImageIcon className="h-5 w-5 shrink-0" />
+            </div>
+            <p className="text-sm font-medium text-ink">Solte PDFs ou imagens aqui</p>
+            <p className="text-[11px] text-muted">Até 25 MB por documento</p>
+          </div>
+        )}
+
         {/* Documentos / PDFs Anexados */}
         {documents.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-2 px-1 pt-0.5">
@@ -567,7 +637,8 @@ export function ChatComposer({
                   </span>
                   <span className="text-[10px] text-muted">
                     {(doc.size / (1024 * 1024)).toFixed(1)} MB
-                    {doc.pageCount ? ` · ${doc.pageCount} pág.` : ""} · Pronto para análise
+                    {doc.pageCount ? ` · ${doc.pageCount} pág.` : ""}
+                    {doc.pageImages?.length ? " · conteúdo visual" : ""} · Pronto para análise
                   </span>
                 </div>
                 <button
@@ -639,7 +710,7 @@ export function ChatComposer({
                 ? "Ouvindo... fale para transcrever"
                 : hydrated && !ready
                 ? "Conecte um agente nas configurações para conversar"
-                : placeholder || animatedPlaceholder || "Arraste e solte pastas no chat"
+                : placeholder || animatedPlaceholder || "Arraste PDFs e imagens para o chat"
             }
             aria-label="Mensagem para o agente"
             className={cn(

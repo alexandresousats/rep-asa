@@ -4,17 +4,21 @@ import {
   addProjectMember,
   addSubtask,
   createProject,
+  createTag,
   createTask,
   deleteProject,
+  deleteTag,
   deleteTask,
   listNotifications,
   listProjects,
+  listTags,
   listTasks,
   listTeam,
   listWorkspaces,
   markNotificationRead,
   removeMember,
   selectApiKeyWorkspace,
+  updateTag,
   updateTask,
 } from "./domain";
 import { ApiError } from "./errors";
@@ -87,6 +91,12 @@ export const tools = [
         priority: { type: "string", enum: ["baixa", "media", "alta", "urgente"] },
         status: { type: "string", enum: ["todo", "doing", "done"] },
         section: { type: "string" },
+        tagIds: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Substitui todas as tags da tarefa. Cada item pode ser o id ou o nome. Omita para não mexer nas tags.",
+        },
       },
       required: ["id"],
     },
@@ -173,6 +183,11 @@ export const tools = [
         dueDate: { type: "string" },
         section: { type: "string" },
         priority: { type: "string", enum: ["baixa", "media", "alta", "urgente"] },
+        tagIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Tags da tarefa. Cada item pode ser o id ou o nome de uma tag existente.",
+        },
       },
       required: ["projectId", "title"],
     },
@@ -226,6 +241,72 @@ export const tools = [
     admin: true,
   },
   {
+    name: "list_tags",
+    description:
+      "Lista as tags do espaço de trabalho, com id, nome e cor. Use antes de criar ou atribuir tags para não duplicar.",
+    inputSchema: { type: "object", properties: {} },
+    admin: false,
+  },
+  {
+    name: "create_tag",
+    description:
+      "Cria uma tag no espaço de trabalho. Se já existir uma com o mesmo nome, devolve a existente. Quem pode editar o espaço pode criar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Nome da tag." },
+        color: { type: "string", description: "Cor hexadecimal, como #6366f1. Opcional." },
+      },
+      required: ["name"],
+    },
+    admin: false,
+  },
+  {
+    name: "update_tag",
+    description: "Renomeia ou troca a cor de uma tag. Somente administrador.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Id ou nome da tag." },
+        name: { type: "string" },
+        color: { type: "string", description: "Cor hexadecimal, como #6366f1." },
+      },
+      required: ["id"],
+    },
+    admin: true,
+  },
+  {
+    name: "delete_tag",
+    description:
+      "Exclui uma tag do espaço e a remove de todas as tarefas. Somente administrador.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Id ou nome da tag." },
+      },
+      required: ["id"],
+    },
+    admin: true,
+  },
+  {
+    name: "set_task_tags",
+    description:
+      "Define as tags de uma tarefa, substituindo a lista atual. Passe ids ou nomes. Uma lista vazia remove todas. Para acrescentar sem apagar as atuais, inclua também as tags que já estão na tarefa.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string", description: "Id da tarefa." },
+        tagIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Lista completa de tags da tarefa. Cada item pode ser id ou nome.",
+        },
+      },
+      required: ["taskId", "tagIds"],
+    },
+    admin: false,
+  },
+  {
     name: "remove_team_member",
     description:
       "Remove uma pessoa do espaço de trabalho atual. Não apaga a conta. O dono do espaço não pode ser removido. Somente administrador.",
@@ -246,7 +327,7 @@ async function workspaceInstructions(actor: Actor) {
     const selected = current
       ? `O espaço selecionado é "${current.name}" (${current.id}).`
       : "Nenhum espaço está selecionado.";
-    return `${selected} Espaços desta conta: ${names || "nenhum"}. Use list_workspaces para vê-los e select_workspace para escolher outro. Projetos, tarefas e equipe são sempre do espaço selecionado. add_project_member coloca no projeto alguém que já está no espaço; o convite da equipe só entra no espaço e não inclui a pessoa no projeto. Para criar subtarefa, use create_subtask com o id da tarefa pai, o título e dueDate em AAAA-MM-DD.`;
+    return `${selected} Espaços desta conta: ${names || "nenhum"}. Use list_workspaces para vê-los e select_workspace para escolher outro. Projetos, tarefas e equipe são sempre do espaço selecionado. add_project_member coloca no projeto alguém que já está no espaço; o convite da equipe só entra no espaço e não inclui a pessoa no projeto. Para criar subtarefa, use create_subtask com o id da tarefa pai, o título e dueDate em AAAA-MM-DD. Tags do espaço: list_tags, create_tag, update_tag, delete_tag e set_task_tags. Em tagIds pode ir o id ou o nome.`;
   } catch {
     return "Use list_workspaces para ver os espaços de trabalho e select_workspace para escolher em qual trabalhar.";
   }
@@ -259,6 +340,53 @@ function text(value: unknown) {
 function arg(args: Record<string, unknown>, key: string) {
   const value = args[key];
   return typeof value === "string" ? value : "";
+}
+
+function stringList(args: Record<string, unknown>, key: string) {
+  const value = args[key];
+  if (value === undefined || value === null) return undefined;
+  const raw = Array.isArray(value) ? value : [value];
+  const items = raw
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!items.length && Array.isArray(value) && value.length === 0) return [];
+  if (!items.length) throw new ApiError(400, `Informe ${key} como lista de nomes ou ids.`);
+  return items;
+}
+
+function tagColor(value: unknown, fallback?: string) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "string" && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim())) {
+    return value.trim();
+  }
+  throw new ApiError(400, "A cor da tag precisa ser hexadecimal, como #6366f1.");
+}
+
+async function resolveTagIds(actor: Actor, values: string[]) {
+  if (!values.length) return [];
+  const tags = await listTags(actor);
+  const byId = new Map(tags.map((tag) => [tag.id, tag.id]));
+  const byName = new Map(tags.map((tag) => [tag.name.trim().toLowerCase(), tag.id]));
+  const resolved: string[] = [];
+  const missing: string[] = [];
+  for (const value of values) {
+    const id = byId.get(value) ?? byName.get(value.toLowerCase());
+    if (!id) missing.push(value);
+    else if (!resolved.includes(id)) resolved.push(id);
+  }
+  if (missing.length) {
+    throw new ApiError(
+      400,
+      `Tag não encontrada: ${missing.join(", ")}. Chame list_tags ou create_tag.`,
+    );
+  }
+  return resolved;
+}
+
+async function resolveTagId(actor: Actor, value: string) {
+  const [id] = await resolveTagIds(actor, [value]);
+  return id;
 }
 
 export async function callTool(actor: Actor, name: string, args: Record<string, unknown>) {
@@ -289,7 +417,8 @@ export async function callTool(actor: Actor, name: string, args: Record<string, 
       if (!task) throw new ApiError(404, "Tarefa não encontrada.");
       return task;
     }
-    case "update_task":
+    case "update_task": {
+      const tagIds = stringList(args, "tagIds");
       return updateTask(actor, arg(args, "id"), {
         title: typeof args.title === "string" ? args.title : undefined,
         description: typeof args.description === "string" ? args.description : undefined,
@@ -298,7 +427,9 @@ export async function callTool(actor: Actor, name: string, args: Record<string, 
         priority: typeof args.priority === "string" ? (args.priority as "baixa") : undefined,
         status: typeof args.status === "string" ? (args.status as "todo") : undefined,
         section: typeof args.section === "string" ? args.section : undefined,
+        tagIds: tagIds ? await resolveTagIds(actor, tagIds) : undefined,
       });
+    }
     case "set_task_status":
       return updateTask(actor, arg(args, "id"), {
         status: arg(args, "status") as "todo",
@@ -322,7 +453,8 @@ export async function callTool(actor: Actor, name: string, args: Record<string, 
         arg(args, "title"),
         typeof args.dueDate === "string" ? args.dueDate : null,
       );
-    case "create_task":
+    case "create_task": {
+      const tagIds = stringList(args, "tagIds");
       return createTask(actor, {
         projectId: arg(args, "projectId"),
         title: arg(args, "title"),
@@ -331,13 +463,44 @@ export async function callTool(actor: Actor, name: string, args: Record<string, 
         dueDate: typeof args.dueDate === "string" ? args.dueDate : null,
         section: typeof args.section === "string" ? args.section : undefined,
         priority: typeof args.priority === "string" ? (args.priority as "media") : undefined,
+        tagIds: tagIds ? await resolveTagIds(actor, tagIds) : undefined,
       });
+    }
     case "assign_task":
       return updateTask(actor, arg(args, "id"), { assigneeId: arg(args, "assigneeId") });
     case "add_project_member":
       return addProjectMember(actor, arg(args, "projectId"), arg(args, "userId"));
     case "list_team":
       return listTeam(actor);
+    case "list_tags":
+      return listTags(actor);
+    case "create_tag":
+      return createTag(actor, arg(args, "name"), tagColor(args.color, "#6366f1") ?? "#6366f1");
+    case "update_tag": {
+      const current = arg(args, "id");
+      if (!current) throw new ApiError(400, "Informe o id ou o nome da tag.");
+      const id = await resolveTagId(actor, current);
+      const patch: { name?: string; color?: string } = {};
+      if (typeof args.name === "string" && args.name.trim()) patch.name = args.name;
+      if (args.color !== undefined) patch.color = tagColor(args.color);
+      if (!patch.name && !patch.color) {
+        throw new ApiError(400, "Informe o novo nome ou a nova cor da tag.");
+      }
+      return updateTag(actor, id, patch);
+    }
+    case "delete_tag": {
+      const current = arg(args, "id");
+      if (!current) throw new ApiError(400, "Informe o id ou o nome da tag.");
+      await deleteTag(actor, await resolveTagId(actor, current));
+      return { ok: true };
+    }
+    case "set_task_tags": {
+      const tagIds = stringList(args, "tagIds");
+      if (!tagIds) throw new ApiError(400, "Informe tagIds, mesmo que seja uma lista vazia.");
+      return updateTask(actor, arg(args, "taskId") || arg(args, "id"), {
+        tagIds: await resolveTagIds(actor, tagIds),
+      });
+    }
     case "delete_project":
       await deleteProject(actor, arg(args, "id"));
       return { ok: true };

@@ -11,6 +11,7 @@ export type ChatDocumentTurn = {
   type?: string;
   pageCount?: number;
   text: string;
+  pageImages?: string[];
 };
 
 export type ChatTurn = {
@@ -61,6 +62,11 @@ const CHAT_TOOLS = new Set([
   "add_comment",
   "create_project",
   "add_project_member",
+  "list_tags",
+  "create_tag",
+  "update_tag",
+  "delete_tag",
+  "set_task_tags",
 ]);
 
 const MUTATING = new Set([
@@ -72,6 +78,10 @@ const MUTATING = new Set([
   "add_comment",
   "create_project",
   "add_project_member",
+  "create_tag",
+  "update_tag",
+  "delete_tag",
+  "set_task_tags",
 ]);
 
 const MAX_ROUNDS = 8;
@@ -110,12 +120,14 @@ function systemPrompt(actor: Actor) {
     "Você é o agente do ASA, um app de gestão de projetos e tarefas. Responda sempre em português do Brasil, de forma curta e direta.",
     `Hoje é ${weekday}, ${todayISO()} (formato AAAA-MM-DD). Converta datas relativas como "amanhã" ou "sexta" para AAAA-MM-DD.`,
     `Usuário: ${actor.name} (id ${actor.id}), acesso "${actor.access}", espaço de trabalho "${actor.workspaceName ?? "nenhum"}".`,
-    "Você cria e gerencia tarefas por meio das ferramentas. Nunca invente ids: chame list_projects, list_tasks ou list_team para descobrir projetos, tarefas e pessoas antes de usá-los.",
+    "Você cria e gerencia tarefas e tags por meio das ferramentas. Nunca invente ids: chame list_projects, list_tasks, list_tags ou list_team antes de usá-los. Em tags, o nome também serve no lugar do id.",
+    "Para atribuir tags a uma tarefa, use set_task_tags ou tagIds em create_task e update_task. set_task_tags substitui a lista inteira: para acrescentar, inclua as tags que já estavam.",
     "Quando o pedido for claro, execute direto. Se faltar algo essencial (por exemplo, em qual projeto criar), pergunte em uma frase. Se o usuário não indicar responsável, deixe o padrão.",
-    "Depois de executar, confirme em poucas linhas o que foi feito, citando título, projeto e prazo. Use listas curtas quando ajudar.",
+    "Depois de executar, confirme em poucas linhas o que foi feito, citando título, projeto, tags e prazo. Use listas curtas quando ajudar.",
     canWrite
-      ? "Você não pode excluir nada. Se pedirem para excluir, explique que isso deve ser feito pela interface."
+      ? "Você pode criar, renomear, recolorir, excluir e atribuir tags. Não exclua projetos, tarefas nem pessoas: isso fica na interface."
       : "O usuário só tem permissão de leitura ou acesso limitado. Se uma ferramenta recusar a ação, explique o motivo.",
+    "PDFs exportados como imagem (Illustrator, slides) chegam com as páginas anexadas como imagens, na ordem. Leia esse conteúdo visual — títulos, datas, tags e tarefas — e não diga que o arquivo está vazio só porque não há texto selecionável.",
   ].join("\n");
 }
 
@@ -265,6 +277,7 @@ function shapeResult(value: unknown): unknown {
         priority: item.priority,
         status: item.status,
         section: item.section,
+        tagIds: Array.isArray(item.tagIds) ? item.tagIds : [],
       };
     }
   }
@@ -291,9 +304,11 @@ export async function runAgent(
       if (turn.role === "user") {
         let textContent = turn.content;
 
+        const pageImages: string[] = [];
         if (turn.documents && turn.documents.length > 0) {
           const docSections = turn.documents
             .map((doc) => {
+              if (doc.pageImages?.length) pageImages.push(...doc.pageImages);
               const sizeMb = (doc.size / (1024 * 1024)).toFixed(1);
               const meta = [
                 `Arquivo: "${doc.name}"`,
@@ -303,7 +318,11 @@ export async function runAgent(
                 .filter(Boolean)
                 .join(" · ");
 
-              return `[DOCUMENTO ANEXADO PELO USUÁRIO PARA ANÁLISE: ${meta}]\n--- Início do Conteúdo do Documento ---\n${doc.text}\n--- Fim do Conteúdo do Documento ---`;
+              const visual = doc.pageImages?.length
+                ? `Este PDF não tem texto selecionável. Leia as ${doc.pageImages.length} imagens de página que acompanham esta mensagem, na ordem.`
+                : null;
+
+              return `[DOCUMENTO ANEXADO PELO USUÁRIO PARA ANÁLISE: ${meta}]${visual ? `\n${visual}` : ""}\n--- Início do Conteúdo do Documento ---\n${doc.text}\n--- Fim do Conteúdo do Documento ---`;
             })
             .join("\n\n");
 
@@ -312,7 +331,16 @@ export async function runAgent(
             : `${docSections}\n\nPor favor, analise o(s) documento(s) anexado(s) acima e responda em detalhes de acordo com a solicitação.`;
         }
 
-        if (turn.images && turn.images.length > 0) {
+        const photos = turn.images ?? [];
+        const images = [...photos, ...pageImages];
+        if (pageImages.length > 0) {
+          const order = photos.length
+            ? `As primeiras ${photos.length} imagens são fotos anexadas. As ${pageImages.length} seguintes são as páginas do PDF, na ordem.`
+            : `As ${images.length} imagens desta mensagem são as páginas do PDF, na ordem.`;
+          textContent = `${textContent}\n\n${order}`;
+        }
+
+        if (images.length > 0) {
           return {
             role: "user" as const,
             content: [
@@ -320,7 +348,7 @@ export async function runAgent(
                 type: "text" as const,
                 text: textContent || "Analise a imagem anexada.",
               },
-              ...turn.images.map((url) => ({
+              ...images.map((url) => ({
                 type: "image_url" as const,
                 image_url: { url },
               })),
