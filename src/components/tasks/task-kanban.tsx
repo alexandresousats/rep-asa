@@ -31,7 +31,6 @@ export function TaskKanban({
   tasks,
   users,
   tags,
-  selectedId,
   onSelect,
   onCreate,
   draggable = true,
@@ -41,7 +40,6 @@ export function TaskKanban({
   tasks: Task[];
   users: User[];
   tags: Tag[];
-  selectedId?: string | null;
   onSelect: (id: string) => void;
   onCreate: (section: string) => void;
   draggable?: boolean;
@@ -416,7 +414,6 @@ export function TaskKanban({
                     className={cn(
                       "cursor-pointer rounded-2xl bg-base px-3.5 py-3.5",
                       draggable && "cursor-grab active:cursor-grabbing",
-                      selectedId === task.id && "ring-1 ring-ink",
                       task.status === "done" && dragId !== task.id && "opacity-50",
                       dragId === task.id && "opacity-40",
                       showMarker && "ring-1 ring-line",

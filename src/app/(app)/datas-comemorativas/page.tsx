@@ -1,7 +1,7 @@
 "use client";
 
-import { Moon, Search, X } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { ChevronDown, Moon, Search, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { KindBadge } from "@/components/opendata/kind-badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
@@ -13,6 +13,7 @@ import {
   MONTH_NAMES,
   MONTH_SHORT,
   relativeLabel,
+  openDataYearOptions,
   useOpenDataMonth,
   useOpenDataMonths,
   type DateKind,
@@ -38,11 +39,18 @@ function normalize(value: string) {
 export default function DatasComemorativasPage() {
   const today = useMemo(() => new Date(), []);
   const [month, setMonth] = useState(today.getMonth() + 1);
+  const [year, setYear] = useState(() => today.getFullYear());
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
 
   const months = useOpenDataMonths();
+  const dataYear = months.data?.ano ?? today.getFullYear();
+  const yearHasData = year === dataYear;
   const detail = useOpenDataMonth(month);
+
+  useEffect(() => {
+    if (months.data?.ano != null) setYear(months.data.ano);
+  }, [months.data?.ano]);
 
   const insights = useMemo(
     () => (detail.data ? buildMonthInsights(detail.data, today) : null),
@@ -95,54 +103,18 @@ export default function DatasComemorativasPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-      <header className="mb-8">
-        <h1 className="text-2xl font-medium tracking-tight text-ink sm:text-3xl">
-          Datas comemorativas
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="flex min-w-0 flex-wrap items-center gap-x-2 text-2xl font-medium tracking-tight text-ink sm:text-3xl">
+          <span>Datas comemorativas ·</span>
+          <YearSelect year={year} dataYear={dataYear} onChange={setYear} />
         </h1>
-        <p className="mt-1 text-sm text-faint">
-          Feriados, campanhas e datas do calendário brasileiro de{" "}
-          {months.data?.ano ?? today.getFullYear()} · fonte: OpenData BR
-        </p>
+        <MonthSelect
+          month={month}
+          monthCounts={monthCounts}
+          onChange={setMonth}
+          disabled={!yearHasData}
+        />
       </header>
-
-      <nav
-        aria-label="Selecionar mês"
-        className="-mx-1 mb-6 overflow-x-auto px-1 pb-2"
-      >
-        <div className="flex min-w-max items-center gap-1.5">
-          {MONTH_NAMES.map((name, index) => {
-            const number = index + 1;
-            const selected = month === number;
-            const count = monthCounts.get(number);
-            return (
-              <button
-                key={name}
-                type="button"
-                onClick={() => setMonth(number)}
-                aria-pressed={selected}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-medium transition",
-                  selected
-                    ? "bg-ink text-base shadow-xs"
-                    : "border border-line bg-elevated text-muted hover:bg-hover hover:text-ink",
-                )}
-              >
-                <span>{name}</span>
-                {count !== undefined ? (
-                  <span
-                    className={cn(
-                      "text-[10px]",
-                      selected ? "opacity-70" : "text-faint",
-                    )}
-                  >
-                    {count}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
 
       {apiDown ? (
         <Card className="border-none py-14 text-center">
@@ -174,15 +146,20 @@ export default function DatasComemorativasPage() {
             <div className="mb-4 flex items-center justify-between gap-3">
               <p className="text-sm text-faint">
                 Insights de {MONTH_NAMES[month - 1].toLowerCase()}
+                {yearHasData ? null : ` · ${year}`}
               </p>
-              {detail.data?.informacoes.estacao ? (
+              {yearHasData && detail.data?.informacoes.estacao ? (
                 <span className="text-xs text-faint">
                   {detail.data.informacoes.estacao}
                 </span>
               ) : null}
             </div>
 
-            {insights ? (
+            {!yearHasData ? (
+              <p className="text-sm text-faint">
+                Calendário de {year} em preparação.
+              </p>
+            ) : insights ? (
               <>
                 <p className="max-w-3xl text-sm leading-relaxed text-ink">
                   {insights.summary}
@@ -291,7 +268,13 @@ export default function DatasComemorativasPage() {
             )}
           </Card>
 
+          <p className="mb-6 text-center text-sm text-faint">
+            Feriados, campanhas e datas do calendário brasileiro de {year} · fonte:
+            OpenData BR
+          </p>
+
           {/* Filtros */}
+          {yearHasData ? (
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="relative w-full max-w-sm">
               <Search className="pointer-events-none absolute left-3.5 top-2.5 h-4 w-4 text-faint" />
@@ -339,9 +322,12 @@ export default function DatasComemorativasPage() {
               ))}
             </div>
           </div>
+          ) : null}
 
           {/* Lista */}
-          {detail.loading ? (
+          {!yearHasData ? (
+            <ComingSoonDates year={year} dataYear={dataYear} />
+          ) : detail.loading ? (
             <Card className="border-none py-14 text-center text-sm text-faint">
               Carregando datas…
             </Card>
@@ -461,6 +447,201 @@ function Stat({
       <p className="text-xs text-faint">{label}</p>
       <p className="mt-1 text-sm text-ink">{value}</p>
       {hint ? <p className="mt-0.5 truncate text-xs text-faint">{hint}</p> : null}
+    </div>
+  );
+}
+
+function ComingSoonDates({ year, dataYear }: { year: number; dataYear: number }) {
+  return (
+    <Card className="border-none py-14 text-center">
+      <p className="text-base font-medium text-ink">Em breve</p>
+      <p className="mx-auto mt-1 max-w-md text-xs text-faint">
+        As datas de {year} ainda não estão disponíveis. Por enquanto, consulte o
+        calendário de {dataYear}.
+      </p>
+    </Card>
+  );
+}
+
+function YearSelect({
+  year,
+  dataYear,
+  onChange,
+}: {
+  year: number;
+  dataYear: number;
+  onChange: (year: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const options = useMemo(() => openDataYearOptions(dataYear), [dataYear]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label="Selecionar ano"
+        className="inline-flex items-center gap-1 rounded-lg px-0.5 py-0.5 font-medium text-ink transition hover:bg-hover"
+      >
+        <span>{year}</span>
+        <ChevronDown
+          className={cn("h-5 w-5 text-faint transition sm:h-6 sm:w-6", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label="Anos"
+          className="absolute left-0 top-full z-30 mt-2 min-w-40 overflow-hidden rounded-2xl border border-line bg-elevated p-1 shadow-lg"
+        >
+          {options.map((option) => {
+            const selected = year === option;
+            const available = option === dataYear;
+            return (
+              <li key={option} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm transition",
+                    selected ? "bg-ink text-base" : "text-ink hover:bg-hover",
+                  )}
+                >
+                  <span>{option}</span>
+                  {!available ? (
+                    <span
+                      className={cn(
+                        "text-xs",
+                        selected ? "opacity-70" : "text-faint",
+                      )}
+                    >
+                      Em breve
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function MonthSelect({
+  month,
+  monthCounts,
+  onChange,
+  disabled = false,
+}: {
+  month: number;
+  monthCounts: Map<number, number>;
+  onChange: (month: number) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  const selectedName = MONTH_NAMES[month - 1];
+  const count = monthCounts.get(month);
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((value) => !value);
+        }}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label="Selecionar mês"
+        className={cn(
+          "inline-flex items-center gap-2 rounded-xl border border-line bg-elevated px-3.5 py-2 text-sm font-medium text-ink transition hover:bg-hover",
+          disabled && "cursor-not-allowed opacity-50 hover:bg-elevated",
+        )}
+      >
+        <span>{selectedName}</span>
+        {count !== undefined ? (
+          <span className="text-xs text-faint">{count}</span>
+        ) : null}
+        <ChevronDown
+          className={cn("h-4 w-4 text-faint transition", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label="Meses do ano"
+          className="absolute right-0 z-30 mt-2 max-h-80 w-56 overflow-y-auto rounded-2xl border border-line bg-elevated p-1 shadow-lg"
+        >
+          {MONTH_NAMES.map((name, index) => {
+            const number = index + 1;
+            const selected = month === number;
+            const itemCount = monthCounts.get(number);
+            return (
+              <li key={name} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange(number);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition",
+                    selected ? "bg-ink text-base" : "text-ink hover:bg-hover",
+                  )}
+                >
+                  <span>{name}</span>
+                  {itemCount !== undefined ? (
+                    <span
+                      className={cn(
+                        "text-xs",
+                        selected ? "opacity-70" : "text-faint",
+                      )}
+                    >
+                      {itemCount}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }

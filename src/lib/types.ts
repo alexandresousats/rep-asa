@@ -230,6 +230,8 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+  /** Preenchido quando a conversa está na lixeira. A exclusão permanente ocorre 30 dias depois. */
+  deletedAt?: string | null;
 }
 
 export interface AssistantReply {

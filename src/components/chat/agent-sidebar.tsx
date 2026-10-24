@@ -8,14 +8,28 @@ import {
   FolderPlus,
   MoreVertical,
   Pencil,
+  RotateCcw,
   SquarePen,
   Trash2,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
-import { useChat } from "@/lib/chat";
+import { TRASH_RETENTION_DAYS, trashRetentionLabel, useChat } from "@/lib/chat";
 import type { ChatFolder, ChatSession } from "@/lib/types";
+
+const FOLDER_COLORS = [
+  "#6366f1",
+  "#a78bfa",
+  "#34d399",
+  "#60a5fa",
+  "#f97316",
+  "#f472b6",
+  "#facc15",
+  "#f87171",
+];
+
+const DEFAULT_FOLDER_COLOR = FOLDER_COLORS[0];
 
 export function AgentSidebar({
   open = true,
@@ -32,8 +46,13 @@ export function AgentSidebar({
   const renameSession = useChat((state) => state.renameSession);
   const moveSessionToFolder = useChat((state) => state.moveSessionToFolder);
   const deleteSession = useChat((state) => state.deleteSession);
+  const restoreSession = useChat((state) => state.restoreSession);
+  const purgeSession = useChat((state) => state.purgeSession);
+  const emptyTrash = useChat((state) => state.emptyTrash);
+  const purgeExpiredTrash = useChat((state) => state.purgeExpiredTrash);
   const createFolder = useChat((state) => state.createFolder);
   const renameFolder = useChat((state) => state.renameFolder);
+  const setFolderColor = useChat((state) => state.setFolderColor);
   const deleteFolder = useChat((state) => state.deleteFolder);
 
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -42,12 +61,16 @@ export function AgentSidebar({
 
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderColor, setNewFolderColor] = useState(DEFAULT_FOLDER_COLOR);
 
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
+  const [editingFolderColor, setEditingFolderColor] = useState(DEFAULT_FOLDER_COLOR);
 
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null);
   const [foldersExpanded, setFoldersExpanded] = useState(true);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashNotice, setTrashNotice] = useState<{ id: string; title: string } | null>(null);
 
   // Estados de arrastar e soltar (Drag and Drop)
   const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
@@ -56,8 +79,9 @@ export function AgentSidebar({
   function handleCreateFolder(e: React.FormEvent) {
     e.preventDefault();
     if (!newFolderName.trim()) return;
-    createFolder(newFolderName.trim());
+    createFolder(newFolderName.trim(), newFolderColor);
     setNewFolderName("");
+    setNewFolderColor(DEFAULT_FOLDER_COLOR);
     setIsCreatingFolder(false);
   }
 
@@ -72,13 +96,74 @@ export function AgentSidebar({
     if (editingFolderName.trim()) {
       renameFolder(id, editingFolderName.trim());
     }
+    setFolderColor(id, editingFolderColor);
     setEditingFolderId(null);
   }
 
+  function beginEditFolder(folder: ChatFolder) {
+    setEditingFolderId(folder.id);
+    setEditingFolderName(folder.name);
+    setEditingFolderColor(folder.color || DEFAULT_FOLDER_COLOR);
+  }
+
+  const liveSessions = sessions.filter((session) => !session.deletedAt);
+  const trashedSessions = sessions
+    .filter((session): session is ChatSession & { deletedAt: string } => Boolean(session.deletedAt))
+    .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+
+  function moveToTrash(id: string) {
+    const session = sessions.find((item) => item.id === id);
+    deleteSession(id);
+    setMenuSessionId(null);
+    if (!session || session.deletedAt) return;
+    setTrashNotice({ id, title: session.title });
+  }
+
+  function handleRestore(id: string) {
+    restoreSession(id);
+    setTrashNotice((current) => (current?.id === id ? null : current));
+    setShowTrash(false);
+    onClose?.();
+  }
+
+  function handlePurge(session: ChatSession) {
+    if (
+      confirm(`Apagar permanentemente "${session.title}"? Essa ação não pode ser desfeita.`)
+    ) {
+      purgeSession(session.id);
+      setTrashNotice((current) => (current?.id === session.id ? null : current));
+    }
+  }
+
+  function handleEmptyTrash() {
+    if (trashedSessions.length === 0) return;
+    if (
+      confirm(
+        "Apagar permanentemente todas as conversas da lixeira? Essa ação não pode ser desfeita.",
+      )
+    ) {
+      emptyTrash();
+      setTrashNotice(null);
+    }
+  }
+
+  useEffect(() => {
+    if (useChat.persist.hasHydrated()) purgeExpiredTrash();
+    return useChat.persist.onFinishHydration(() => {
+      useChat.getState().purgeExpiredTrash();
+    });
+  }, [purgeExpiredTrash]);
+
+  useEffect(() => {
+    if (!trashNotice) return;
+    const timer = window.setTimeout(() => setTrashNotice(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [trashNotice]);
+
   // Filtra as conversas caso uma pasta específica esteja selecionada
   const filteredSessions = selectedFolderId
-    ? sessions.filter((s) => s.folderId === selectedFolderId)
-    : sessions;
+    ? liveSessions.filter((s) => s.folderId === selectedFolderId)
+    : liveSessions;
 
   // Agrupamento temporal
   const now = new Date();
@@ -122,6 +207,7 @@ export function AgentSidebar({
           onClick={() => {
             const id = createSession(selectedFolderId);
             selectSession(id);
+            setShowTrash(false);
             onClose?.();
           }}
           className="flex h-9 flex-1 items-center gap-2.5 rounded-xl bg-hover/80 px-3 text-[14px] font-medium text-ink hover:bg-hover transition-colors shadow-2xs"
@@ -143,24 +229,42 @@ export function AgentSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
+        {showTrash ? (
+          <TrashPanel
+            sessions={trashedSessions}
+            folders={folders}
+            activeSessionId={activeSessionId}
+            onOpen={(id) => {
+              selectSession(id);
+              onClose?.();
+            }}
+            onRestore={handleRestore}
+            onPurge={handlePurge}
+            onEmpty={handleEmptyTrash}
+          />
+        ) : (
+        <>
         {/* Seção de Pastas */}
         <div>
           <div className="mb-1 flex items-center justify-between px-2 text-[11px] font-medium uppercase tracking-wider text-faint">
             <button
               type="button"
               onClick={() => setFoldersExpanded((prev) => !prev)}
-              className="flex items-center gap-1 hover:text-ink transition-colors"
+              className="flex items-center gap-1 uppercase hover:text-ink transition-colors"
             >
               {foldersExpanded ? (
                 <ChevronDown className="h-3.5 w-3.5" />
               ) : (
                 <ChevronRight className="h-3.5 w-3.5" />
               )}
-              <span>Pastas ({folders.length})</span>
+              <span>PASTAS ({folders.length})</span>
             </button>
             <button
               type="button"
-              onClick={() => setIsCreatingFolder(true)}
+              onClick={() => {
+                setNewFolderColor(DEFAULT_FOLDER_COLOR);
+                setIsCreatingFolder(true);
+              }}
               title="Criar nova pasta"
               className="rounded-md p-1 hover:bg-hover hover:text-ink"
             >
@@ -215,7 +319,7 @@ export function AgentSidebar({
                     )}
                     <span>Todas as conversas</span>
                   </div>
-                  <span className="text-[10px] text-faint">{sessions.length}</span>
+                  <span className="text-[10px] text-faint">{liveSessions.length}</span>
                 </button>
               </div>
 
@@ -244,35 +348,45 @@ export function AgentSidebar({
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                  <FolderColorSwatches
+                    value={newFolderColor}
+                    onChange={setNewFolderColor}
+                  />
                 </form>
               )}
 
               {/* Lista de Pastas Criadas (Drop targets) */}
               {folders.map((folder) => {
-                const count = sessions.filter((s) => s.folderId === folder.id).length;
+                const count = liveSessions.filter((s) => s.folderId === folder.id).length;
                 const active = selectedFolderId === folder.id;
                 const isDropTarget = dragOverFolderId === folder.id;
 
                 if (editingFolderId === folder.id) {
                   return (
-                    <div key={folder.id} className="flex items-center gap-1 px-2 py-1">
-                      <input
-                        autoFocus
-                        value={editingFolderName}
-                        onChange={(e) => setEditingFolderName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSaveRenameFolder(folder.id);
-                          if (e.key === "Escape") setEditingFolderId(null);
-                        }}
-                        className="h-7 w-full rounded-lg bg-base px-2 text-xs text-ink outline-none ring-1 ring-ink/10 focus:ring-ink/30"
+                    <div key={folder.id} className="px-2 py-1">
+                      <div className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={editingFolderName}
+                          onChange={(e) => setEditingFolderName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveRenameFolder(folder.id);
+                            if (e.key === "Escape") setEditingFolderId(null);
+                          }}
+                          className="h-7 w-full rounded-lg bg-base px-2 text-xs text-ink outline-none ring-1 ring-ink/10 focus:ring-ink/30"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRenameFolder(folder.id)}
+                          className="rounded-lg bg-ink px-2 py-1 text-[11px] text-base"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                      <FolderColorSwatches
+                        value={editingFolderColor}
+                        onChange={setEditingFolderColor}
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleSaveRenameFolder(folder.id)}
-                        className="rounded-lg bg-ink px-2 py-1 text-[11px] text-base"
-                      >
-                        Salvar
-                      </button>
                     </div>
                   );
                 }
@@ -331,11 +445,8 @@ export function AgentSidebar({
                       <span className="text-[10px] text-faint group-hover:hidden">{count}</span>
                       <button
                         type="button"
-                        onClick={() => {
-                          setEditingFolderId(folder.id);
-                          setEditingFolderName(folder.name);
-                        }}
-                        title="Renomear pasta"
+                        onClick={() => beginEditFolder(folder)}
+                        title="Editar pasta"
                         className="hidden rounded p-0.5 text-faint hover:text-ink group-hover:block"
                       >
                         <Pencil className="h-3 w-3" />
@@ -458,7 +569,7 @@ export function AgentSidebar({
                           {menuSessionId === session.id && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="absolute top-full right-0 z-50 mt-1 w-44 rounded-xl bg-elevated p-1 text-xs shadow-xl border border-line animate-in fade-in"
+                              className="absolute top-full right-0 z-50 mt-1 w-52 rounded-xl bg-elevated p-1 text-xs shadow-xl border border-line animate-in fade-in"
                             >
                               <div className="px-2 py-1 text-[10px] uppercase font-semibold text-faint">
                                 Mover para pasta
@@ -489,7 +600,10 @@ export function AgentSidebar({
                                     session.folderId === f.id && "font-medium text-ink",
                                   )}
                                 >
-                                  <FolderIcon className="h-3 w-3" />
+                                  <FolderIcon
+                                    className="h-3 w-3 shrink-0"
+                                    style={{ color: f.color || DEFAULT_FOLDER_COLOR }}
+                                  />
                                   <span className="truncate">{f.name}</span>
                                 </button>
                               ))}
@@ -510,14 +624,16 @@ export function AgentSidebar({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  deleteSession(session.id);
-                                  setMenuSessionId(null);
-                                }}
+                                onClick={() => moveToTrash(session.id)}
                                 className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs text-red-400 hover:bg-hover"
                               >
-                                <Trash2 className="h-3 w-3" />
-                                <span>Excluir</span>
+                                <Trash2 className="h-3 w-3 shrink-0" />
+                                <span className="min-w-0">
+                                  <span className="block">Mover para a lixeira</span>
+                                  <span className="block text-[10px] font-normal text-faint">
+                                    Apagada em {TRASH_RETENTION_DAYS} dias
+                                  </span>
+                                </span>
                               </button>
                             </div>
                           )}
@@ -536,8 +652,8 @@ export function AgentSidebar({
                         </button>
                         <button
                           type="button"
-                          onClick={() => deleteSession(session.id)}
-                          title="Excluir conversa"
+                          onClick={() => moveToTrash(session.id)}
+                          title={`Mover para a lixeira. Apagada em ${TRASH_RETENTION_DAYS} dias`}
                           className="rounded-md p-1 text-faint hover:bg-elevated hover:text-red-400"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -556,7 +672,162 @@ export function AgentSidebar({
             </div>
           )}
         </div>
+        </>
+        )}
+      </div>
+
+      {trashNotice && (
+        <div className="mx-2 mb-1 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[12px] leading-4 text-amber-500">
+          <p>
+            <span className="font-medium text-ink">“{trashNotice.title}”</span> foi para a lixeira
+            e será apagada permanentemente em {TRASH_RETENTION_DAYS} dias.
+          </p>
+          <button
+            type="button"
+            onClick={() => handleRestore(trashNotice.id)}
+            className="mt-1.5 font-medium text-ink hover:underline"
+          >
+            Desfazer
+          </button>
+        </div>
+      )}
+
+      <div className="shrink-0 border-t border-line/70 px-2 py-2">
+        <button
+          type="button"
+          onClick={() => setShowTrash((open) => !open)}
+          aria-pressed={showTrash}
+          className={cn(
+            "flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-[14px] transition-colors",
+            showTrash
+              ? "bg-active font-medium text-ink"
+              : "text-muted hover:bg-hover hover:text-ink",
+          )}
+        >
+          <Trash2 className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+          <span>Lixeira</span>
+          {trashedSessions.length > 0 && (
+            <span className="ml-auto text-[10px] text-faint">{trashedSessions.length}</span>
+          )}
+        </button>
       </div>
     </aside>
+  );
+}
+
+function TrashPanel({
+  sessions,
+  folders,
+  activeSessionId,
+  onOpen,
+  onRestore,
+  onPurge,
+  onEmpty,
+}: {
+  sessions: Array<ChatSession & { deletedAt: string }>;
+  folders: ChatFolder[];
+  activeSessionId: string | null;
+  onOpen: (id: string) => void;
+  onRestore: (id: string) => void;
+  onPurge: (session: ChatSession) => void;
+  onEmpty: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-[12px] leading-4 text-amber-500">
+        <p>
+          As conversas ficam na lixeira por {TRASH_RETENTION_DAYS} dias. Depois disso, são
+          apagadas permanentemente.
+        </p>
+        {sessions.length > 0 && (
+          <button
+            type="button"
+            onClick={onEmpty}
+            className="mt-2 font-medium text-red-400 hover:underline"
+          >
+            Esvaziar lixeira
+          </button>
+        )}
+      </div>
+
+      {sessions.length === 0 ? (
+        <p className="px-2 py-8 text-center text-xs text-faint">Nenhuma conversa na lixeira.</p>
+      ) : (
+        <div className="space-y-0.5">
+          {sessions.map((session) => {
+            const folder = folders.find((item) => item.id === session.folderId);
+            const active = session.id === activeSessionId;
+            return (
+              <div
+                key={session.id}
+                className={cn(
+                  "rounded-xl px-2.5 py-2",
+                  active ? "bg-active text-ink" : "text-muted hover:bg-hover hover:text-ink",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpen(session.id)}
+                  className="block w-full min-w-0 text-left"
+                >
+                  <span className="block truncate text-[14px] leading-5">{session.title}</span>
+                  <span className="mt-0.5 block truncate text-[11px] text-amber-500/90">
+                    {trashRetentionLabel(session.deletedAt)}
+                    {folder ? ` · ${folder.name}` : ""}
+                  </span>
+                </button>
+                <div className="mt-1.5 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onRestore(session.id)}
+                    className="inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-muted hover:bg-elevated hover:text-ink"
+                  >
+                    <RotateCcw className="h-3 w-3" strokeWidth={1.5} />
+                    Restaurar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPurge(session)}
+                    className="inline-flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-faint hover:bg-elevated hover:text-red-400"
+                  >
+                    <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+                    Apagar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderColorSwatches({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+}) {
+  const colors = FOLDER_COLORS.includes(value) ? FOLDER_COLORS : [value, ...FOLDER_COLORS];
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Cor da pasta">
+      {colors.map((color) => (
+        <button
+          key={color}
+          type="button"
+          aria-label="Selecionar cor"
+          aria-pressed={value === color}
+          onClick={() => onChange(color)}
+          className="h-5 w-5 rounded-full border border-line"
+          style={{
+            backgroundColor: color,
+            outline: value === color ? "2px solid var(--text-primary)" : undefined,
+            outlineOffset: 1,
+          }}
+        />
+      ))}
+    </div>
   );
 }

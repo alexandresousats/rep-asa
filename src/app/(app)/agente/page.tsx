@@ -14,7 +14,7 @@ import { useState } from "react";
 import { AgentSidebar } from "@/components/chat/agent-sidebar";
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { ChatThread } from "@/components/chat/chat-thread";
-import { useChat } from "@/lib/chat";
+import { trashRetentionLabel, useChat } from "@/lib/chat";
 import { agentReady, usePrefs } from "@/lib/prefs";
 import { useWorkspace } from "@/lib/workspace";
 
@@ -34,7 +34,8 @@ export default function AgentPage() {
   const activeSessionId = useChat((state) => state.activeSessionId);
   const folders = useChat((state) => state.folders);
   const createSession = useChat((state) => state.createSession);
-  const deleteSession = useChat((state) => state.deleteSession);
+  const restoreSession = useChat((state) => state.restoreSession);
+  const purgeSession = useChat((state) => state.purgeSession);
   const renameSession = useChat((state) => state.renameSession);
   const clearSessionMessages = useChat((state) => state.clearSessionMessages);
   const send = useChat((state) => state.send);
@@ -46,7 +47,10 @@ export default function AgentPage() {
   const [titleValue, setTitleValue] = useState("");
 
   const activeSession =
-    sessions.find((s) => s.id === activeSessionId) || sessions[0];
+    sessions.find((s) => s.id === activeSessionId) ||
+    sessions.find((s) => !s.deletedAt) ||
+    sessions[0];
+  const inTrash = Boolean(activeSession?.deletedAt);
   const activeFolder = folders.find((f) => f.id === activeSession?.folderId);
   const messages = activeSession?.messages || [];
   const firstName = user?.name.split(" ")[0] ?? "equipe";
@@ -159,7 +163,7 @@ export default function AgentPage() {
               <span>Novo chat</span>
             </button>
 
-            {messages.length > 0 && (
+            {messages.length > 0 && !inTrash && (
               <button
                 type="button"
                 onClick={() => {
@@ -184,9 +188,45 @@ export default function AgentPage() {
           </div>
         </header>
 
+        {inTrash && activeSession?.deletedAt && (
+          <div className="mx-4 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-500 sm:mx-6">
+            <p>
+              Esta conversa está na lixeira. {trashRetentionLabel(activeSession.deletedAt)}.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => restoreSession(activeSession.id)}
+                className="rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-base"
+              >
+                Restaurar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    confirm(
+                      `Apagar permanentemente "${activeSession.title}"? Essa ação não pode ser desfeita.`,
+                    )
+                  ) {
+                    purgeSession(activeSession.id);
+                  }
+                }}
+                className="rounded-full px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-hover"
+              >
+                Apagar agora
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Conteúdo Central */}
         <div data-chat-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-          {messages.length === 0 ? (
+          {inTrash && messages.length === 0 ? (
+            <div className="mx-auto flex h-full max-w-2xl items-center justify-center text-center text-sm text-muted">
+              Esta conversa está vazia e na lixeira.
+            </div>
+          ) : messages.length === 0 ? (
             <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center">
               <h1 className="text-xl sm:text-[22px] font-semibold tracking-tight text-ink text-center mb-6">
                 O que devemos explorar?
@@ -232,7 +272,7 @@ export default function AgentPage() {
         </div>
 
         {/* Rodapé com Composer (exibido apenas quando já existem mensagens na conversa) */}
-        {messages.length > 0 && (
+        {messages.length > 0 && !inTrash && (
           <div className="shrink-0 bg-base/80 p-4 backdrop-blur-xs">
             <ChatComposer
               autoFocus

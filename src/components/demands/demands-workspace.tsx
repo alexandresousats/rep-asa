@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, Clock } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { DemandsList } from "@/components/demands/demand-list";
+import { DemandsProjectFilter } from "@/components/demands/demands-project-filter";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
@@ -180,18 +181,11 @@ export function DemandsWorkspace({
           })}
         </div>
         {!lockedProjectId && projects.length > 1 ? (
-          <select
+          <DemandsProjectFilter
             value={projectFilter}
-            onChange={(e) => changeProject(e.target.value)}
-            className="h-9 cursor-pointer rounded-full border border-line bg-elevated px-3.5 text-sm text-ink outline-none transition-colors hover:bg-hover"
-          >
-            <option value="all">Todos os projetos</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            projects={projects}
+            onChange={changeProject}
+          />
         ) : null}
       </div>
 

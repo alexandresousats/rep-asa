@@ -207,6 +207,16 @@ export function useOpenDataMonths() {
   return useResource<MonthsResponse>("/meses");
 }
 
+/** Anos exibidos no seletor; só `dataYear` da API tem dados por enquanto. */
+export function openDataYearOptions(dataYear: number) {
+  const years = new Set<number>([dataYear]);
+  const current = new Date().getFullYear();
+  for (let y = current - 1; y <= current + 2; y += 1) {
+    years.add(y);
+  }
+  return [...years].sort((a, b) => b - a);
+}
+
 // --- Datas e insights -------------------------------------------------------
 
 export function daysUntil(isoDate: string, today: Date = new Date()) {

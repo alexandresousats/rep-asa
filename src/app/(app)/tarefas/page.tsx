@@ -153,6 +153,11 @@ export default function MyTasksPage() {
                       const parent = task.parentId
                         ? tasks.find((item) => item.id === task.parentId)
                         : null;
+                      const project = projects.find((item) => item.id === task.projectId);
+                      const metaExtras: string[] = [];
+                      if (parent) metaExtras.push(`Subtarefa de ${parent.title}`);
+                      if (task.status === "doing") metaExtras.push("Em andamento");
+                      if (task.section) metaExtras.push(task.section);
                       const taskTags = tags.filter((tag) => task.tagIds.includes(tag.id));
                       const late =
                         task.status !== "done" &&
@@ -207,18 +212,17 @@ export default function MyTasksPage() {
                               >
                                 {task.title}
                               </span>
-                              {parent || task.status === "doing" || task.section ? (
+                              {project || metaExtras.length > 0 ? (
                                 <span className="mt-0.5 block truncate text-xs text-faint">
-                                  {projects.find((item) => item.id === task.projectId)?.name}
-                                  {parent ? ` · Subtarefa de ${parent.title}` : null}
-                                  {task.status === "doing" ? " · Em andamento" : null}
-                                  {task.section ? ` · ${task.section}` : null}
+                                  {project ? (
+                                    <span style={{ color: project.color }}>
+                                      {project.name}
+                                    </span>
+                                  ) : null}
+                                  {project && metaExtras.length > 0 ? " · " : null}
+                                  {metaExtras.join(" · ")}
                                 </span>
-                              ) : (
-                                <span className="mt-0.5 block truncate text-xs text-faint">
-                                  {projects.find((item) => item.id === task.projectId)?.name}
-                                </span>
-                              )}
+                              ) : null}
                             </span>
                           </span>
                           {taskTags.length > 0 ? (

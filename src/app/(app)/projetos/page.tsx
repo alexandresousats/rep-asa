@@ -1,14 +1,18 @@
 "use client";
 
-import { LayoutGrid, List, Pencil, Plus } from "lucide-react";
+import { LayoutGrid, List, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { AddProjectMemberDialog } from "@/components/projects/add-project-member-dialog";
 import { CreateProjectDialog } from "@/components/projects/create-project-dialog";
 import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
+import { ProjectActionsMenu } from "@/components/projects/project-actions-menu";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
+import { deleteProject } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
 import { useAccess, useWorkspace } from "@/lib/workspace";
@@ -18,6 +22,10 @@ export default function ProjectsPage() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [memberProject, setMemberProject] = useState<Project | null>(null);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const projects = useWorkspace((state) => state.projects);
   const allTasks = useWorkspace((state) => state.tasks);
   const users = useWorkspace((state) => state.users);
@@ -73,7 +81,16 @@ export default function ProjectsPage() {
         </div>
       </div>
       {layout === "list" ? (
-        <ProjectList rows={rows} canEdit={isAdmin} onEdit={setEditing} />
+        <ProjectList
+          rows={rows}
+          canEdit={isAdmin}
+          onEdit={setEditing}
+          onAddMember={setMemberProject}
+          onDelete={(project) => {
+            setDeleteError("");
+            setDeletingProject(project);
+          }}
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((row) => (
@@ -82,6 +99,11 @@ export default function ProjectsPage() {
               {...row}
               canEdit={isAdmin}
               onEdit={() => setEditing(row.project)}
+              onAddMember={() => setMemberProject(row.project)}
+              onDelete={() => {
+                setDeleteError("");
+                setDeletingProject(row.project);
+              }}
             />
           ))}
         </div>
@@ -94,6 +116,59 @@ export default function ProjectsPage() {
       {editing ? (
         <EditProjectDialog project={editing} onClose={() => setEditing(null)} />
       ) : null}
+      {memberProject ? (
+        <AddProjectMemberDialog
+          open
+          projectId={memberProject.id}
+          memberIds={memberProject.memberIds}
+          users={users}
+          onClose={() => setMemberProject(null)}
+        />
+      ) : null}
+      <Dialog
+        open={deletingProject !== null}
+        title="Excluir projeto"
+        onClose={() => {
+          if (!deleting) setDeletingProject(null);
+        }}
+      >
+        {deletingProject ? (
+          <>
+            <p className="text-sm leading-6 text-faint">
+              {deletingProject.name} e todas as tarefas deste projeto serão excluídos.
+            </p>
+            {deleteError ? <p className="mt-3 text-sm text-red-400">{deleteError}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={deleting}
+                onClick={() => setDeletingProject(null)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={deleting}
+                onClick={() => {
+                  setDeleting(true);
+                  setDeleteError("");
+                  void deleteProject(deletingProject.id).then((result) => {
+                    setDeleting(false);
+                    if (!result.ok) {
+                      setDeleteError(result.error);
+                      return;
+                    }
+                    setDeletingProject(null);
+                  });
+                }}
+              >
+                Excluir
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </Dialog>
     </div>
   );
 }
@@ -132,6 +207,8 @@ function ProjectCard({
   members,
   canEdit,
   onEdit,
+  onAddMember,
+  onDelete,
 }: {
   project: Project;
   items: Task[];
@@ -139,6 +216,8 @@ function ProjectCard({
   members: User[];
   canEdit: boolean;
   onEdit: () => void;
+  onAddMember: () => void;
+  onDelete: () => void;
 }) {
   return (
     <Link href={`/projetos/${project.id}`} className="block h-full">
@@ -149,7 +228,13 @@ function ProjectCard({
             style={{ backgroundColor: project.color }}
           />
           <h2 className="min-w-0 flex-1 text-sm text-ink">{project.name}</h2>
-          {canEdit ? <EditButton onEdit={onEdit} /> : null}
+          {canEdit ? (
+            <ProjectActionsMenu
+              onEdit={onEdit}
+              onAddMember={onAddMember}
+              onDelete={onDelete}
+            />
+          ) : null}
         </div>
         <p className="mb-6 text-sm leading-6 text-faint">{project.description}</p>
         <div className="flex items-center justify-between gap-3 text-xs text-faint">
@@ -167,6 +252,8 @@ function ProjectList({
   rows,
   canEdit,
   onEdit,
+  onAddMember,
+  onDelete,
 }: {
   rows: {
     project: Project;
@@ -176,6 +263,8 @@ function ProjectList({
   }[];
   canEdit: boolean;
   onEdit: (project: Project) => void;
+  onAddMember: (project: Project) => void;
+  onDelete: (project: Project) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-[20px] border border-line">
@@ -198,7 +287,13 @@ function ProjectList({
                   style={{ backgroundColor: project.color }}
                 />
                 <h2 className="truncate text-sm text-ink">{project.name}</h2>
-                {canEdit ? <EditButton onEdit={() => onEdit(project)} /> : null}
+                {canEdit ? (
+                  <ProjectActionsMenu
+                    onEdit={() => onEdit(project)}
+                    onAddMember={() => onAddMember(project)}
+                    onDelete={() => onDelete(project)}
+                  />
+                ) : null}
               </div>
               <p className="mt-1 truncate pl-[18px] text-xs text-faint">
                 {project.description}
@@ -212,23 +307,6 @@ function ProjectList({
         ))}
       </div>
     </div>
-  );
-}
-
-function EditButton({ onEdit }: { onEdit: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label="Editar projeto"
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onEdit();
-      }}
-      className="shrink-0 rounded-full p-1 text-faint hover:bg-base hover:text-ink"
-    >
-      <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
-    </button>
   );
 }
 

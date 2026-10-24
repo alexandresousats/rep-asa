@@ -1,10 +1,10 @@
 "use client";
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
+import { AddProjectMemberDialog } from "@/components/projects/add-project-member-dialog";
 import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
 import { TaskKanban } from "@/components/tasks/task-kanban";
 import { GroupedTaskList } from "@/components/tasks/task-list";
@@ -16,10 +16,10 @@ import { Dialog } from "@/components/ui/dialog";
 import { SectionBar, SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
-import { addProjectMember, createTask, deleteProject, reorderTasks } from "@/lib/api";
+import { createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
-import type { ProjectView, User } from "@/lib/types";
+import type { ProjectView } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const VIEWS: { id: ProjectView; label: string }[] = [
@@ -187,7 +187,7 @@ function ProjectWorkspace() {
                     aria-expanded={addMenu}
                     aria-haspopup="menu"
                     variant="outline"
-                    className="border-line !bg-white !text-ink hover:!bg-neutral-100"
+                    className="border-neutral-900 !bg-neutral-900 !text-white hover:!bg-neutral-800 [&_svg]:!text-white dark:border-line dark:!bg-white dark:!text-neutral-900 dark:hover:!bg-neutral-100 dark:[&_svg]:!text-neutral-900"
                     onClick={() => setAddMenu((open) => !open)}
                   >
                     <Plus className="h-4 w-4" />
@@ -325,14 +325,16 @@ function ProjectWorkspace() {
         ) : null}
 
         {view === "painel" ? (
-          <ProjectPanel
-            tasks={tasks}
-            users={users}
-            tags={tags}
-            sections={sections}
-            accent={project.color}
-            onSelect={(id) => setQuery({ task: id })}
-          />
+          <div className="h-full min-h-0 flex flex-col p-4 sm:p-6">
+            <ProjectPanel
+              tasks={tasks}
+              users={users}
+              tags={tags}
+              sections={sections}
+              accent={project.color}
+              onSelect={(id) => setQuery({ task: id })}
+            />
+          </div>
         ) : null}
 
         {view === "kanban" ? (
@@ -342,7 +344,6 @@ function ProjectWorkspace() {
             tasks={tasks}
             users={users}
             tags={tags}
-            selectedId={selectedId}
             onSelect={(id) => setQuery({ task: id })}
             onCreate={canWrite ? addTask : () => undefined}
             draggable={canWrite}
@@ -381,7 +382,7 @@ function ProjectWorkspace() {
       {editingInfo ? (
         <EditProjectDialog project={project} onClose={() => setEditingInfo(false)} />
       ) : null}
-      <MemberDialog
+      <AddProjectMemberDialog
         open={memberOpen}
         projectId={project.id}
         memberIds={project.memberIds}
@@ -435,84 +436,5 @@ function ProjectWorkspace() {
         </div>
       </Dialog>
     </div>
-  );
-}
-
-function MemberDialog({
-  open,
-  projectId,
-  memberIds,
-  users,
-  onClose,
-}: {
-  open: boolean;
-  projectId: string;
-  memberIds: string[];
-  users: User[];
-  onClose: () => void;
-}) {
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const options = users.filter(
-    (user) => user.membershipStatus !== "pending" && !memberIds.includes(user.id),
-  );
-  const pending = users.filter((user) => user.membershipStatus === "pending");
-
-  return (
-    <Dialog
-      open={open}
-      title="Adicionar membro"
-      onClose={() => {
-        if (!busyId) onClose();
-      }}
-    >
-      <p className="text-sm leading-6 text-faint">
-        Inclui neste projeto alguém que já faz parte do espaço. O convite da Equipe só entra no
-        espaço e não coloca a pessoa aqui.
-      </p>
-      {options.length > 0 ? (
-        <ul className="mt-4 space-y-2">
-          {options.map((user) => (
-            <li key={user.id} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-sm text-ink">{user.name}</span>
-              <button
-                type="button"
-                disabled={busyId !== null}
-                onClick={() => {
-                  setBusyId(user.id);
-                  setError("");
-                  void addProjectMember(projectId, user.id)
-                    .then(() => setBusyId(null))
-                    .catch((reason: unknown) => {
-                      setBusyId(null);
-                      setError(
-                        reason instanceof Error ? reason.message : "Não foi possível incluir esta pessoa.",
-                      );
-                    });
-                }}
-                className="shrink-0 text-xs text-faint hover:text-ink disabled:opacity-40"
-              >
-                {busyId === user.id ? "Incluindo" : "Incluir"}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-4 text-sm leading-6 text-faint">
-          Não há ninguém do espaço fora deste projeto.
-        </p>
-      )}
-      {pending.length > 0 ? (
-        <p className="mt-4 text-sm leading-6 text-faint">
-          {pending.map((user) => user.name).join(", ")} ainda não aceitou o convite do espaço.
-        </p>
-      ) : null}
-      {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
-      <p className="mt-5 text-sm text-faint">
-        <Link href="/equipe" className="text-ink hover:underline" onClick={onClose}>
-          Convidar para o espaço
-        </Link>
-      </p>
-    </Dialog>
   );
 }

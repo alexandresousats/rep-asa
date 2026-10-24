@@ -73,8 +73,8 @@ export function ProjectPanel({
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-6">
-      <div className="sticky top-0 z-10 -mx-6 mb-4 flex flex-wrap items-center gap-2 border-b border-line-subtle bg-base px-6 py-3">
+    <div className="w-full">
+      <div className="sticky top-0 z-10 -mx-4 mb-4 flex flex-wrap items-center gap-2 border-b border-line-subtle bg-base px-4 py-3 sm:-mx-6 sm:px-6">
         {PERIODS.map((item) => (
           <button
             key={item.id}
@@ -377,7 +377,13 @@ function Lollipop({
   items,
   color,
 }: {
-  items: { label: string; value: number }[];
+  items: {
+    id: string;
+    label: string;
+    value: number;
+    initials: string;
+    avatar?: string | null;
+  }[];
   color: string;
 }) {
   if (items.length === 0) return <Empty>Nenhuma tarefa com prazo a partir de hoje.</Empty>;
@@ -385,7 +391,7 @@ function Lollipop({
   return (
     <div className="flex h-52 items-end gap-2">
       {items.map((item) => (
-        <div key={item.label} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
+        <div key={item.id} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
           <span className="text-xs text-ink">{item.value}</span>
           <div
             className="mt-1 w-px bg-ink"
@@ -396,9 +402,17 @@ function Lollipop({
             style={{ borderColor: color }}
           />
           <span className="mt-3 h-px w-4 bg-line" />
-          <span className="mt-2 w-full truncate text-center text-[10px] text-faint">
-            {item.label}
-          </span>
+          <div className="mt-2 flex w-full flex-col items-center gap-1.5">
+            <Avatar
+              initials={item.initials}
+              src={item.avatar}
+              name={item.label}
+              size="sm"
+            />
+            <span className="w-full truncate text-center text-[10px] text-faint">
+              {item.label}
+            </span>
+          </div>
         </div>
       ))}
     </div>
@@ -648,10 +662,16 @@ function buildStats(
   );
   const futureGroups = groupBy(future, (task) => task.assigneeId ?? "none");
   const futureByAssignee = [...futureGroups.entries()]
-    .map(([id, items]) => ({
-      label: personName(users, id),
-      value: items.length,
-    }))
+    .map(([id, items]) => {
+      const user = id === "none" ? null : users.find((item) => item.id === id);
+      return {
+        id,
+        label: personName(users, id),
+        value: items.length,
+        initials: user?.initials ?? "—",
+        avatar: user?.avatar ?? null,
+      };
+    })
     .sort((a, b) => b.value - a.value);
 
   const assigneeIds = new Set<string>();

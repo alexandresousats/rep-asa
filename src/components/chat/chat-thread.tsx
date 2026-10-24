@@ -113,6 +113,9 @@ function Bubble({
   const [editText, setEditText] = useState(message.content || "");
   const sending = useChat((state) => state.sending);
   const editAndResendMessage = useChat((state) => state.editAndResendMessage);
+  const inTrash = useChat((state) =>
+    Boolean(state.sessions.find((session) => session.id === state.activeSessionId)?.deletedAt),
+  );
 
   useEffect(() => {
     if (!isEditing) {
@@ -240,7 +243,7 @@ function Bubble({
 
           {/* Ações abaixo da mensagem enviada: editar, copiar e excluir (visíveis no hover) */}
           <div className="mt-1 flex items-center justify-end gap-1.5 px-1 text-faint opacity-0 transition-opacity group-hover:opacity-100">
-            {message.content ? (
+            {message.content && !inTrash ? (
               <button
                 type="button"
                 onClick={() => {
@@ -269,14 +272,16 @@ function Bubble({
               </button>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => onDelete(message.id)}
-              title="Excluir mensagem"
-              className="rounded-md p-1 transition-colors hover:bg-hover hover:text-red-400"
-            >
-              <Trash2 className="h-4 w-4" strokeWidth={1.5} />
-            </button>
+            {!inTrash && (
+              <button
+                type="button"
+                onClick={() => onDelete(message.id)}
+                title="Excluir mensagem"
+                className="rounded-md p-1 transition-colors hover:bg-hover hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -338,15 +343,17 @@ function Bubble({
               <span>{copied ? "Copiado" : "Copiar"}</span>
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => onDelete(message.id)}
-            title="Excluir mensagem"
-            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-faint hover:bg-hover hover:text-red-400"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span>Excluir</span>
-          </button>
+          {!inTrash && (
+            <button
+              type="button"
+              onClick={() => onDelete(message.id)}
+              title="Excluir mensagem"
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-faint hover:bg-hover hover:text-red-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Excluir</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

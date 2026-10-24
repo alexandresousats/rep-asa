@@ -41,6 +41,10 @@ interface ChatState {
   renameSession: (id: string, title: string) => void;
   moveSessionToFolder: (sessionId: string, folderId: string | null) => void;
   deleteSession: (id: string) => void;
+  restoreSession: (id: string) => void;
+  purgeSession: (id: string) => void;
+  emptyTrash: () => void;
+  purgeExpiredTrash: () => void;
   clearSessionMessages: (sessionId?: string) => void;
 
   // Mensagens
@@ -50,6 +54,7 @@ interface ChatState {
   // Pastas
   createFolder: (name: string, color?: string) => ChatFolder;
   renameFolder: (id: string, name: string) => void;
+  setFolderColor: (id: string, color: string) => void;
   deleteFolder: (id: string) => void;
 
   // Ações de envio
@@ -81,17 +86,93 @@ function deriveTitle(
   return "Nova conversa";
 }
 
+export const TRASH_RETENTION_DAYS = 30;
+const TRASH_RETENTION_MS = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+export function trashDaysRemaining(deletedAt: string, now = Date.now()) {
+  const deleted = new Date(deletedAt).getTime();
+  if (Number.isNaN(deleted)) return 0;
+  const remaining = deleted + TRASH_RETENTION_MS - now;
+  if (remaining <= 0) return 0;
+  return Math.ceil(remaining / (24 * 60 * 60 * 1000));
+}
+
+export function trashRetentionLabel(deletedAt: string, now = Date.now()) {
+  const days = trashDaysRemaining(deletedAt, now);
+  if (days <= 0) return "Apaga agora";
+  const purge = new Date(new Date(deletedAt).getTime() + TRASH_RETENTION_MS);
+  if (purge.toDateString() === new Date(now).toDateString()) return "Apaga hoje";
+  if (days === 1) return "Apaga em 1 dia";
+  return `Apaga em ${days} dias`;
+}
+
+function isLiveSession(session: ChatSession) {
+  return !session.deletedAt;
+}
+
+function dropExpiredSessions(sessions: ChatSession[], now = Date.now()) {
+  return sessions.filter((session) => {
+    if (!session.deletedAt) return true;
+    return trashDaysRemaining(session.deletedAt, now) > 0;
+  });
+}
+
+function freshSession(folderId: string | null = null): ChatSession {
+  const now = new Date().toISOString();
+  return {
+    id: uid("sess"),
+    title: "Nova conversa",
+    folderId,
+    messages: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export const useChat = create<ChatState>()(
   persist(
     (set, get) => {
       function activeSession(): ChatSession | undefined {
         const { sessions, activeSessionId } = get();
-        return sessions.find((s) => s.id === activeSessionId) || sessions[0];
+        return (
+          sessions.find((s) => s.id === activeSessionId) ||
+          sessions.find(isLiveSession) ||
+          sessions[0]
+        );
       }
 
       function syncMessages(sessions: ChatSession[], activeId: string | null) {
-        const current = sessions.find((s) => s.id === activeId) || sessions[0];
-        return current ? current.messages : [];
+        const current = sessions.find((s) => s.id === activeId);
+        if (current) return current.messages;
+        const live = sessions.find(isLiveSession);
+        return live ? live.messages : [];
+      }
+
+      function activateLive(
+        sessions: ChatSession[],
+        activeSessionId: string | null,
+        preferNewLive: boolean,
+      ) {
+        const live = sessions.filter(isLiveSession);
+        if (live.length === 0) {
+          const fallback = freshSession();
+          const next = [fallback, ...sessions];
+          return {
+            sessions: next,
+            activeSessionId: fallback.id,
+            messages: [] as ChatMessage[],
+            sending: false,
+          };
+        }
+        const keepCurrent =
+          !preferNewLive && live.some((session) => session.id === activeSessionId);
+        const nextActive = keepCurrent ? activeSessionId : live[0].id;
+        return {
+          sessions,
+          activeSessionId: nextActive,
+          messages: syncMessages(sessions, nextActive),
+          sending: false,
+        };
       }
 
       function patchAssistantInSession(
@@ -115,15 +196,7 @@ export const useChat = create<ChatState>()(
         });
       }
 
-      const initialSessionId = uid("sess");
-      const defaultSession: ChatSession = {
-        id: initialSessionId,
-        title: "Nova conversa",
-        folderId: null,
-        messages: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+      const defaultSession = freshSession();
 
       async function runChatStream(
         currentSessionId: string,
@@ -239,7 +312,7 @@ export const useChat = create<ChatState>()(
       return {
         folders: [],
         sessions: [defaultSession],
-        activeSessionId: initialSessionId,
+        activeSessionId: defaultSession.id,
         messages: [],
         sending: false,
 
@@ -297,31 +370,60 @@ export const useChat = create<ChatState>()(
           controller?.abort();
           controller = null;
           set((state) => {
-            const nextSessions = state.sessions.filter((s) => s.id !== id);
-            if (nextSessions.length === 0) {
-              const fallback: ChatSession = {
-                id: uid("sess"),
-                title: "Nova conversa",
-                folderId: null,
-                messages: [],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-              return {
-                sessions: [fallback],
-                activeSessionId: fallback.id,
-                messages: [],
-                sending: false,
-              };
-            }
-            const nextActiveId =
-              state.activeSessionId === id ? nextSessions[0].id : state.activeSessionId;
+            const target = state.sessions.find((session) => session.id === id);
+            if (!target || target.deletedAt) return state;
+            const sessions = state.sessions.map((session) =>
+              session.id === id ? { ...session, deletedAt: new Date().toISOString() } : session,
+            );
+            return activateLive(sessions, state.activeSessionId, state.activeSessionId === id);
+          });
+        },
+
+        restoreSession: (id) => {
+          set((state) => {
+            const target = state.sessions.find((session) => session.id === id);
+            if (!target?.deletedAt) return state;
+            const sessions = state.sessions.map((session) =>
+              session.id === id
+                ? { ...session, deletedAt: null, updatedAt: new Date().toISOString() }
+                : session,
+            );
             return {
-              sessions: nextSessions,
-              activeSessionId: nextActiveId,
-              messages: syncMessages(nextSessions, nextActiveId),
-              sending: false,
+              sessions,
+              activeSessionId: id,
+              messages: syncMessages(sessions, id),
             };
+          });
+        },
+
+        purgeSession: (id) => {
+          controller?.abort();
+          controller = null;
+          set((state) => {
+            if (!state.sessions.some((session) => session.id === id)) return state;
+            const sessions = state.sessions.filter((session) => session.id !== id);
+            return activateLive(sessions, state.activeSessionId, state.activeSessionId === id);
+          });
+        },
+
+        emptyTrash: () => {
+          controller?.abort();
+          controller = null;
+          set((state) => {
+            const sessions = state.sessions.filter(isLiveSession);
+            if (sessions.length === state.sessions.length) return state;
+            const removedActive = !sessions.some((session) => session.id === state.activeSessionId);
+            return activateLive(sessions, state.activeSessionId, removedActive);
+          });
+        },
+
+        purgeExpiredTrash: () => {
+          const now = Date.now();
+          set((state) => {
+            const sessions = dropExpiredSessions(state.sessions, now);
+            if (sessions.length === state.sessions.length) return state;
+            const removedActive = !sessions.some((session) => session.id === state.activeSessionId);
+            return activateLive(sessions, state.activeSessionId, removedActive);
           });
         },
 
@@ -330,6 +432,8 @@ export const useChat = create<ChatState>()(
           controller = null;
           const targetId = sessionId || get().activeSessionId;
           if (!targetId) return;
+          const target = get().sessions.find((session) => session.id === targetId);
+          if (!target || target.deletedAt) return;
           set((state) => {
             const sessions = state.sessions.map((s) =>
               s.id === targetId ? { ...s, messages: [], updatedAt: new Date().toISOString() } : s,
@@ -345,6 +449,8 @@ export const useChat = create<ChatState>()(
         deleteMessage: (messageId, sessionId) => {
           const targetId = sessionId || get().activeSessionId;
           if (!targetId) return;
+          const target = get().sessions.find((session) => session.id === targetId);
+          if (!target || target.deletedAt) return;
           set((state) => {
             const sessions = state.sessions.map((session) => {
               if (session.id !== targetId) return session;
@@ -380,6 +486,14 @@ export const useChat = create<ChatState>()(
           }));
         },
 
+        setFolderColor: (id, color) => {
+          const clean = color.trim();
+          if (!clean) return;
+          set((state) => ({
+            folders: state.folders.map((f) => (f.id === id ? { ...f, color: clean } : f)),
+          }));
+        },
+
         deleteFolder: (id) => {
           set((state) => ({
             folders: state.folders.filter((f) => f.id !== id),
@@ -411,7 +525,7 @@ export const useChat = create<ChatState>()(
           if (!agentReady(agent)) return;
 
           let session = activeSession();
-          if (!session) {
+          if (!session || session.deletedAt) {
             const id = get().createSession();
             session = get().sessions.find((s) => s.id === id)!;
           }
@@ -487,7 +601,7 @@ export const useChat = create<ChatState>()(
           if (!agentReady(agent)) return;
 
           const session = activeSession();
-          if (!session) return;
+          if (!session || session.deletedAt) return;
           const currentSessionId = session.id;
 
           const msgIndex = session.messages.findIndex((m) => m.id === messageId);
@@ -567,26 +681,19 @@ export const useChat = create<ChatState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        if (!state.sessions || state.sessions.length === 0) {
-          const id = uid("sess");
-          state.sessions = [
-            {
-              id,
-              title: "Nova conversa",
-              folderId: null,
-              messages: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
-          ];
-          state.activeSessionId = id;
+        state.sessions = dropExpiredSessions(state.sessions || []);
+        const live = state.sessions.filter(isLiveSession);
+        if (live.length === 0) {
+          const fallback = freshSession();
+          state.sessions = [fallback, ...state.sessions];
+          state.activeSessionId = fallback.id;
           state.messages = [];
-        } else {
-          const active =
-            state.sessions.find((s) => s.id === state.activeSessionId) || state.sessions[0];
-          state.activeSessionId = active.id;
-          state.messages = active.messages || [];
+          return;
         }
+        const active =
+          live.find((session) => session.id === state.activeSessionId) || live[0];
+        state.activeSessionId = active.id;
+        state.messages = active.messages || [];
       },
     },
   ),
