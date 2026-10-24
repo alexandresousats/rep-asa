@@ -26,6 +26,22 @@ export function todayISO() {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
+export function splitPersonName(full: string) {
+  const trimmed = full.trim();
+  const space = trimmed.indexOf(" ");
+  if (space <= 0) {
+    return { firstName: trimmed, lastName: "" };
+  }
+  return {
+    firstName: trimmed.slice(0, space),
+    lastName: trimmed.slice(space + 1).trim(),
+  };
+}
+
+export function joinPersonName(firstName: string, lastName: string) {
+  return `${firstName.trim()} ${lastName.trim()}`.trim();
+}
+
 export function initialsFrom(name: string) {
   return (
     name
@@ -35,4 +51,16 @@ export function initialsFrom(name: string) {
       .map((part) => part[0]?.toUpperCase() ?? "")
       .join("") || "?"
   );
+}
+
+export function personNameFields(firstName: string, lastName: string) {
+  const first = firstName.trim();
+  const last = lastName.trim();
+  const name = joinPersonName(first, last);
+  return {
+    firstName: first,
+    lastName: last,
+    name,
+    initials: initialsFrom(name),
+  };
 }

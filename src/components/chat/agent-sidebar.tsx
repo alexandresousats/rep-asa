@@ -106,6 +106,14 @@ export function AgentSidebar({
     setEditingFolderColor(folder.color || DEFAULT_FOLDER_COLOR);
   }
 
+  function startChatInFolder(folderId: string) {
+    setSelectedFolderId(folderId);
+    const id = createSession(folderId);
+    selectSession(id);
+    setShowTrash(false);
+    onClose?.();
+  }
+
   const liveSessions = sessions.filter((session) => !session.deletedAt);
   const trashedSessions = sessions
     .filter((session): session is ChatSession & { deletedAt: string } => Boolean(session.deletedAt))
@@ -437,7 +445,21 @@ export function AgentSidebar({
                       <span className="truncate">{folder.name}</span>
                     </button>
 
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div
+                      className={cn(
+                        "flex items-center gap-1 transition-opacity",
+                        active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => startChatInFolder(folder.id)}
+                        title="Novo chat nesta pasta"
+                        aria-label={`Novo chat em ${folder.name}`}
+                        className="rounded p-0.5 text-faint hover:text-ink"
+                      >
+                        <SquarePen className="h-3 w-3" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => beginEditFolder(folder)}

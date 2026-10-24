@@ -9,6 +9,8 @@ export type DemandFormat = "card" | "carrossel" | "video_longo" | "reels";
 
 export interface User {
   id: string;
+  firstName: string;
+  lastName: string;
   name: string;
   email: string;
   password?: string;

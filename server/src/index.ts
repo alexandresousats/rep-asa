@@ -267,6 +267,8 @@ app.delete("/users/:id", async (c) => {
 app.patch("/users/:id", async (c) => {
   const body = parse(
     z.object({
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
       name: z.string().optional(),
       email: z.string().optional(),
       role: z.string().optional(),

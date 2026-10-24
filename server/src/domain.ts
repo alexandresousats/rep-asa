@@ -2,7 +2,16 @@ import bcrypt from "bcryptjs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Prisma, Task, User } from "@prisma/client";
-import { hashesEqual, initialsFrom, randomToken, sha256, todayISO, uid } from "./crypto";
+import {
+  hashesEqual,
+  initialsFrom,
+  personNameFields,
+  randomToken,
+  sha256,
+  splitPersonName,
+  todayISO,
+  uid,
+} from "./crypto";
 import { prisma } from "./db";
 import { ApiError } from "./errors";
 import { publish } from "./events";
@@ -246,13 +255,14 @@ export async function signup(input: { name: string; email: string; password: str
   }
   const taken = await prisma.user.findUnique({ where: { email } });
   if (taken) throw new ApiError(400, "Este e-mail já está em uso.");
+  const { firstName, lastName } = splitPersonName(name);
+  const person = personNameFields(firstName, lastName);
   const user = await prisma.user.create({
     data: {
       id: uid("u"),
-      name,
+      ...person,
       email,
       passwordHash: await bcrypt.hash(input.password, 10),
-      initials: initialsFrom(name),
       role: "Administrador",
       access: "admin",
     },
@@ -387,6 +397,8 @@ export async function updateUser(
   actor: Actor,
   id: string,
   patch: {
+    firstName?: string;
+    lastName?: string;
     name?: string;
     email?: string;
     role?: string;
@@ -409,8 +421,18 @@ export async function updateUser(
     }
   }
 
-  const name = patch.name !== undefined ? patch.name.trim() : current.name;
-  if (!name) throw new ApiError(400, "Informe o nome.");
+  let firstName = current.firstName;
+  let lastName = current.lastName;
+  if (patch.firstName !== undefined || patch.lastName !== undefined) {
+    firstName = (patch.firstName ?? current.firstName).trim();
+    lastName = (patch.lastName ?? current.lastName).trim();
+  } else if (patch.name !== undefined) {
+    const split = splitPersonName(patch.name);
+    firstName = split.firstName;
+    lastName = split.lastName;
+  }
+  const person = personNameFields(firstName, lastName);
+  if (!person.firstName) throw new ApiError(400, "Informe o nome.");
   const email = (patch.email !== undefined ? patch.email : current.email).trim().toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new ApiError(400, "Informe um e-mail válido.");
   const taken = await prisma.user.findFirst({ where: { email, NOT: { id } } });
@@ -464,11 +486,13 @@ export async function updateUser(
   const user = await prisma.user.update({
     where: { id },
     data: {
-      name,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      name: person.name,
       email,
       role: actor.id === current.id ? role : current.role,
       passwordHash,
-      initials: initialsFrom(name),
+      initials: person.initials,
       avatar: patch.avatar === undefined ? current.avatar : patch.avatar,
     },
   });
@@ -516,13 +540,14 @@ export async function addMember(
     if (!input.password || input.password.length < 6) {
       throw new ApiError(400, "Informe uma senha para criar a conta.");
     }
+    const { firstName, lastName } = splitPersonName(name);
+    const person = personNameFields(firstName, lastName);
     user = await prisma.user.create({
       data: {
         id: uid("u"),
-        name,
+        ...person,
         email,
         passwordHash: await bcrypt.hash(input.password, 10),
-        initials: initialsFrom(name),
         role,
         access: input.access,
       },

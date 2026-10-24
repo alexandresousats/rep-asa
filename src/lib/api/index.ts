@@ -111,7 +111,9 @@ export async function confirmReset(token: string, password: string): Promise<Res
 
 export async function updateUser(
   id: string,
-  patch: Partial<Pick<User, "name" | "email" | "role" | "access" | "avatar">> & {
+  patch: Partial<
+    Pick<User, "firstName" | "lastName" | "name" | "email" | "role" | "access" | "avatar">
+  > & {
     password?: string;
     currentPassword?: string;
   },

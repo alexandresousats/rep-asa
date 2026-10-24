@@ -58,7 +58,7 @@ function normalizeTab(param: string | null): SettingsTab {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className="mx-auto w-full max-w-3xl px-6 py-8" />}>
+    <Suspense fallback={<div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10" />}>
       <SettingsContent />
     </Suspense>
   );
@@ -100,12 +100,7 @@ function SettingsContent() {
   }, [workspace?.name]);
 
   return (
-    <div
-      className={cn(
-        "mx-auto w-full px-6 py-8",
-        activeTab === "equipe" ? "max-w-5xl" : "max-w-3xl",
-      )}
-    >
+    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
       <h1 className="mb-6 text-2xl font-medium tracking-tight text-ink">Configurações</h1>
 
       <div className="mb-8 flex items-center gap-1.5 overflow-x-auto border-b border-line pb-3">

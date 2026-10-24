@@ -21,6 +21,8 @@ export type MembershipView = {
 
 export type PublicUser = {
   id: string;
+  firstName: string;
+  lastName: string;
   name: string;
   email: string;
   initials: string;
@@ -35,6 +37,8 @@ export type PublicUser = {
 export function publicUser(user: User, membership?: MembershipView | null): PublicUser {
   return {
     id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
     name: user.name,
     email: user.email,
     initials: user.initials,
