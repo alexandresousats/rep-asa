@@ -305,21 +305,18 @@ export function AgentSidebar({
                   type="button"
                   onClick={() => setSelectedFolderId(null)}
                   className={cn(
-                    "flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-[14px] transition-colors",
+                    "flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-[14px] transition-colors",
                     selectedFolderId === null
                       ? "bg-active font-medium text-ink"
                       : "text-muted hover:bg-hover hover:text-ink",
                   )}
                 >
-                  <div className="flex items-center gap-2">
-                    {dragOverFolderId === "root" ? (
-                      <FolderOpen className="h-3.5 w-3.5 text-ink animate-pulse" />
-                    ) : (
-                      <FolderIcon className="h-3.5 w-3.5" />
-                    )}
-                    <span>Todas as conversas</span>
-                  </div>
-                  <span className="text-[10px] text-faint">{liveSessions.length}</span>
+                  {dragOverFolderId === "root" ? (
+                    <FolderOpen className="h-3.5 w-3.5 text-ink animate-pulse" />
+                  ) : (
+                    <FolderIcon className="h-3.5 w-3.5" />
+                  )}
+                  <span>Todas as conversas</span>
                 </button>
               </div>
 
@@ -357,7 +354,6 @@ export function AgentSidebar({
 
               {/* Lista de Pastas Criadas (Drop targets) */}
               {folders.map((folder) => {
-                const count = liveSessions.filter((s) => s.folderId === folder.id).length;
                 const active = selectedFolderId === folder.id;
                 const isDropTarget = dragOverFolderId === folder.id;
 
@@ -441,13 +437,12 @@ export function AgentSidebar({
                       <span className="truncate">{folder.name}</span>
                     </button>
 
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-faint group-hover:hidden">{count}</span>
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() => beginEditFolder(folder)}
                         title="Editar pasta"
-                        className="hidden rounded p-0.5 text-faint hover:text-ink group-hover:block"
+                        className="rounded p-0.5 text-faint hover:text-ink"
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
@@ -460,7 +455,7 @@ export function AgentSidebar({
                           }
                         }}
                         title="Excluir pasta"
-                        className="hidden rounded p-0.5 text-faint hover:text-red-400 group-hover:block"
+                        className="rounded p-0.5 text-faint hover:text-red-400"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
