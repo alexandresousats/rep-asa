@@ -1,7 +1,7 @@
 "use client";
 
 import { endOfWeek, startOfDay } from "date-fns";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { SubtaskMark } from "@/components/tasks/task-list";
@@ -25,6 +25,7 @@ const SCOPES: { id: Scope; label: string }[] = [
 export default function MyTasksPage() {
   const [scope, setScope] = useState<Scope>("open");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const user = useWorkspace((state) => state.user);
   const allTasks = useWorkspace((state) => state.tasks);
   const projects = useWorkspace((state) => state.projects);
@@ -142,12 +143,34 @@ export default function MyTasksPage() {
             </p>
           ) : (
             <div className="space-y-8">
-              {groups.map((group) => (
+              {groups.map((group) => {
+                const open = !collapsed[group.id];
+                return (
                 <section key={group.id}>
-                  <div className="mb-2 flex items-center justify-between gap-3 px-2">
-                    <p className="text-sm text-ink">{group.name}</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCollapsed((current) => ({
+                        ...current,
+                        [group.id]: !current[group.id],
+                      }))
+                    }
+                    className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-hover"
+                    aria-expanded={open}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 shrink-0 text-faint transition-transform",
+                        !open && "-rotate-90",
+                      )}
+                      strokeWidth={1.5}
+                    />
+                    <span className="min-w-0 flex-1 text-sm font-medium text-ink">
+                      {group.name}
+                    </span>
                     <span className="text-xs text-faint">{group.rows.length}</span>
-                  </div>
+                  </button>
+                  {open ? (
                   <div>
                     {group.rows.map(({ task, nested }) => {
                       const parent = task.parentId
@@ -247,8 +270,10 @@ export default function MyTasksPage() {
                       );
                     })}
                   </div>
+                  ) : null}
                 </section>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>

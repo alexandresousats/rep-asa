@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
+import {
+  sidebarNavIconClass,
+  sidebarNavItemClass,
+  sidebarNavSubtextClass,
+} from "@/lib/sidebar-nav";
 import { TRASH_RETENTION_DAYS, trashRetentionLabel, useChat } from "@/lib/chat";
 import type { ChatFolder, ChatSession } from "@/lib/types";
 
@@ -306,7 +311,8 @@ export function AgentSidebar({
                 }}
                 className={cn(
                   "rounded-xl transition-all",
-                  dragOverFolderId === "root" && "ring-2 ring-ink/30 bg-active scale-[1.02] shadow-xs",
+                  dragOverFolderId === "root" &&
+                    cn("ring-2 ring-ink/30 scale-[1.02]", sidebarNavItemClass(true)),
                 )}
               >
                 <button
@@ -315,16 +321,31 @@ export function AgentSidebar({
                   className={cn(
                     "flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-[14px] transition-colors",
                     selectedFolderId === null
-                      ? "bg-active font-medium text-ink"
-                      : "text-muted hover:bg-hover hover:text-ink",
+                      ? sidebarNavItemClass(true)
+                      : "text-inherit",
                   )}
                 >
                   {dragOverFolderId === "root" ? (
-                    <FolderOpen className="h-3.5 w-3.5 text-ink animate-pulse" />
+                    <FolderOpen
+                      className={cn(
+                        "h-3.5 w-3.5 animate-pulse",
+                        sidebarNavIconClass(selectedFolderId === null),
+                      )}
+                    />
                   ) : (
-                    <FolderIcon className="h-3.5 w-3.5" />
+                    <FolderIcon
+                      className={cn("h-3.5 w-3.5", sidebarNavIconClass(selectedFolderId === null))}
+                    />
                   )}
-                  <span>Todas as conversas</span>
+                  <span
+                    className={
+                      selectedFolderId === null
+                        ? "text-[var(--sidebar-nav-active-fg)]"
+                        : undefined
+                    }
+                  >
+                    Todas as conversas
+                  </span>
                 </button>
               </div>
 
@@ -420,10 +441,9 @@ export function AgentSidebar({
                     }}
                     className={cn(
                       "group relative flex items-center justify-between rounded-xl px-2.5 py-1.5 text-[14px] transition-all",
-                      active
-                        ? "bg-active font-medium text-ink"
-                        : "text-muted hover:bg-hover hover:text-ink",
-                      isDropTarget && "ring-2 ring-ink/30 bg-active text-ink scale-[1.02] shadow-xs",
+                      sidebarNavItemClass(active),
+                      isDropTarget &&
+                        cn("ring-2 ring-ink/30 scale-[1.02]", sidebarNavItemClass(true)),
                     )}
                   >
                     <button
@@ -433,13 +453,16 @@ export function AgentSidebar({
                     >
                       {isDropTarget ? (
                         <FolderOpen
-                          className="h-3.5 w-3.5 shrink-0 animate-pulse text-ink"
-                          style={{ color: folder.color || "currentColor" }}
+                          className={cn(
+                            "h-3.5 w-3.5 shrink-0 animate-pulse",
+                            sidebarNavIconClass(active),
+                          )}
+                          style={active ? undefined : { color: folder.color || undefined }}
                         />
                       ) : (
                         <FolderIcon
-                          className="h-3.5 w-3.5 shrink-0"
-                          style={{ color: folder.color || "currentColor" }}
+                          className={cn("h-3.5 w-3.5 shrink-0", sidebarNavIconClass(active))}
+                          style={active ? undefined : { color: folder.color || undefined }}
                         />
                       )}
                       <span className="truncate">{folder.name}</span>
@@ -546,9 +569,7 @@ export function AgentSidebar({
                       }}
                       className={cn(
                         "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-[14px] transition-all cursor-pointer active:cursor-grabbing select-none",
-                        isActive
-                          ? "bg-active font-medium text-ink shadow-2xs"
-                          : "text-muted hover:bg-hover hover:text-ink",
+                        sidebarNavItemClass(isActive),
                         isBeingDragged && "opacity-40 scale-95 shadow-md cursor-grabbing",
                       )}
                     >
@@ -558,11 +579,18 @@ export function AgentSidebar({
                           selectSession(session.id);
                           onClose?.();
                         }}
-                        className="min-w-0 flex-1 text-left cursor-pointer active:cursor-grabbing"
+                        className="min-w-0 flex-1 text-left cursor-pointer text-inherit active:cursor-grabbing"
                       >
-                        <span className="block truncate text-[14px] leading-5">{session.title}</span>
+                        <span className="block truncate text-[14px] leading-5 text-inherit">
+                          {session.title}
+                        </span>
                         {folder && (
-                          <span className="block text-[11px] text-faint truncate mt-0.5">
+                          <span
+                            className={cn(
+                              "mt-0.5 block truncate text-[11px]",
+                              sidebarNavSubtextClass(isActive),
+                            )}
+                          >
                             {folder.name}
                           </span>
                         )}
@@ -716,9 +744,7 @@ export function AgentSidebar({
           aria-pressed={showTrash}
           className={cn(
             "flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-[14px] transition-colors",
-            showTrash
-              ? "bg-active font-medium text-ink"
-              : "text-muted hover:bg-hover hover:text-ink",
+            sidebarNavItemClass(showTrash),
           )}
         >
           <Trash2 className="h-4 w-4 shrink-0" strokeWidth={1.5} />
@@ -779,7 +805,7 @@ function TrashPanel({
                 key={session.id}
                 className={cn(
                   "rounded-xl px-2.5 py-2",
-                  active ? "bg-active text-ink" : "text-muted hover:bg-hover hover:text-ink",
+                  sidebarNavItemClass(active),
                 )}
               >
                 <button

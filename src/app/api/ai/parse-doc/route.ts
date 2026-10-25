@@ -21,6 +21,16 @@ PDFParse.setWorker(workerSrc);
 const MAX_PAGE_EDGE = 1400;
 const JPEG_QUALITY = 70;
 
+type PdfCanvas = {
+  canvas: { toBuffer: (mime: string, quality: number) => Buffer };
+  context: CanvasRenderingContext2D;
+};
+
+type PdfCanvasFactory = {
+  create: (width: number, height: number) => PdfCanvas;
+  destroy: (canvasAndContext: PdfCanvas) => void;
+};
+
 function meaningfulText(text: string) {
   return text
     .replace(/--\s*\d+\s+of\s+\d+\s*--/g, " ")
@@ -47,17 +57,18 @@ async function renderPdfPages(data: Uint8Array) {
       const width = Math.max(1, Math.ceil(viewport.width));
       const height = Math.max(1, Math.ceil(viewport.height));
       const fitted = page.getViewport({ scale: width / base.width });
-      const canvasAndContext = doc.canvasFactory.create(width, height);
+      const canvasFactory = doc.canvasFactory as PdfCanvasFactory;
+      const canvasAndContext = canvasFactory.create(width, height);
       try {
         await page.render({
           canvasContext: canvasAndContext.context,
           viewport: fitted,
-          canvas: canvasAndContext.canvas,
+          canvas: canvasAndContext.canvas as unknown as HTMLCanvasElement,
         }).promise;
         const jpeg = canvasAndContext.canvas.toBuffer("image/jpeg", JPEG_QUALITY);
         images.push(`data:image/jpeg;base64,${Buffer.from(jpeg).toString("base64")}`);
       } finally {
-        doc.canvasFactory.destroy(canvasAndContext);
+        canvasFactory.destroy(canvasAndContext);
         page.cleanup();
       }
     }

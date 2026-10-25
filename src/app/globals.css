@@ -29,6 +29,10 @@
   --bg-chat-voice-btn: #f9f8f7;
   --border-chat: #e6e5e3;
   --border-chat-menu: #e6e5e3;
+  --sidebar-nav-active-bg: #0a0a0a;
+  --sidebar-nav-active-fg: #ffffff;
+  --sidebar-nav-active-border: #0a0a0a;
+  --sidebar-nav-active-shadow: 0 1px 2px rgba(23, 23, 23, 0.18);
 }
 
 [data-theme="dark"],
@@ -57,6 +61,10 @@
   --bg-chat-voice-btn: #141211;
   --border-chat: #30302e;
   --border-chat-menu: #30302e;
+  --sidebar-nav-active-bg: #ffffff;
+  --sidebar-nav-active-fg: #0a0a0a;
+  --sidebar-nav-active-border: #e5e5e5;
+  --sidebar-nav-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 @theme inline {

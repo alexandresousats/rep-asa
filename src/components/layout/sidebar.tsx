@@ -24,6 +24,7 @@ import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { logout } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { sidebarNavIconClass, sidebarNavItemClass } from "@/lib/sidebar-nav";
 import { useWorkspace } from "@/lib/workspace";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { NotificationBell } from "./notifications";
@@ -137,13 +138,14 @@ export function Sidebar({
               className={cn(
                 "relative flex items-center rounded-full text-sm transition-colors",
                 collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
-                active
-                  ? "bg-active text-ink"
-                  : "text-muted hover:bg-hover hover:text-ink",
+                sidebarNavItemClass(active),
               )}
             >
               <div className="relative">
-                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+                <Icon
+                  className={cn("h-4 w-4 shrink-0", sidebarNavIconClass(active))}
+                  strokeWidth={active ? 2 : 1.5}
+                />
                 {collapsed && showBadge && (
                   <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
                 )}
@@ -152,6 +154,7 @@ export function Sidebar({
                 className={cn(
                   "overflow-hidden transition-all duration-300",
                   collapsed ? "hidden" : "max-w-40 opacity-100",
+                  active && "text-[var(--sidebar-nav-active-fg)]",
                 )}
               >
                 {item.label}
