@@ -13,18 +13,58 @@ const DEMAND_LINK_SECRET =
   process.env.SESSION_SECRET ||
   "asa-demand-link-verified-secret-key-2026-secure-salt";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_DEMAND_LINK_TTL_MS = 7 * DAY_MS;
+const MAX_DEMAND_LINK_TTL_MS = 30 * DAY_MS;
+
+export function demandLinkTtlMs(raw = process.env.DEMAND_LINK_TTL): number {
+  if (raw == null || raw.trim() === "") return DEFAULT_DEMAND_LINK_TTL_MS;
+  const match = /^(\d+)(s|m|h|d)?$/i.exec(raw.trim());
+  if (!match) return DEFAULT_DEMAND_LINK_TTL_MS;
+  const amount = Number(match[1]);
+  if (!Number.isSafeInteger(amount) || amount <= 0) return DEFAULT_DEMAND_LINK_TTL_MS;
+  const unit = (match[2] ?? "s").toLowerCase();
+  const unitMs =
+    unit === "d" ? DAY_MS : unit === "h" ? 60 * 60 * 1000 : unit === "m" ? 60 * 1000 : 1000;
+  const ms = amount * unitMs;
+  if (!Number.isSafeInteger(ms) || ms <= 0) return DEFAULT_DEMAND_LINK_TTL_MS;
+  return Math.min(ms, MAX_DEMAND_LINK_TTL_MS);
+}
+
 export interface DemandLinkPayload {
   wId: string;       // workspaceId
   pId: string;       // projectId
   adminId: string;   // admin user who verified the link
   adminName: string; // admin user name
   iat: number;       // issued at timestamp
+  exp?: number;      // expiração em ms; links sem exp não são aceitos
+}
+
+export function demandLinkIsCurrent(payload: DemandLinkPayload, now = Date.now()) {
+  return typeof payload.exp === "number" && Number.isFinite(payload.exp) && payload.exp > now;
 }
 
 export function signDemandLink(payload: DemandLinkPayload): string {
-  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const full: DemandLinkPayload = {
+    wId: payload.wId,
+    pId: payload.pId,
+    adminId: payload.adminId,
+    adminName: payload.adminName,
+    iat: payload.iat,
+    exp: payload.exp ?? payload.iat + demandLinkTtlMs(),
+  };
+  const data = Buffer.from(JSON.stringify(full)).toString("base64url");
   const sig = createHmac("sha256", DEMAND_LINK_SECRET).update(data).digest("base64url");
   return `${data}.${sig}`;
+}
+
+function readDemandLink(token: string, invalidMessage: string): DemandLinkPayload {
+  const payload = parseAndVerifyDemandLink(token);
+  if (!payload) throw new ApiError(400, invalidMessage);
+  if (!demandLinkIsCurrent(payload)) {
+    throw new ApiError(400, "Link de demanda inválido ou expirado.");
+  }
+  return payload;
 }
 
 export function parseAndVerifyDemandLink(token: string): DemandLinkPayload | null {
@@ -77,12 +117,14 @@ export async function generateDemandLinkToken(
     throw new ApiError(404, "Projeto não encontrado neste espaço de trabalho.");
   }
 
+  const iat = Date.now();
   const payload: DemandLinkPayload = {
     wId: project.workspaceId,
     pId: project.id,
     adminId: actor.id,
     adminName: actor.name,
-    iat: Date.now(),
+    iat,
+    exp: iat + demandLinkTtlMs(),
   };
 
   const token = signDemandLink(payload);
@@ -109,10 +151,10 @@ export async function generateDemandLinkToken(
 }
 
 export async function verifyDemandLinkToken(token: string) {
-  const payload = parseAndVerifyDemandLink(token);
-  if (!payload) {
-    throw new ApiError(400, "Link de demanda inválido ou assinatura não reconhecida.");
-  }
+  const payload = readDemandLink(
+    token,
+    "Link de demanda inválido ou assinatura não reconhecida.",
+  );
 
   const project = await prisma.project.findFirst({
     where: { id: payload.pId, workspaceId: payload.wId },
@@ -219,10 +261,7 @@ export async function submitDemandViaVerifiedLink(
   token: string,
   input: SubmitDemandLinkInput,
 ) {
-  const payload = parseAndVerifyDemandLink(token);
-  if (!payload) {
-    throw new ApiError(400, "Link de demanda inválido ou expirado.");
-  }
+  const payload = readDemandLink(token, "Link de demanda inválido ou expirado.");
 
   const project = await prisma.project.findFirst({
     where: { id: payload.pId, workspaceId: payload.wId },

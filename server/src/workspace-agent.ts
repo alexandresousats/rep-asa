@@ -12,7 +12,7 @@ export async function saveWorkspaceAgent(actor: Actor, raw: AgentConfig) {
     throw new ApiError(403, "Sem permissão para configurar o agente do espaço.");
   }
   if (!actor.workspaceId) throw new ApiError(400, "Nenhum espaço selecionado.");
-  const config = normalizeConfig(raw);
+  const config = await normalizeConfig(raw);
   await prisma.workspace.update({
     where: { id: actor.workspaceId },
     data: {
@@ -47,7 +47,7 @@ export async function loadWorkspaceAgentForDemand(workspaceId: string): Promise<
     return null;
   }
   try {
-    return normalizeConfig({
+    return await normalizeConfig({
       baseUrl: workspace.agentBaseUrl,
       apiKey: workspace.agentApiKey,
       model: workspace.agentModel,

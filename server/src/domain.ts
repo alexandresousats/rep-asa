@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Prisma, Task, User } from "@prisma/client";
+import { Prisma, type Task, type User } from "@prisma/client";
 import {
   hashesEqual,
   initialsFrom,
@@ -253,20 +253,30 @@ export async function signup(input: { name: string; email: string; password: str
   if (input.password.length < 6) {
     throw new ApiError(400, "A senha precisa ter pelo menos 6 caracteres.");
   }
+  // O hash roda antes da consulta para o tempo não denunciar se o e-mail existe.
+  const passwordHash = await bcrypt.hash(input.password, 10);
   const taken = await prisma.user.findUnique({ where: { email } });
-  if (taken) throw new ApiError(400, "Este e-mail já está em uso.");
+  if (taken) return { created: false as const };
   const { firstName, lastName } = splitPersonName(name);
   const person = personNameFields(firstName, lastName);
-  const user = await prisma.user.create({
-    data: {
-      id: uid("u"),
-      ...person,
-      email,
-      passwordHash: await bcrypt.hash(input.password, 10),
-      role: "Administrador",
-      access: "admin",
-    },
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        id: uid("u"),
+        ...person,
+        email,
+        passwordHash,
+        role: "Administrador",
+        access: "admin",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { created: false as const };
+    }
+    throw error;
+  }
   const workspace = await prisma.workspace.create({
     data: {
       id: uid("ws"),
@@ -284,8 +294,7 @@ export async function signup(input: { name: string; email: string; password: str
     },
   });
   const token = await createSession(user.id);
-  const actor = await actorFrom(user, workspace.id);
-  return { token, user: actor, workspaceId: workspace.id };
+  return { created: true as const, token, workspaceId: workspace.id };
 }
 
 export async function login(email: string, password: string) {

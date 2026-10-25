@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { ApiError } from "../../../../../server/src/errors";
+import { fetchPublic } from "../../../../../server/src/net";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
     whisperData.append("model", "whisper-1");
     whisperData.append("language", "pt");
 
-    const response = await fetch(whisperUrl, {
+    const response = await fetchPublic(whisperUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -63,10 +65,11 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ ok: true, text: data.text });
-  } catch (error: any) {
-    return NextResponse.json(
-      { ok: false, error: error?.message || "Falha interna ao transcrever áudio" },
-      { status: 500 },
-    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: error.status });
+    }
+    const message = error instanceof Error ? error.message : "Falha interna ao transcrever áudio";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

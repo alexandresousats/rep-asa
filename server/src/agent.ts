@@ -2,6 +2,7 @@ import type { Actor } from "./domain";
 import { todayISO } from "./crypto";
 import { ApiError } from "./errors";
 import { callTool, tools } from "./mcp";
+import { assertPublicHttpUrl, fetchPublic } from "./net";
 
 export type AgentConfig = { baseUrl: string; apiKey: string; model: string };
 
@@ -100,7 +101,7 @@ function toolDefinitions() {
     }));
 }
 
-export function normalizeConfig(config: AgentConfig): AgentConfig {
+export async function normalizeConfig(config: AgentConfig): Promise<AgentConfig> {
   const baseUrl = config.baseUrl
     .trim()
     .replace(/\/+$/, "")
@@ -108,6 +109,7 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw new ApiError(400, "A URL do agente precisa começar com http:// ou https://.");
   }
+  await assertPublicHttpUrl(baseUrl);
   if (!config.apiKey.trim()) throw new ApiError(400, "Informe a chave de API do agente.");
   if (!config.model.trim()) throw new ApiError(400, "Informe o modelo do agente.");
   return { baseUrl, apiKey: config.apiKey.trim(), model: config.model.trim() };
@@ -163,7 +165,7 @@ async function postCompletion(
 ) {
   let response: Response;
   try {
-    response = await fetch(`${config.baseUrl}/chat/completions`, {
+    response = await fetchPublic(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -174,6 +176,7 @@ async function postCompletion(
     });
   } catch (error) {
     if (signal?.aborted) throw error;
+    if (error instanceof ApiError) throw error;
     let host = config.baseUrl;
     try {
       host = new URL(config.baseUrl).host;
@@ -297,7 +300,7 @@ export async function runAgent(
   emit: (event: AgentEvent) => void,
   signal: AbortSignal,
 ) {
-  const config = normalizeConfig(rawConfig);
+  const config = await normalizeConfig(rawConfig);
   const messages: ProviderMessage[] = [
     { role: "system", content: systemPrompt(actor) },
     ...turns.slice(-30).map((turn) => {
@@ -416,7 +419,7 @@ export async function runAgent(
 }
 
 export async function testAgent(rawConfig: AgentConfig) {
-  const config = normalizeConfig(rawConfig);
+  const config = await normalizeConfig(rawConfig);
   const reply = await completeOneShot(
     config,
     "Responda em uma palavra.",
@@ -430,7 +433,7 @@ export async function completeOneShot(
   system: string,
   user: string,
 ): Promise<string> {
-  const normalized = normalizeConfig(config);
+  const normalized = await normalizeConfig(config);
   const response = await postCompletion(normalized, {
     messages: [
       { role: "system", content: system },

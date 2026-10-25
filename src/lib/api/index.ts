@@ -70,6 +70,13 @@ export async function signup(input: {
   try {
     await request("/auth/signup", { method: "POST", body: JSON.stringify(input) });
     await loadSession();
+    if (!useWorkspace.getState().user) {
+      return {
+        ok: false,
+        error:
+          "Não foi possível criar a conta. Se você já tem conta, entre ou redefina a senha.",
+      };
+    }
     return { ok: true };
   } catch (error) {
     return fail(error);

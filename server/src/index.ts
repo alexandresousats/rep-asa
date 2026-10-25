@@ -64,6 +64,7 @@ import {
   updateUser,
 } from "./domain";
 import type { Actor } from "./domain";
+import { sessionCookieSecure } from "./cookie";
 import { ApiError } from "./errors";
 import { handleMcpMessage, rpcError } from "./mcp";
 
@@ -106,13 +107,13 @@ function parse<T>(schema: z.ZodType<T>, value: unknown) {
 const COOKIE = "asa_session";
 const WORKSPACE_COOKIE = "asa_workspace";
 
-function cookieOptions(maxAge: number) {
+function cookieOptions(maxAge?: number) {
   return {
     httpOnly: true,
     sameSite: "Lax" as const,
-    secure: process.env.COOKIE_SECURE === "1",
+    secure: sessionCookieSecure(),
     path: "/",
-    maxAge,
+    ...(maxAge === undefined ? {} : { maxAge }),
   };
 }
 
@@ -122,7 +123,7 @@ function writeSession(c: Parameters<typeof setCookie>[0], token: string) {
 
 function writeWorkspace(c: Parameters<typeof setCookie>[0], workspaceId: string | null) {
   if (!workspaceId) {
-    deleteCookie(c, WORKSPACE_COOKIE, { path: "/" });
+    deleteCookie(c, WORKSPACE_COOKIE, cookieOptions());
     return;
   }
   setCookie(c, WORKSPACE_COOKIE, workspaceId, cookieOptions(60 * 60 * 24 * 30));
@@ -150,9 +151,11 @@ app.post("/auth/signup", async (c) => {
     await c.req.json(),
   );
   const result = await signup(body);
-  writeSession(c, result.token);
-  writeWorkspace(c, result.workspaceId);
-  return c.json({ user: result.user });
+  if (result.created) {
+    writeSession(c, result.token);
+    writeWorkspace(c, result.workspaceId);
+  }
+  return c.json({ ok: true });
 });
 
 app.post("/auth/login", async (c) => {
@@ -169,8 +172,8 @@ app.post("/auth/login", async (c) => {
 app.post("/auth/logout", async (c) => {
   const token = getCookie(c, COOKIE);
   if (token) await destroySession(token);
-  deleteCookie(c, COOKIE, { path: "/" });
-  deleteCookie(c, WORKSPACE_COOKIE, { path: "/" });
+  deleteCookie(c, COOKIE, cookieOptions());
+  deleteCookie(c, WORKSPACE_COOKIE, cookieOptions());
   return c.json({ ok: true });
 });
 
@@ -594,7 +597,7 @@ app.post("/ai/chat", async (c) => {
     }),
     await c.req.json(),
   );
-  const agent = normalizeConfig(body.agent);
+  const agent = await normalizeConfig(body.agent);
   c.header("Content-Type", "application/x-ndjson; charset=utf-8");
   c.header("Cache-Control", "no-cache, no-transform");
   c.header("X-Accel-Buffering", "no");
