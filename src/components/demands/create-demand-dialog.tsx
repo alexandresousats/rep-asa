@@ -210,7 +210,6 @@ export function CreateDemandDialog({
         referenceUrls: referenceUrls.trim() || null,
         tagIds: tagIds.length > 0 ? tagIds : undefined,
         section: sectionName,
-        approvalStatus: "none",
       });
 
       // Upload files if any

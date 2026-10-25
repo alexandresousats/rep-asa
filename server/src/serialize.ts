@@ -11,6 +11,7 @@ import type {
   ThreadParticipant,
   User,
 } from "@prisma/client";
+import { sanitizeRichText } from "./html";
 
 export type MembershipView = {
   role: string;
@@ -79,7 +80,7 @@ export function publicTask(
     id: task.id,
     projectId: task.projectId,
     title: task.title,
-    description: task.description,
+    description: sanitizeRichText(task.description),
     assigneeId: task.assigneeId,
     dueDate: task.dueDate,
     startDate: task.startDate,

@@ -66,7 +66,8 @@ function getFormatBadge(format?: string | null) {
 }
 
 export function TaskApprovalSection({ task }: { task: Task }) {
-  const { isClient, isAdmin, canWrite } = useAccess();
+  const { user, canWrite } = useAccess();
+  const canApprove = user?.access === "cliente";
   const users = useWorkspace((state) => state.users);
 
   const [isUpdating, setIsUpdating] = useState(false);
@@ -193,7 +194,7 @@ export function TaskApprovalSection({ task }: { task: Task }) {
               </p>
 
               {/* Action buttons for Client or Admin */}
-              {isClient || isAdmin ? (
+              {canApprove ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     size="sm"

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertPublicHttpUrl, UnsafeUrlError } from "../../../../../server/src/net";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,7 +25,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Provedores que suportam endpoint OpenAI-compatible Whisper
     let whisperUrl = "";
     if (baseUrl.includes("api.groq.com")) {
       whisperUrl = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -41,6 +41,14 @@ export async function POST(request: Request) {
       );
     }
 
+    try {
+      await assertPublicHttpUrl(whisperUrl);
+    } catch (error) {
+      const message =
+        error instanceof UnsafeUrlError ? error.message : "URL do agente não permitida.";
+      return NextResponse.json({ ok: false, error: message }, { status: 400 });
+    }
+
     const whisperData = new FormData();
     whisperData.append("file", file);
     whisperData.append("model", "whisper-1");
@@ -48,24 +56,32 @@ export async function POST(request: Request) {
 
     const response = await fetch(whisperUrl, {
       method: "POST",
+      redirect: "manual",
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
       body: whisperData,
+      signal: AbortSignal.timeout(15_000),
     });
 
-    const data = await response.json();
-    if (!response.ok) {
+    if (response.status >= 300 && response.status < 400) {
       return NextResponse.json(
-        { ok: false, error: data.error?.message || "Erro na transcrição Whisper" },
-        { status: response.status },
+        { ok: false, error: "O provedor redirecionou a requisição." },
+        { status: 502 },
       );
     }
 
-    return NextResponse.json({ ok: true, text: data.text });
-  } catch (error: any) {
+    const data = (await response.json().catch(() => null)) as { text?: string } | null;
+    if (!response.ok) {
+      console.error("[transcribe] provedor respondeu", response.status);
+      return NextResponse.json({ ok: false, error: "Erro na transcrição." }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: true, text: data?.text ?? "" });
+  } catch (error) {
+    console.error("[transcribe]", error);
     return NextResponse.json(
-      { ok: false, error: error?.message || "Falha interna ao transcrever áudio" },
+      { ok: false, error: "Falha interna ao transcrever áudio" },
       { status: 500 },
     );
   }

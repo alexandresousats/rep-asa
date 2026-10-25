@@ -37,7 +37,8 @@ export function ProjectApprovalsView({
   tags: Tag[];
   onSelectTask: (id: string) => void;
 }) {
-  const { isClient, isAdmin, canWrite } = useAccess();
+  const { user } = useAccess();
+  const canApprove = user?.access === "cliente";
 
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -215,7 +216,7 @@ export function ProjectApprovalsView({
                           </div>
 
                           {/* Quick buttons inside card if pending and client/admin */}
-                          {col.id === "pending" && (isClient || isAdmin) ? (
+                          {col.id === "pending" && canApprove ? (
                             <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"

@@ -9,6 +9,7 @@ import { subscribe } from "./events";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
 import {
+  assertDemandLinkSecret,
   generateDemandLinkToken,
   processDemandChatTurn,
   submitDemandViaVerifiedLink,
@@ -39,6 +40,7 @@ import {
   updateProject,
   declineInvite,
   deleteApiKey,
+  rotateApiKey,
   deleteProject,
   deleteTag,
   deleteTask,
@@ -66,6 +68,13 @@ import {
 import type { Actor } from "./domain";
 import { ApiError } from "./errors";
 import { handleMcpMessage, rpcError } from "./mcp";
+import {
+  assertDemandRate,
+  assertResetConfirmRate,
+  assertResetRate,
+  assertSignupRate,
+  clientIp,
+} from "./rate-limit";
 
 const access = z.enum(["admin", "editor", "leitura", "cliente"]);
 const approvalStatus = z.enum(["none", "pending", "approved", "changes_requested"]);
@@ -91,7 +100,16 @@ app.onError((error, c) => {
 app.use(
   "/mcp",
   cors({
-    origin: "*",
+    origin: (origin) => {
+      const allowed = new Set<string>();
+      const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+      if (appUrl) allowed.add(appUrl);
+      if (process.env.NODE_ENV !== "production") {
+        allowed.add("http://localhost:3000");
+        allowed.add("http://127.0.0.1:3000");
+      }
+      return allowed.has(origin) ? origin : null;
+    },
     allowHeaders: ["Authorization", "Content-Type", "Accept", "Mcp-Protocol-Version"],
     exposeHeaders: ["Mcp-Protocol-Version"],
   }),
@@ -149,6 +167,7 @@ app.post("/auth/signup", async (c) => {
     z.object({ name: z.string(), email: z.string(), password: z.string() }),
     await c.req.json(),
   );
+  await assertSignupRate(clientIp(c), body.email.trim().toLowerCase());
   const result = await signup(body);
   writeSession(c, result.token);
   writeWorkspace(c, result.workspaceId);
@@ -176,6 +195,7 @@ app.post("/auth/logout", async (c) => {
 
 app.post("/auth/reset", async (c) => {
   const body = parse(z.object({ email: z.string() }), await c.req.json());
+  await assertResetRate(clientIp(c), body.email.trim().toLowerCase());
   await requestReset(body.email);
   return c.json({ ok: true });
 });
@@ -185,6 +205,7 @@ app.post("/auth/reset/confirm", async (c) => {
     z.object({ token: z.string(), password: z.string() }),
     await c.req.json(),
   );
+  await assertResetConfirmRate(clientIp(c));
   await confirmReset(body.token, body.password);
   return c.json({ ok: true });
 });
@@ -360,7 +381,6 @@ app.post("/tasks", async (c) => {
       isDemand: z.boolean().optional(),
       demandFormat: z.string().nullable().optional(),
       referenceUrls: z.string().nullable().optional(),
-      approvalStatus: approvalStatus.optional(),
     }),
     await c.req.json(),
   );
@@ -384,8 +404,6 @@ app.patch("/tasks/:id", async (c) => {
       isDemand: z.boolean().optional(),
       demandFormat: z.string().nullable().optional(),
       referenceUrls: z.string().nullable().optional(),
-      approvalStatus: approvalStatus.optional(),
-      approvalFeedback: z.string().nullable().optional(),
     }),
     await c.req.json(),
   );
@@ -448,9 +466,12 @@ app.get("/tasks/:id/attachments/:attachmentId", async (c) => {
     c.req.param("attachmentId"),
   );
   const name = file.name.replace(/["\r\n]/g, "");
+  const mime = file.mime.toLowerCase().split(";")[0].trim();
+  const safe = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"]);
   return c.body(file.bytes, 200, {
-    "content-type": file.mime || "application/octet-stream",
+    "content-type": safe.has(mime) ? mime : "application/octet-stream",
     "content-disposition": `attachment; filename="${name}"`,
+    "x-content-type-options": "nosniff",
   });
 });
 
@@ -558,6 +579,10 @@ app.delete("/api-keys/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+app.post("/api-keys/:id/rotate", async (c) => {
+  return c.json(await rotateApiKey(await actorOf(c), c.req.param("id")));
+});
+
 app.post("/ai/test", async (c) => {
   await actorOf(c);
   const body = parse(z.object({ agent: agentConfig }), await c.req.json());
@@ -594,7 +619,7 @@ app.post("/ai/chat", async (c) => {
     }),
     await c.req.json(),
   );
-  const agent = normalizeConfig(body.agent);
+  const agent = await normalizeConfig(body.agent);
   c.header("Content-Type", "application/x-ndjson; charset=utf-8");
   c.header("Cache-Control", "no-cache, no-transform");
   c.header("X-Accel-Buffering", "no");
@@ -632,12 +657,14 @@ app.post("/demands/generate-link", async (c) => {
 });
 
 app.get("/demands/link-info", async (c) => {
+  await assertDemandRate(clientIp(c), "info");
   const token = c.req.query("token") ?? "";
   if (!token) throw new ApiError(400, "Token ausente.");
   return c.json(await verifyDemandLinkToken(token));
 });
 
 app.post("/demands/agent-chat", async (c) => {
+  await assertDemandRate(clientIp(c), "chat");
   const body = parse(
     z.object({
       token: z.string(),
@@ -669,6 +696,7 @@ app.post("/demands/agent-chat", async (c) => {
 });
 
 app.post("/demands/submit-via-link", async (c) => {
+  await assertDemandRate(clientIp(c), "submit");
   const body = parse(
     z.object({
       token: z.string(),
@@ -738,6 +766,12 @@ app.delete("/mcp", (c) => c.json(rpcError(null, -32000, "Sessão stateless."), 4
 
 const port = Number(process.env.PORT ?? 4000);
 const hostname = process.env.HOST ?? "127.0.0.1";
+try {
+  assertDemandLinkSecret();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
 serve({ fetch: app.fetch, hostname, port }, () => {
   console.log(`ASA API em http://${hostname}:${port}`);
 });

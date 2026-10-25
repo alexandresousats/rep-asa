@@ -58,6 +58,9 @@ export interface ApiKeyInfo {
   prefix: string;
   lastUsedAt: string | null;
   createdAt: string;
+  expiresAt: string | null;
+  workspaceId: string | null;
+  workspaceName: string | null;
   secret?: string;
 }
 

@@ -7,11 +7,24 @@ import { notify } from "./domain";
 import { publicTask } from "./serialize";
 import { ApiError } from "./errors";
 import { todayISO, uid } from "./crypto";
+import { sanitizeRichText } from "./html";
 
-const DEMAND_LINK_SECRET =
-  process.env.DEMAND_LINK_SECRET ||
-  process.env.SESSION_SECRET ||
-  "asa-demand-link-verified-secret-key-2026-secure-salt";
+const LEAKED_DEMAND_LINK_SECRET = "asa-demand-link-verified-secret-key-2026-secure-salt";
+const DEMAND_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DEMAND_LINK_SKEW_MS = 2 * 60 * 1000;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 8;
+const MAX_BASE64_CHARS = 14_000_000;
+
+export function assertDemandLinkSecret() {
+  const secret = process.env.DEMAND_LINK_SECRET ?? "";
+  if (secret.length < 32 || secret === LEAKED_DEMAND_LINK_SECRET) {
+    throw new Error(
+      "Defina DEMAND_LINK_SECRET com pelo menos 32 caracteres, diferente do segredo antigo.",
+    );
+  }
+  return secret;
+}
 
 export interface DemandLinkPayload {
   wId: string;       // workspaceId
@@ -19,12 +32,45 @@ export interface DemandLinkPayload {
   adminId: string;   // admin user who verified the link
   adminName: string; // admin user name
   iat: number;       // issued at timestamp
+  exp: number;       // expires at timestamp
 }
 
 export function signDemandLink(payload: DemandLinkPayload): string {
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const sig = createHmac("sha256", DEMAND_LINK_SECRET).update(data).digest("base64url");
+  const sig = createHmac("sha256", assertDemandLinkSecret()).update(data).digest("base64url");
   return `${data}.${sig}`;
+}
+
+const DANGEROUS_MIME = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "text/xml",
+  "application/xml",
+  "application/javascript",
+  "text/javascript",
+  "application/x-javascript",
+]);
+
+function safeAttachmentMime(name: string, type: string) {
+  if (/\.(html?|svg|xhtml|js|mjs)$/i.test(name.trim())) {
+    throw new ApiError(400, "Esse tipo de arquivo não é permitido.");
+  }
+  const mime = (type || "application/octet-stream").toLowerCase().split(";")[0].trim();
+  if (DANGEROUS_MIME.has(mime) || /javascript|svg|html/.test(mime)) {
+    throw new ApiError(400, "Esse tipo de arquivo não é permitido.");
+  }
+  return mime || "application/octet-stream";
+}
+
+function validDemandLinkTimes(payload: DemandLinkPayload) {
+  if (!Number.isFinite(payload.iat) || !Number.isFinite(payload.exp)) return false;
+  const now = Date.now();
+  if (payload.iat > now + DEMAND_LINK_SKEW_MS) return false;
+  if (payload.exp <= now) return false;
+  if (payload.exp < payload.iat) return false;
+  if (payload.exp - payload.iat > DEMAND_LINK_TTL_MS + DEMAND_LINK_SKEW_MS) return false;
+  return true;
 }
 
 export function parseAndVerifyDemandLink(token: string): DemandLinkPayload | null {
@@ -32,14 +78,16 @@ export function parseAndVerifyDemandLink(token: string): DemandLinkPayload | nul
     const parts = token.split(".");
     if (parts.length !== 2) return null;
     const [data, sig] = parts;
-    const expectedSig = createHmac("sha256", DEMAND_LINK_SECRET).update(data).digest("base64url");
+    const expectedSig = createHmac("sha256", assertDemandLinkSecret()).update(data).digest("base64url");
     const sigBuf = Buffer.from(sig);
     const expectedBuf = Buffer.from(expectedSig);
     if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
       return null;
     }
     const jsonStr = Buffer.from(data, "base64url").toString("utf-8");
-    return JSON.parse(jsonStr) as DemandLinkPayload;
+    const payload = JSON.parse(jsonStr) as DemandLinkPayload;
+    if (!validDemandLinkTimes(payload)) return null;
+    return payload;
   } catch {
     return null;
   }
@@ -77,12 +125,14 @@ export async function generateDemandLinkToken(
     throw new ApiError(404, "Projeto não encontrado neste espaço de trabalho.");
   }
 
+  const issuedAt = Date.now();
   const payload: DemandLinkPayload = {
     wId: project.workspaceId,
     pId: project.id,
     adminId: actor.id,
     adminName: actor.name,
-    iat: Date.now(),
+    iat: issuedAt,
+    exp: issuedAt + DEMAND_LINK_TTL_MS,
   };
 
   const token = signDemandLink(payload);
@@ -287,7 +337,7 @@ export async function submitDemandViaVerifiedLink(
   if (input.description?.trim()) descParts.push(`\n**Briefing & Informações:**\n${input.description.trim()}`);
   if (input.referenceUrls?.trim()) descParts.push(`\n**Links & Referências:**\n${input.referenceUrls.trim()}`);
 
-  const fullDescription = descParts.join("\n\n");
+  const fullDescription = sanitizeRichText(descParts.join("\n\n"));
 
   // Garante tags do formato se existirem no workspace
   const tagIds = new Set(input.tagIds || []);
@@ -312,11 +362,34 @@ export async function submitDemandViaVerifiedLink(
     }
   }
 
-  const taskId = uid("task");
   const taskTitle =
     input.title?.trim() ||
     input.subject?.trim() ||
     `Demanda: ${formatText || "Conteúdo"}`;
+
+  const incomingAttachments = (input.attachments ?? []).filter((item) => item.base64);
+  if (incomingAttachments.length > MAX_ATTACHMENTS) {
+    throw new ApiError(400, "Envie no máximo 8 arquivos.");
+  }
+  const preparedAttachments = incomingAttachments.map((item) => {
+    const mime = safeAttachmentMime(item.name, item.type);
+    const payload64 = item.base64 ?? "";
+    if (payload64.length > MAX_BASE64_CHARS) {
+      throw new ApiError(400, "O arquivo passa de 10 MB.");
+    }
+    const buffer = Buffer.from(payload64.replace(/^data:[^;]+;base64,/, ""), "base64");
+    if (buffer.length <= 0) throw new ApiError(400, "Envie um arquivo.");
+    if (buffer.length > MAX_ATTACHMENT_BYTES) {
+      throw new ApiError(400, "O arquivo passa de 10 MB.");
+    }
+    return {
+      name: item.name.trim().slice(0, 180) || "anexo",
+      mime,
+      buffer,
+    };
+  });
+
+  const taskId = uid("task");
 
   const createdTask = await prisma.task.create({
     data: {
@@ -348,30 +421,21 @@ export async function submitDemandViaVerifiedLink(
     },
   });
 
-  // Salva anexos de arquivos/imagens/vídeos/documentos se fornecidos
   const attachmentDir = path.join(process.cwd(), "server/data/attachments");
-  if (input.attachments && input.attachments.length > 0) {
+  if (preparedAttachments.length > 0) {
     await mkdir(attachmentDir, { recursive: true });
-    for (const item of input.attachments) {
-      if (item.base64) {
-        try {
-          const cleanBase64 = item.base64.replace(/^data:[^;]+;base64,/, "");
-          const buffer = Buffer.from(cleanBase64, "base64");
-          const fileId = uid("file");
-          await writeFile(path.join(attachmentDir, fileId), buffer);
-          await prisma.attachment.create({
-            data: {
-              id: fileId,
-              taskId: createdTask.id,
-              name: item.name.slice(0, 180) || "anexo",
-              mime: item.type || "application/octet-stream",
-              size: buffer.length,
-            },
-          });
-        } catch (err) {
-          console.error("Erro ao salvar anexo da demanda:", err);
-        }
-      }
+    for (const item of preparedAttachments) {
+      const fileId = uid("file");
+      await writeFile(path.join(attachmentDir, fileId), item.buffer);
+      await prisma.attachment.create({
+        data: {
+          id: fileId,
+          taskId: createdTask.id,
+          name: item.name,
+          mime: item.mime,
+          size: item.buffer.length,
+        },
+      });
     }
   }
 

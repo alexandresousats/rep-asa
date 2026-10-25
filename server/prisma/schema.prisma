@@ -319,6 +319,7 @@ model ApiKey {
   prefix      String
   workspaceId String?
   lastUsedAt  DateTime?
+  expiresAt   DateTime?
   createdAt   DateTime   @default(now())
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
