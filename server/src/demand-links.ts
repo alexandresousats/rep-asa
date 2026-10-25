@@ -10,8 +10,25 @@ import { todayISO, uid } from "./crypto";
 import { sanitizeRichText } from "./html";
 
 const LEAKED_DEMAND_LINK_SECRET = "asa-demand-link-verified-secret-key-2026-secure-salt";
-const DEMAND_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_DEMAND_LINK_TTL_MS = 7 * DAY_MS;
+const MAX_DEMAND_LINK_TTL_MS = 30 * DAY_MS;
 const DEMAND_LINK_SKEW_MS = 2 * 60 * 1000;
+
+export function demandLinkTtlMs(raw = process.env.DEMAND_LINK_TTL): number {
+  if (raw == null || raw.trim() === "") return DEFAULT_DEMAND_LINK_TTL_MS;
+  const match = /^(\d+)(s|m|h|d)?$/i.exec(raw.trim());
+  if (!match) return DEFAULT_DEMAND_LINK_TTL_MS;
+  const amount = Number(match[1]);
+  if (!Number.isSafeInteger(amount) || amount <= 0) return DEFAULT_DEMAND_LINK_TTL_MS;
+  const unit = (match[2] ?? "s").toLowerCase();
+  const unitMs =
+    unit === "d" ? DAY_MS : unit === "h" ? 60 * 60 * 1000 : unit === "m" ? 60 * 1000 : 1000;
+  const ms = amount * unitMs;
+  if (!Number.isSafeInteger(ms) || ms <= 0) return DEFAULT_DEMAND_LINK_TTL_MS;
+  return Math.min(ms, MAX_DEMAND_LINK_TTL_MS);
+}
+
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 8;
 const MAX_BASE64_CHARS = 14_000_000;
@@ -69,7 +86,7 @@ function validDemandLinkTimes(payload: DemandLinkPayload) {
   if (payload.iat > now + DEMAND_LINK_SKEW_MS) return false;
   if (payload.exp <= now) return false;
   if (payload.exp < payload.iat) return false;
-  if (payload.exp - payload.iat > DEMAND_LINK_TTL_MS + DEMAND_LINK_SKEW_MS) return false;
+  if (payload.exp - payload.iat > demandLinkTtlMs() + DEMAND_LINK_SKEW_MS) return false;
   return true;
 }
 
@@ -132,7 +149,7 @@ export async function generateDemandLinkToken(
     adminId: actor.id,
     adminName: actor.name,
     iat: issuedAt,
-    exp: issuedAt + DEMAND_LINK_TTL_MS,
+    exp: issuedAt + demandLinkTtlMs(),
   };
 
   const token = signDemandLink(payload);
