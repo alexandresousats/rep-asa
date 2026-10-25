@@ -1,137 +1,85 @@
 import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
-import { ApiError } from "./errors";
+import { isIP } from "node:net";
 
-export const AGENT_URL_BLOCKED = "URL do agente não permitida.";
-
-const block = new BlockList();
-block.addSubnet("0.0.0.0", 8, "ipv4");
-block.addSubnet("10.0.0.0", 8, "ipv4");
-block.addSubnet("100.64.0.0", 10, "ipv4");
-block.addSubnet("127.0.0.0", 8, "ipv4");
-block.addSubnet("169.254.0.0", 16, "ipv4");
-block.addSubnet("172.16.0.0", 12, "ipv4");
-block.addSubnet("192.0.0.0", 24, "ipv4");
-block.addSubnet("192.0.2.0", 24, "ipv4");
-block.addSubnet("192.168.0.0", 16, "ipv4");
-block.addSubnet("198.18.0.0", 15, "ipv4");
-block.addSubnet("198.51.100.0", 24, "ipv4");
-block.addSubnet("203.0.113.0", 24, "ipv4");
-block.addSubnet("224.0.0.0", 4, "ipv4");
-block.addSubnet("240.0.0.0", 4, "ipv4");
-block.addAddress("255.255.255.255", "ipv4");
-block.addAddress("::", "ipv6");
-block.addAddress("::1", "ipv6");
-// Não incluir ::ffff:0:0/96. O Node compara IPv4 com a forma mapeada,
-// e esse prefixo bloquearia todo IPv4 público. Mapeado privado cai na regra IPv4.
-block.addSubnet("fc00::", 7, "ipv6");
-block.addSubnet("fe80::", 10, "ipv6");
-block.addSubnet("fec0::", 10, "ipv6");
-block.addSubnet("ff00::", 8, "ipv6");
-block.addSubnet("2001:db8::", 32, "ipv6");
-
-const METADATA_HOSTS = new Set(["metadata.google.internal", "metadata.goog"]);
-
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-const MAX_REDIRECTS = 5;
-
-function denied(): never {
-  throw new ApiError(400, AGENT_URL_BLOCKED);
+export class UnsafeUrlError extends Error {
+  constructor(message = "URL do agente não permitida.") {
+    super(message);
+    this.name = "UnsafeUrlError";
+  }
 }
 
-function bareHost(hostname: string) {
-  let host = hostname.trim().toLowerCase();
-  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
-  if (host.endsWith(".")) host = host.slice(0, -1);
-  return host;
+const BLOCKED_HOSTS = new Set([
+  "localhost",
+  "localhost.localdomain",
+  "metadata.google.internal",
+  "metadata",
+]);
+
+export function isBlockedIp(ip: string) {
+  let value = ip.trim().toLowerCase();
+  if (value.startsWith("[") && value.endsWith("]")) value = value.slice(1, -1);
+  const zone = value.indexOf("%");
+  if (zone !== -1) value = value.slice(0, zone);
+  if (value.startsWith("::ffff:")) {
+    const mapped = value.slice("::ffff:".length);
+    if (mapped.includes(".")) return isBlockedIp(mapped);
+  }
+  if (value === "::1" || value === "::" || value === "0.0.0.0") return true;
+  if (value.includes(":")) {
+    const head = value.split(":").find((part) => part.length > 0) ?? "0";
+    const first = Number.parseInt(head, 16);
+    if (!Number.isFinite(first)) return true;
+    if (first >= 0xfe80 && first <= 0xfebf) return true;
+    if ((first & 0xfe00) === 0xfc00) return true;
+    return false;
+  }
+  const parts = value.split(".");
+  if (parts.length !== 4) return false;
+  const nums = parts.map((part) => Number(part));
+  if (nums.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  const [a, b] = nums;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a >= 224) return true;
+  return false;
 }
 
-function blockedName(host: string) {
-  if (!host) return true;
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host.endsWith(".local") || host.endsWith(".internal")) return true;
-  return METADATA_HOSTS.has(host);
+function blockedHostname(host: string) {
+  const name = host.replace(/\.$/, "").toLowerCase();
+  if (!name || BLOCKED_HOSTS.has(name)) return true;
+  if (name.endsWith(".localhost") || name.endsWith(".local") || name.endsWith(".internal")) {
+    return true;
+  }
+  if (/^\d+$/.test(name) || /^0x[0-9a-f]+$/i.test(name)) return true;
+  return false;
 }
 
-function blockedAddress(address: string) {
-  const version = isIP(address);
-  if (version === 4) return block.check(address, "ipv4");
-  if (version === 6) return block.check(address, "ipv6");
-  return true;
-}
-
-export async function assertPublicHttpUrl(raw: string): Promise<URL> {
+export async function assertPublicHttpUrl(raw: string) {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return denied();
+    throw new UnsafeUrlError();
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") denied();
-  if (url.username || url.password) denied();
-  const host = bareHost(url.hostname);
-  if (blockedName(host)) denied();
+  if (url.username || url.password) throw new UnsafeUrlError();
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new UnsafeUrlError();
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (blockedHostname(host)) throw new UnsafeUrlError();
   if (isIP(host)) {
-    if (blockedAddress(host)) denied();
+    if (isBlockedIp(host)) throw new UnsafeUrlError();
     return url;
   }
-
   let records: { address: string }[];
   try {
     records = await lookup(host, { all: true, verbatim: true });
   } catch {
-    denied();
+    throw new UnsafeUrlError("Não foi possível resolver o endereço do agente.");
   }
-  if (records.length === 0) denied();
-  for (const record of records) {
-    if (blockedAddress(record.address)) denied();
+  if (records.length === 0 || records.some((record) => isBlockedIp(record.address))) {
+    throw new UnsafeUrlError();
   }
   return url;
-}
-
-function toGet(headers: Headers) {
-  headers.delete("content-type");
-  headers.delete("content-length");
-}
-
-export async function fetchPublic(url: string, init: RequestInit = {}): Promise<Response> {
-  let current = url;
-  let method = (init.method ?? "GET").toUpperCase();
-  let body = init.body;
-  const headers = new Headers(init.headers);
-
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    await assertPublicHttpUrl(current);
-    const response = await fetch(current, {
-      ...init,
-      method,
-      headers,
-      body: method === "GET" || method === "HEAD" ? undefined : body,
-      redirect: "manual",
-    });
-    if (!REDIRECT_STATUSES.has(response.status)) return response;
-    if (hop === MAX_REDIRECTS) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new ApiError(502, "O provedor redirecionou vezes demais.");
-    }
-    const location = response.headers.get("location")?.trim();
-    await response.body?.cancel().catch(() => undefined);
-    if (!location) denied();
-    let next: string;
-    try {
-      next = new URL(location, current).href;
-    } catch {
-      denied();
-    }
-    const origin = new URL(current).origin;
-    const nextOrigin = new URL(next).origin;
-    if (origin !== nextOrigin) headers.delete("authorization");
-    if ((response.status === 301 || response.status === 302 || response.status === 303) && method !== "GET" && method !== "HEAD") {
-      method = "GET";
-      body = undefined;
-      toGet(headers);
-    }
-    current = next;
-  }
-  denied();
 }

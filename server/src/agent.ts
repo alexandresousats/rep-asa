@@ -1,8 +1,8 @@
 import type { Actor } from "./domain";
 import { todayISO } from "./crypto";
 import { ApiError } from "./errors";
+import { assertPublicHttpUrl, UnsafeUrlError } from "./net";
 import { callTool, tools } from "./mcp";
-import { assertPublicHttpUrl, fetchPublic } from "./net";
 
 export type AgentConfig = { baseUrl: string; apiKey: string; model: string };
 
@@ -109,7 +109,12 @@ export async function normalizeConfig(config: AgentConfig): Promise<AgentConfig>
   if (!/^https?:\/\//i.test(baseUrl)) {
     throw new ApiError(400, "A URL do agente precisa começar com http:// ou https://.");
   }
-  await assertPublicHttpUrl(baseUrl);
+  try {
+    await assertPublicHttpUrl(baseUrl);
+  } catch (error) {
+    if (error instanceof UnsafeUrlError) throw new ApiError(400, error.message);
+    throw error;
+  }
   if (!config.apiKey.trim()) throw new ApiError(400, "Informe a chave de API do agente.");
   if (!config.model.trim()) throw new ApiError(400, "Informe o modelo do agente.");
   return { baseUrl, apiKey: config.apiKey.trim(), model: config.model.trim() };
@@ -133,29 +138,23 @@ function systemPrompt(actor: Actor) {
   ].join("\n");
 }
 
-function providerError(status: number, body: string) {
-  let detail = body.trim().slice(0, 300);
-  try {
-    const parsed = JSON.parse(body) as { error?: { message?: string } | string; message?: string };
-    const message =
-      typeof parsed.error === "string" ? parsed.error : (parsed.error?.message ?? parsed.message);
-    if (message) detail = message;
-  } catch {
-    // Mantém o texto bruto.
-  }
+function providerError(status: number) {
   if (status === 401 || status === 403) {
-    return new ApiError(502, `O provedor recusou a chave de API. ${detail}`.trim());
+    return new ApiError(502, "O provedor recusou a chave de API.");
   }
   if (status === 404) {
-    return new ApiError(
-      502,
-      `Endereço ou modelo não encontrado. Confira a URL base e o nome do modelo. ${detail}`.trim(),
-    );
+    return new ApiError(502, "Endereço ou modelo não encontrado. Confira a URL base e o nome do modelo.");
   }
   if (status === 429) {
-    return new ApiError(502, `Limite de uso do provedor atingido. ${detail}`.trim());
+    return new ApiError(502, "Limite de uso do provedor atingido.");
   }
-  return new ApiError(502, `O provedor respondeu ${status}. ${detail}`.trim());
+  return new ApiError(502, `O provedor respondeu ${status}.`);
+}
+
+function fetchSignal(signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(15_000);
+  if (!signal) return timeout;
+  return AbortSignal.any([signal, timeout]);
 }
 
 async function postCompletion(
@@ -165,27 +164,33 @@ async function postCompletion(
 ) {
   let response: Response;
   try {
-    response = await fetchPublic(`${config.baseUrl}/chat/completions`, {
+    await assertPublicHttpUrl(config.baseUrl);
+    response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
+      redirect: "manual",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({ model: config.model, ...body }),
-      signal,
+      signal: fetchSignal(signal),
     });
   } catch (error) {
     if (signal?.aborted) throw error;
+    if (error instanceof UnsafeUrlError) throw new ApiError(400, error.message);
     if (error instanceof ApiError) throw error;
-    let host = config.baseUrl;
-    try {
-      host = new URL(config.baseUrl).host;
-    } catch {
-      // Usa a URL como veio.
-    }
-    throw new ApiError(502, `Não foi possível conectar a ${host}.`);
+    console.error("[agent] falha de conexão", error);
+    throw new ApiError(502, "Não foi possível conectar ao provedor.");
   }
-  if (!response.ok) throw providerError(response.status, await response.text());
+  if (response.status >= 300 && response.status < 400) {
+    console.error("[agent] redirecionamento recusado", response.status);
+    throw new ApiError(502, "O provedor redirecionou a requisição.");
+  }
+  if (!response.ok) {
+    const detail = await response.text();
+    console.error("[agent] provedor respondeu", response.status, detail.slice(0, 300));
+    throw providerError(response.status);
+  }
   return response;
 }
 

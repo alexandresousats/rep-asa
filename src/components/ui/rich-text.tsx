@@ -24,7 +24,7 @@ const BLOCKS = [
   { label: "Subtítulo", value: "h3" },
 ];
 
-function toHtml(value: string) {
+function plainToHtml(value: string) {
   if (!value) return "";
   if (/<[a-z][\s\S]*>/i.test(value)) return value;
   return value
@@ -32,6 +32,53 @@ function toHtml(value: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br>");
+}
+
+const RICH_TEXT_PURIFY = {
+  ALLOWED_TAGS: [
+    "a",
+    "b",
+    "strong",
+    "i",
+    "em",
+    "u",
+    "s",
+    "strike",
+    "del",
+    "code",
+    "pre",
+    "p",
+    "br",
+    "div",
+    "span",
+    "h2",
+    "h3",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "mark",
+  ],
+  ALLOWED_ATTR: ["href", "style"],
+  ALLOWED_URI_REGEXP: /^(?:https?:|mailto:)/i,
+};
+
+let purifyHooked = false;
+
+async function sanitizeEditorHtml(value: string) {
+  const { default: DOMPurify } = await import("dompurify");
+  if (!purifyHooked) {
+    purifyHooked = true;
+    DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+      if (
+        data.attrName === "style" &&
+        /url\s*\(|expression\s*\(|javascript:/i.test(data.attrValue)
+      ) {
+        data.keepAttr = false;
+      }
+    });
+  }
+  return DOMPurify.sanitize(plainToHtml(value), RICH_TEXT_PURIFY);
 }
 
 export function RichText({
@@ -50,8 +97,14 @@ export function RichText({
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || document.activeElement === editor) return;
-    const html = toHtml(value);
-    if (editor.innerHTML !== html) editor.innerHTML = html;
+    let cancelled = false;
+    void sanitizeEditorHtml(value).then((html) => {
+      if (cancelled || !editorRef.current || document.activeElement === editorRef.current) return;
+      if (editorRef.current.innerHTML !== html) editorRef.current.innerHTML = html;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [value]);
 
   function run(command: string, arg?: string) {

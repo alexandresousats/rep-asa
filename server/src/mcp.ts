@@ -396,7 +396,7 @@ export async function callTool(actor: Actor, name: string, args: Record<string, 
     const space = actor.workspaceName ? ` no espaço "${actor.workspaceName}"` : "";
     throw new ApiError(
       403,
-      `Só um administrador pode usar esta ferramenta. Seu acesso${space} é ${actor.access}. Use list_workspaces e select_workspace para entrar num espaço em que você é administrador.`,
+      `Só um administrador pode usar esta ferramenta. Seu acesso${space} é ${actor.access}.`,
     );
   }
   switch (name) {

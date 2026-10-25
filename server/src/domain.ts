@@ -16,6 +16,7 @@ import { prisma } from "./db";
 import { ApiError } from "./errors";
 import { publish } from "./events";
 import { sendMail } from "./mail";
+import { sanitizeRichText } from "./html";
 import {
   publicNotification,
   publicProject,
@@ -116,6 +117,7 @@ export async function actorFromApiKey(secret: string) {
     include: { user: true },
   });
   if (!key || !hashesEqual(key.keyHash, sha256(secret))) return null;
+  if (!key.workspaceId || !key.expiresAt || key.expiresAt.getTime() < Date.now()) return null;
   await prisma.apiKey.update({
     where: { id: key.id },
     data: { lastUsedAt: new Date() },
@@ -710,6 +712,10 @@ export async function listWorkspaces(actor: Actor) {
 
 export async function selectApiKeyWorkspace(actor: Actor, workspaceId: string) {
   if (!actor.apiKeyId) throw new ApiError(400, "Esta sessão não usa uma chave de API.");
+  const key = await prisma.apiKey.findUnique({ where: { id: actor.apiKeyId } });
+  if (!key?.workspaceId || key.workspaceId !== workspaceId) {
+    throw new ApiError(403, "Esta chave só acessa o espaço em que foi criada.");
+  }
   const membership = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId: actor.id } },
     include: { workspace: true },
@@ -717,10 +723,6 @@ export async function selectApiKeyWorkspace(actor: Actor, workspaceId: string) {
   if (!membership || membership.status !== "active") {
     throw new ApiError(404, "Espaço não encontrado.");
   }
-  await prisma.apiKey.update({
-    where: { id: actor.apiKeyId },
-    data: { workspaceId },
-  });
   actor.workspaceId = workspaceId;
   actor.workspaceName = membership.workspace.name;
   actor.access = membership.owner ? "admin" : membership.access;
@@ -1033,7 +1035,6 @@ export async function createTask(
     isDemand?: boolean;
     demandFormat?: string | null;
     referenceUrls?: string | null;
-    approvalStatus?: "none" | "pending" | "approved" | "changes_requested";
   },
 ) {
   assertWritable(actor);
@@ -1065,7 +1066,7 @@ export async function createTask(
       id: uid("task"),
       projectId: project.id,
       title,
-      description: input.description?.trim() ?? "",
+      description: sanitizeRichText(input.description ?? ""),
       assigneeId,
       dueDate: input.dueDate ?? null,
       startDate: input.startDate ?? input.dueDate ?? null,
@@ -1077,7 +1078,7 @@ export async function createTask(
       isDemand: input.isDemand ?? false,
       demandFormat: input.demandFormat ?? null,
       referenceUrls: input.referenceUrls?.trim() ?? null,
-      approvalStatus: input.approvalStatus ?? "none",
+      approvalStatus: "none",
       tags: input.tagIds?.length
         ? { create: input.tagIds.map((tagId) => ({ tagId })) }
         : undefined,
@@ -1129,10 +1130,6 @@ const editorFields = new Set([
   "isDemand",
   "demandFormat",
   "referenceUrls",
-  "approvalStatus",
-  "approvalFeedback",
-  "approvedAt",
-  "approvedById",
 ]);
 
 export async function updateTask(
@@ -1153,10 +1150,6 @@ export async function updateTask(
     isDemand?: boolean;
     demandFormat?: string | null;
     referenceUrls?: string | null;
-    approvalStatus?: "none" | "pending" | "approved" | "changes_requested";
-    approvalFeedback?: string | null;
-    approvedAt?: string | null;
-    approvedById?: string | null;
   },
 ) {
   assertWritable(actor);
@@ -1174,7 +1167,7 @@ export async function updateTask(
     if (!title) throw new ApiError(400, "Informe o título.");
     data.title = title;
   }
-  if (patch.description !== undefined) data.description = patch.description;
+  if (patch.description !== undefined) data.description = sanitizeRichText(patch.description);
   if (patch.dueDate !== undefined) data.dueDate = patch.dueDate;
   if (patch.startDate !== undefined) data.startDate = patch.startDate;
   if (patch.priority !== undefined) data.priority = patch.priority;
@@ -1182,12 +1175,6 @@ export async function updateTask(
   if (patch.isDemand !== undefined) data.isDemand = patch.isDemand;
   if (patch.demandFormat !== undefined) data.demandFormat = patch.demandFormat;
   if (patch.referenceUrls !== undefined) data.referenceUrls = patch.referenceUrls;
-  if (patch.approvalStatus !== undefined) data.approvalStatus = patch.approvalStatus;
-  if (patch.approvalFeedback !== undefined) data.approvalFeedback = patch.approvalFeedback;
-  if (patch.approvedAt !== undefined) data.approvedAt = patch.approvedAt;
-  if (patch.approvedById !== undefined) {
-    data.approvedBy = patch.approvedById ? { connect: { id: patch.approvedById } } : { disconnect: true };
-  }
   if (patch.status !== undefined) {
     data.status = patch.status;
     data.completedAt = patch.status === "done" ? todayISO() : null;
@@ -1279,8 +1266,15 @@ export async function updateTaskApproval(
     feedback?: string;
   },
 ) {
-  assertWritable(actor);
   const task = await visibleTask(actor, id);
+  const deciding = input.status === "approved" || input.status === "changes_requested";
+  if (deciding) {
+    if (actor.access !== "cliente") {
+      throw new ApiError(403, "Só o cliente pode aprovar ou pedir ajustes.");
+    }
+  } else if (actor.access !== "admin" && actor.access !== "editor") {
+    throw new ApiError(403, "Só a equipe pode enviar a demanda para aprovação.");
+  }
   const feedback = input.feedback?.trim() ?? "";
   const now = new Date().toISOString();
 
@@ -1753,6 +1747,7 @@ export async function markAllNotificationsRead(actor: Actor) {
 export async function listApiKeys(actor: Actor) {
   const keys = await prisma.apiKey.findMany({
     where: { userId: actor.id },
+    include: { workspace: { select: { name: true } } },
     orderBy: { createdAt: "desc" },
   });
   return keys.map((key) => ({
@@ -1761,13 +1756,24 @@ export async function listApiKeys(actor: Actor) {
     prefix: key.prefix,
     lastUsedAt: key.lastUsedAt ? key.lastUsedAt.toISOString() : null,
     createdAt: key.createdAt.toISOString(),
+    expiresAt: key.expiresAt ? key.expiresAt.toISOString() : null,
+    workspaceId: key.workspaceId,
+    workspaceName: key.workspace?.name ?? null,
   }));
 }
+
+const API_KEY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 export async function createApiKey(actor: Actor, name: string) {
   const trimmed = name.trim();
   if (!trimmed) throw new ApiError(400, "Informe um nome para a chave.");
+  if (!actor.workspaceId) throw new ApiError(400, "Selecione um espaço de trabalho.");
   const secret = `asa_${randomToken()}`;
+  const expiresAt = new Date(Date.now() + API_KEY_TTL_MS);
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: actor.workspaceId },
+    select: { name: true },
+  });
   const key = await prisma.apiKey.create({
     data: {
       id: uid("key"),
@@ -1775,6 +1781,8 @@ export async function createApiKey(actor: Actor, name: string) {
       name: trimmed,
       keyHash: sha256(secret),
       prefix: secret.slice(0, 12),
+      workspaceId: actor.workspaceId,
+      expiresAt,
     },
   });
   return {
@@ -1783,6 +1791,37 @@ export async function createApiKey(actor: Actor, name: string) {
     prefix: key.prefix,
     secret,
     createdAt: key.createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    lastUsedAt: null,
+    workspaceId: actor.workspaceId,
+    workspaceName: workspace?.name ?? null,
+  };
+}
+
+export async function rotateApiKey(actor: Actor, id: string) {
+  const key = await prisma.apiKey.findUnique({
+    where: { id },
+    include: { workspace: { select: { name: true } } },
+  });
+  if (!key || key.userId !== actor.id) throw new ApiError(404, "Chave não encontrada.");
+  if (!key.workspaceId || !key.expiresAt || key.expiresAt.getTime() < Date.now()) {
+    throw new ApiError(400, "Gere uma chave nova. Esta não pode ser rotacionada.");
+  }
+  const secret = `asa_${randomToken()}`;
+  const updated = await prisma.apiKey.update({
+    where: { id },
+    data: { keyHash: sha256(secret), prefix: secret.slice(0, 12), lastUsedAt: null },
+  });
+  return {
+    id: updated.id,
+    name: updated.name,
+    prefix: updated.prefix,
+    secret,
+    createdAt: updated.createdAt.toISOString(),
+    expiresAt: key.expiresAt.toISOString(),
+    lastUsedAt: null,
+    workspaceId: key.workspaceId,
+    workspaceName: key.workspace?.name ?? null,
   };
 }
 

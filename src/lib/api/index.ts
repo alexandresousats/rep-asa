@@ -357,7 +357,6 @@ export async function createTask(input: {
   isDemand?: boolean;
   demandFormat?: string | null;
   referenceUrls?: string | null;
-  approvalStatus?: Task["approvalStatus"];
 }) {
   const task = await request<Task>("/tasks", {
     method: "POST",
@@ -616,6 +615,12 @@ export async function createApiKey(name: string) {
 
 export async function deleteApiKey(id: string) {
   await request(`/api-keys/${id}`, { method: "DELETE" });
+}
+
+export async function rotateApiKey(id: string) {
+  return request<import("../types").ApiKeyInfo & { secret: string }>(`/api-keys/${id}/rotate`, {
+    method: "POST",
+  });
 }
 
 export async function markNotificationRead(id: string) {
