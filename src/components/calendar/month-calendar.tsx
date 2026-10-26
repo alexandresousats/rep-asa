@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  addDays,
   addMonths,
+  differenceInCalendarDays,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
@@ -102,6 +104,10 @@ export function MonthCalendar({
 
   // Popover for "+N mais" tasks
   const [expandedDate, setExpandedDate] = useState<Date | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropDate, setDropDate] = useState<string | null>(null);
+  const draggingIdRef = useRef<string | null>(null);
+  const suppressDayClickRef = useRef(false);
 
   const filterRef = useRef<HTMLDivElement>(null);
   const inlineInputRef = useRef<HTMLInputElement>(null);
@@ -351,6 +357,55 @@ export function MonthCalendar({
     (priorityFilter !== "all" ? 1 : 0) +
     (projectFilter !== "all" ? 1 : 0) +
     (search.trim() ? 1 : 0);
+
+  function moveTaskToDate(taskId: string, targetISO: string) {
+    if (!canWrite) return;
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    const due = task.dueDate?.slice(0, 10) ?? null;
+    if (due === targetISO) return;
+    if (!due) {
+      const start = task.startDate?.slice(0, 10);
+      updateTask(task.id, {
+        dueDate: targetISO,
+        startDate: start && start <= targetISO ? start : targetISO,
+      });
+    } else {
+      const delta = differenceInCalendarDays(parseDate(targetISO), parseDate(due));
+      const start = task.startDate?.slice(0, 10);
+      updateTask(task.id, {
+        dueDate: targetISO,
+        ...(start ? { startDate: toISODate(addDays(parseDate(start), delta)) } : {}),
+      });
+    }
+    setExpandedDate(null);
+  }
+
+  function scrollWhileDragging(event: React.DragEvent) {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const edge = 64;
+    if (event.clientY < rect.top + edge) container.scrollTop -= 22;
+    else if (event.clientY > rect.bottom - edge) container.scrollTop += 22;
+  }
+
+  function beginTaskDrag(event: React.DragEvent, taskId: string) {
+    if (!canWrite) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.setData("text/plain", taskId);
+    event.dataTransfer.effectAllowed = "move";
+    draggingIdRef.current = taskId;
+    setDraggingId(taskId);
+  }
+
+  function endTaskDrag() {
+    draggingIdRef.current = null;
+    setDraggingId(null);
+    setDropDate(null);
+  }
 
   function resetFilters() {
     setSearch("");
@@ -737,15 +792,36 @@ export function MonthCalendar({
                         id={`day-${dayISO}`}
                         data-date={dayISO}
                         onClick={() => {
-                          if (canWrite && !isCreating) {
+                          if (suppressDayClickRef.current) {
+                            suppressDayClickRef.current = false;
+                            return;
+                          }
+                          if (canWrite && !isCreating && !draggingId) {
                             setCreatingDate(dayISO);
                           }
                         }}
+                        onDragOver={(event) => {
+                          if (!canWrite || !draggingIdRef.current) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          scrollWhileDragging(event);
+                          if (dropDate !== dayISO) setDropDate(dayISO);
+                        }}
+                        onDrop={(event) => {
+                          if (!canWrite) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          suppressDayClickRef.current = true;
+                          const taskId = event.dataTransfer.getData("text/plain") || draggingIdRef.current;
+                          if (taskId) moveTaskToDate(taskId, dayISO);
+                          endTaskDrag();
+                        }}
                         className={cn(
                           "group relative min-h-[160px] sm:min-h-[175px] p-1.5 sm:p-2 transition-colors",
-                          "cursor-copy",
+                          canWrite ? "cursor-copy" : undefined,
                           isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
                           "hover:bg-hover/30",
+                          dropDate === dayISO && "bg-blue-500/15 ring-2 ring-inset ring-blue-400/70",
                         )}
                       >
                         {/* Day Header: Number/Month name + Hover Add button */}
@@ -796,6 +872,10 @@ export function MonthCalendar({
                             allTasks={allStoreTasks}
                             selectedId={selectedId}
                             onSelect={onSelect}
+                            canDrag={canWrite}
+                            dragging={draggingId === task.id}
+                            onDragTask={beginTaskDrag}
+                            onDragTaskEnd={endTaskDrag}
                           />
                         ))}
 
@@ -905,7 +985,7 @@ export function MonthCalendar({
             </div>
 
             <p className="mt-2 text-[11px] text-faint">
-              Tarefas sem data de conclusão. Clique para agendar ou abrir.
+              Arraste para um dia do calendário, ou clique para abrir.
             </p>
 
             <div className="mt-3 space-y-2">
@@ -913,22 +993,37 @@ export function MonthCalendar({
                 undatedTasks.map((task) => (
                   <div
                     key={task.id}
-                    className="group rounded-xl border border-line bg-base/50 p-2.5 transition-all hover:border-line-subtle hover:bg-hover/50 hover:shadow-xs"
+                    draggable={canWrite}
+                    onDragStart={(event) => beginTaskDrag(event, task.id)}
+                    onDragEnd={endTaskDrag}
+                    className={cn(
+                      "group rounded-xl border border-line bg-base/50 p-2.5 transition-all hover:border-line-subtle hover:bg-hover/50 hover:shadow-xs",
+                      canWrite && "cursor-grab active:cursor-grabbing",
+                      draggingId === task.id && "opacity-40",
+                    )}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => onSelect(task.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onSelect(task.id);
+                          }
+                        }}
                         className="text-left text-xs font-medium text-ink hover:underline line-clamp-2"
                       >
                         {task.title}
-                      </button>
+                      </div>
                     </div>
 
                     <div className="mt-2.5 flex items-center justify-between gap-1 text-[11px]">
                       {/* Quick Schedule to Today */}
                       <button
                         type="button"
+                        onMouseDown={(event) => event.stopPropagation()}
                         onClick={() =>
                           updateTask(task.id, {
                             dueDate: toISODate(today),
@@ -974,6 +1069,10 @@ export function MonthCalendar({
           allTasks={allStoreTasks}
           selectedId={selectedId}
           onSelect={onSelect}
+          canDrag={canWrite}
+          draggingId={draggingId}
+          onDragTask={beginTaskDrag}
+          onDragTaskEnd={endTaskDrag}
           onClose={() => setExpandedDate(null)}
           onAddTask={() => {
             const dateStr = toISODate(expandedDate);
@@ -995,6 +1094,10 @@ function CalendarTaskCard({
   allTasks,
   selectedId,
   onSelect,
+  canDrag = false,
+  dragging = false,
+  onDragTask,
+  onDragTaskEnd,
 }: {
   task: Task;
   tags: Tag[];
@@ -1003,6 +1106,10 @@ function CalendarTaskCard({
   allTasks: Task[];
   selectedId?: string | null;
   onSelect: (id: string) => void;
+  canDrag?: boolean;
+  dragging?: boolean;
+  onDragTask?: (event: React.DragEvent, taskId: string) => void;
+  onDragTaskEnd?: () => void;
 }) {
   const isDone = task.status === "done";
   const assignee = users.find((u) => u.id === task.assigneeId);
@@ -1016,13 +1123,29 @@ function CalendarTaskCard({
   const subtasksCount = useMemo(() => {
     return allTasks.filter((t) => t.parentId === task.id).length;
   }, [allTasks, task.id]);
+  const draggedRef = useRef(false);
 
   return (
     <div
       role="button"
       tabIndex={0}
+      draggable={canDrag}
+      onDragStart={(event) => {
+        if (!canDrag) return;
+        draggedRef.current = true;
+        event.stopPropagation();
+        onDragTask?.(event, task.id);
+      }}
+      onDragEnd={(event) => {
+        event.stopPropagation();
+        onDragTaskEnd?.();
+      }}
       onClick={(e) => {
         e.stopPropagation();
+        if (draggedRef.current) {
+          draggedRef.current = false;
+          return;
+        }
         onSelect(task.id);
       }}
       onKeyDown={(e) => {
@@ -1034,8 +1157,9 @@ function CalendarTaskCard({
       className={cn(
         "group relative flex w-full items-start gap-1.5 rounded-lg border px-2.5 py-1.5 sm:py-2 text-left text-xs transition-all duration-150 min-h-[40px]",
         "border-black/10 dark:border-white/10 shadow-2xs hover:shadow-xs hover:brightness-95 dark:hover:brightness-110",
+        canDrag && "cursor-grab active:cursor-grabbing",
         selectedId === task.id && "ring-2 ring-ink ring-offset-1 ring-offset-elevated",
-        isDone && "opacity-60",
+        (isDone || dragging) && "opacity-60",
       )}
       style={{
         backgroundColor: `${color}25`,
@@ -1059,6 +1183,7 @@ function CalendarTaskCard({
       <button
         type="button"
         aria-label={isDone ? "Marcar como a fazer" : "Marcar como concluída"}
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           setTaskStatus(task.id, isDone ? "todo" : "done");
@@ -1122,6 +1247,10 @@ function DayTasksModal({
   allTasks,
   selectedId,
   onSelect,
+  canDrag,
+  draggingId,
+  onDragTask,
+  onDragTaskEnd,
   onClose,
   onAddTask,
 }: {
@@ -1133,11 +1262,20 @@ function DayTasksModal({
   allTasks: Task[];
   selectedId?: string | null;
   onSelect: (id: string) => void;
+  canDrag?: boolean;
+  draggingId?: string | null;
+  onDragTask?: (event: React.DragEvent, taskId: string) => void;
+  onDragTaskEnd?: () => void;
   onClose: () => void;
   onAddTask: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex items-center justify-center p-4",
+        draggingId && "pointer-events-none opacity-0",
+      )}
+    >
       <button
         type="button"
         className="absolute inset-0 bg-black/50 backdrop-blur-xs"
@@ -1171,6 +1309,10 @@ function DayTasksModal({
               projects={projects}
               allTasks={allTasks}
               selectedId={selectedId}
+              canDrag={canDrag}
+              dragging={draggingId === task.id}
+              onDragTask={onDragTask}
+              onDragTaskEnd={onDragTaskEnd}
               onSelect={(id) => {
                 onSelect(id);
                 onClose();
