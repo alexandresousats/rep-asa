@@ -26,6 +26,7 @@ export interface User {
 export interface WorkspaceInfo {
   id: string;
   name: string;
+  logo?: string | null;
 }
 
 export interface WorkspaceMembership {

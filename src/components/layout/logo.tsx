@@ -1,6 +1,24 @@
 import { cn } from "@/lib/cn";
 
-export function Logo({ className }: { className?: string }) {
+export function Logo({
+  className,
+  src,
+  alt = "ASA",
+}: {
+  className?: string;
+  src?: string | null;
+  alt?: string;
+}) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={cn("h-7 max-w-24 object-contain object-left", className)}
+      />
+    );
+  }
+
   return (
     <span
       className={cn(

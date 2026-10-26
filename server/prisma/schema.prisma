@@ -72,6 +72,7 @@ model User {
 model Workspace {
   id           String   @id
   name         String
+  logo         String?  @db.Text
   agentBaseUrl String?
   agentModel   String?
   agentApiKey  String?  @db.Text

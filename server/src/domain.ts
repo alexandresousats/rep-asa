@@ -739,16 +739,40 @@ export async function selectApiKeyWorkspace(actor: Actor, workspaceId: string) {
   };
 }
 
-export async function renameWorkspace(actor: Actor, name: string) {
+const WORKSPACE_LOGO =
+  /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=\r\n]+$/i;
+
+export async function updateCurrentWorkspace(
+  actor: Actor,
+  patch: { name?: string; logo?: string | null },
+) {
   assertAdmin(actor);
-  const trimmed = name.trim();
-  if (!trimmed) throw new ApiError(400, "Informe o nome do espaço.");
   if (!actor.workspaceId) throw new ApiError(400, "Nenhum espaço selecionado.");
+  const data: { name?: string; logo?: string | null } = {};
+  if (patch.name !== undefined) {
+    const trimmed = patch.name.trim();
+    if (!trimmed) throw new ApiError(400, "Informe o nome do espaço.");
+    data.name = trimmed;
+  }
+  if (patch.logo !== undefined) {
+    if (patch.logo === null || patch.logo.trim() === "") {
+      data.logo = null;
+    } else {
+      const logo = patch.logo.trim();
+      if (logo.length > 500_000 || !WORKSPACE_LOGO.test(logo)) {
+        throw new ApiError(400, "Envie uma imagem PNG, JPEG, WEBP ou GIF.");
+      }
+      data.logo = logo;
+    }
+  }
+  if (data.name === undefined && data.logo === undefined) {
+    throw new ApiError(400, "Nada para atualizar.");
+  }
   const workspace = await prisma.workspace.update({
     where: { id: actor.workspaceId },
-    data: { name: trimmed },
+    data,
   });
-  return { id: workspace.id, name: workspace.name };
+  return { id: workspace.id, name: workspace.name, logo: workspace.logo };
 }
 
 export async function deleteWorkspace(actor: Actor, workspaceId: string) {
@@ -1845,6 +1869,7 @@ export async function bootstrap(actor: Actor) {
     .map((item) => ({
       id: item.workspace.id,
       name: item.workspace.name,
+      logo: item.workspace.logo,
       access: item.access,
     }));
   const invites = memberships

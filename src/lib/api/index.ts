@@ -174,6 +174,25 @@ export async function renameWorkspace(name: string) {
   });
 }
 
+export async function updateWorkspaceLogo(logo: string | null): Promise<Result> {
+  try {
+    const workspace = await request<{ id: string; name: string; logo: string | null }>(
+      "/workspaces/current",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ logo }),
+      },
+    );
+    const state = useWorkspace.getState();
+    useWorkspace.setState({
+      workspace: state.workspace ? { ...state.workspace, logo: workspace.logo } : null,
+    });
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 export async function acceptInvite(workspaceId: string) {
   await request(`/workspaces/${workspaceId}/accept`, { method: "POST" });
   await loadSession();

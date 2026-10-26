@@ -84,10 +84,10 @@ export function Sidebar({
         <span
           className={cn(
             "overflow-hidden transition-all duration-300",
-            collapsed ? "hidden" : "max-h-8 max-w-8 opacity-100",
+            collapsed ? "hidden" : "max-h-8 max-w-24 opacity-100",
           )}
         >
-          <Logo />
+          <Logo src={workspace?.logo} alt={workspace?.name ?? "ASA"} />
         </span>
         <div className={cn("flex items-center", collapsed && "w-full flex-col items-center")}>
           <NotificationBell collapsed={collapsed} />

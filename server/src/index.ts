@@ -55,7 +55,6 @@ import {
   removeAttachment,
   removeMember,
   renameSection,
-  renameWorkspace,
   reorderTasks,
   requestReset,
   selectWorkspace,
@@ -65,6 +64,7 @@ import {
   updateTask,
   updateTaskApproval,
   updateUser,
+  updateCurrentWorkspace,
 } from "./domain";
 import type { Actor } from "./domain";
 import { sessionCookieSecure } from "./cookie";
@@ -239,8 +239,14 @@ app.post("/workspaces/:id/select", async (c) => {
 });
 
 app.patch("/workspaces/current", async (c) => {
-  const body = parse(z.object({ name: z.string() }), await c.req.json());
-  return c.json(await renameWorkspace(await actorOf(c), body.name));
+  const body = parse(
+    z.object({
+      name: z.string().optional(),
+      logo: z.string().nullable().optional(),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await updateCurrentWorkspace(await actorOf(c), body));
 });
 
 app.get("/workspace/csv", async (c) => {

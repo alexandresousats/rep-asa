@@ -14,6 +14,7 @@ import { AgentSettingsCard } from "@/components/settings/agent-settings";
 import { ApiKeysCard } from "@/components/settings/api-keys";
 import { CsvBackupCard } from "@/components/settings/csv-backup";
 import { TagsManager } from "@/components/settings/tags-manager";
+import { WorkspaceLogoCard } from "@/components/settings/workspace-logo";
 import {
   createMcpServer,
   deleteMcpServer,
@@ -155,9 +156,11 @@ function SettingsContent() {
             <section>
               <h2 className="text-sm font-medium text-ink">Espaço de trabalho</h2>
               <p className="mt-1 mb-4 text-sm text-faint">
-                Nome visível para quem faz parte deste espaço.
+                Nome e logo visíveis para quem faz parte deste espaço.
               </p>
-              <Card className="border-none">
+              <div className="space-y-4">
+                <WorkspaceLogoCard logo={workspace.logo} name={workspace.name} />
+                <Card className="border-none">
                 <form
                   className="space-y-4"
                   onSubmit={(event) => {
@@ -190,7 +193,8 @@ function SettingsContent() {
                     <Button type="submit">Salvar</Button>
                   </div>
                 </form>
-              </Card>
+                </Card>
+              </div>
             </section>
           ) : null}
 
