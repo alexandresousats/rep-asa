@@ -772,3 +772,50 @@ export async function submitDemandViaLink(token: string, demand: SubmitDemandPay
     body: JSON.stringify({ token, demand }),
   });
 }
+
+export type CsvImportReport = {
+  tasks: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  projectsCreated: string[];
+  warnings: string[];
+};
+
+function csvQuery(projectId?: string) {
+  return projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+}
+
+export async function downloadWorkspaceCsv(projectId?: string) {
+  const res = await fetch(`/api/workspace/csv${csvQuery(projectId)}`, { credentials: "include" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new ApiError(res.status, data?.error ?? "Não foi possível exportar o CSV.");
+  }
+  const blob = await res.blob();
+  const match = res.headers.get("content-disposition")?.match(/filename="([^"]+)"/);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = match?.[1] || "tarefas.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function previewCsvImport(csv: string, projectId?: string) {
+  return request<CsvImportReport>(`/workspace/csv/preview${csvQuery(projectId)}`, {
+    method: "POST",
+    body: csv,
+    headers: { "content-type": "text/csv; charset=utf-8" },
+  });
+}
+
+export async function importWorkspaceCsv(csv: string, projectId?: string) {
+  return request<CsvImportReport>(`/workspace/csv/import${csvQuery(projectId)}`, {
+    method: "POST",
+    body: csv,
+    headers: { "content-type": "text/csv; charset=utf-8" },
+  });
+}

@@ -180,14 +180,19 @@ model Task {
   status      TaskStatus @default(todo)
   section     String
   order       Int        @default(0)
-  parentId    String?
-  completedAt String?
-  createdAt   String
-  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignee    User?      @relation("Assignee", fields: [assigneeId], references: [id])
-  parent      Task?      @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Task[]     @relation("Subtasks")
-  tags        TaskTag[]
+  parentId     String?
+  completedAt  String?
+  createdAt    String
+  updatedAt    String?
+  externalId   String?
+  customFields Json?
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee     User?      @relation("Assignee", fields: [assigneeId], references: [id])
+  parent       Task?      @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  children     Task[]     @relation("Subtasks")
+  blockedByEdges TaskDependency[] @relation("BlockedTask")
+  blockingEdges  TaskDependency[] @relation("BlockerTask")
+  tags         TaskTag[]
   comments    Comment[]
   followers        TaskFollower[]
   attachments      Attachment[]
@@ -203,6 +208,17 @@ model Task {
   @@index([projectId])
   @@index([assigneeId])
   @@index([approvalStatus])
+  @@index([externalId])
+}
+
+model TaskDependency {
+  blockerId String
+  blockedId String
+  blocker   Task @relation("BlockerTask", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   Task @relation("BlockedTask", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
 }
 
 model Tag {

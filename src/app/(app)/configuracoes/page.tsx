@@ -12,6 +12,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AgentSettingsCard } from "@/components/settings/agent-settings";
 import { ApiKeysCard } from "@/components/settings/api-keys";
+import { CsvBackupCard } from "@/components/settings/csv-backup";
 import { TagsManager } from "@/components/settings/tags-manager";
 import {
   createMcpServer,
@@ -192,6 +193,8 @@ function SettingsContent() {
               </Card>
             </section>
           ) : null}
+
+          <CsvBackupCard />
 
           <section>
             <div className="mb-4 flex items-center justify-between gap-4">

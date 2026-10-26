@@ -15,6 +15,7 @@ import {
   submitDemandViaVerifiedLink,
   verifyDemandLinkToken,
 } from "./demand-links";
+import { exportWorkspaceCsv, importWorkspaceCsv, previewWorkspaceCsv } from "./backup";
 import {
   actorFromApiKey,
   actorFromSession,
@@ -161,6 +162,13 @@ async function actorOf(c: Parameters<typeof getCookie>[0]): Promise<Actor> {
   throw new ApiError(401, "Sessão expirada.");
 }
 
+async function readCsvText(c: Parameters<typeof getCookie>[0]) {
+  const text = await c.req.text();
+  if (text.length > 5_000_000) throw new ApiError(413, "O arquivo passa de 5 MB.");
+  if (!text.trim()) throw new ApiError(400, "O arquivo CSV está vazio.");
+  return text;
+}
+
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.post("/auth/signup", async (c) => {
@@ -233,6 +241,26 @@ app.post("/workspaces/:id/select", async (c) => {
 app.patch("/workspaces/current", async (c) => {
   const body = parse(z.object({ name: z.string() }), await c.req.json());
   return c.json(await renameWorkspace(await actorOf(c), body.name));
+});
+
+app.get("/workspace/csv", async (c) => {
+  const projectId = c.req.query("projectId")?.trim() || undefined;
+  const file = await exportWorkspaceCsv(await actorOf(c), projectId);
+  return c.body(file.csv, 200, {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${file.filename}"`,
+    "cache-control": "no-store",
+  });
+});
+
+app.post("/workspace/csv/preview", async (c) => {
+  const projectId = c.req.query("projectId")?.trim() || undefined;
+  return c.json(await previewWorkspaceCsv(await actorOf(c), await readCsvText(c), projectId));
+});
+
+app.post("/workspace/csv/import", async (c) => {
+  const projectId = c.req.query("projectId")?.trim() || undefined;
+  return c.json(await importWorkspaceCsv(await actorOf(c), await readCsvText(c), projectId));
 });
 
 app.get("/workspace/agent", async (c) => c.json(await readWorkspaceAgent(await actorOf(c))));

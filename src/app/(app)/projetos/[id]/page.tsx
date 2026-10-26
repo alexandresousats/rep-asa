@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2, Download } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
@@ -16,7 +16,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { SectionBar, SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
-import { createTask, deleteProject, reorderTasks } from "@/lib/api";
+import { createTask, deleteProject, downloadWorkspaceCsv, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
 import type { ProjectView } from "@/lib/types";
@@ -57,6 +57,7 @@ function ProjectWorkspace() {
   const [editingInfo, setEditingInfo] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [exportError, setExportError] = useState("");
   const addMenuRef = useRef<HTMLDivElement>(null);
 
   const projects = useWorkspace((state) => state.projects);
@@ -178,8 +179,22 @@ function ProjectWorkspace() {
                 </button>
               ))}
             </div>
+            {exportError ? <p className="mt-2 text-xs text-red-400">{exportError}</p> : null}
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setExportError("");
+                void downloadWorkspaceCsv(project.id).catch((reason: Error) =>
+                  setExportError(reason.message),
+                );
+              }}
+            >
+              <Download className="h-4 w-4" />
+              Exportar CSV
+            </Button>
             {canWrite ? (
               <>
                 <div ref={addMenuRef} className="relative">

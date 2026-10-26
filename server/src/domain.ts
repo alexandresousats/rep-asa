@@ -1075,6 +1075,7 @@ export async function createTask(
       section,
       order: order + 1,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       isDemand: input.isDemand ?? false,
       demandFormat: input.demandFormat ?? null,
       referenceUrls: input.referenceUrls?.trim() ?? null,
@@ -1224,6 +1225,7 @@ export async function updateTask(
       data.assignee = { disconnect: true };
     }
   }
+  data.updatedAt = new Date().toISOString();
   const next = await prisma.task.update({ where: { id }, data, include: taskInclude });
   if (patch.tagIds) {
     await assertWorkspaceTags(actor, patch.tagIds);
@@ -1380,6 +1382,7 @@ export async function addSubtask(
       section: parent.section,
       parentId: parent.id,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     include: taskInclude,
   });
