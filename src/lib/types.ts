@@ -7,6 +7,27 @@ export type AccessLevel = "admin" | "editor" | "leitura" | "cliente";
 export type ApprovalStatus = "none" | "pending" | "approved" | "changes_requested";
 export type DemandFormat = "card" | "carrossel" | "video_longo" | "reels";
 
+export interface SeatInfo {
+  people: number;
+  capacity: number;
+  included: number;
+  max: number;
+  extraSeats: number;
+  seatPacks: number;
+  period: "month" | "quarter";
+  periodLabel: string;
+  totalLabel: string;
+  singlePriceLabel: string;
+  packPriceLabel: string;
+  usageLabel: string;
+  canAddSingle: boolean;
+  canAddPack: boolean;
+  canRemoveSingle: boolean;
+  canRemovePack: boolean;
+  canSwitchPeriod: boolean;
+  purchasable: boolean;
+}
+
 export interface BillingInfo {
   active: boolean;
   configured: boolean;
@@ -26,6 +47,7 @@ export interface BillingInfo {
   productName: string | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  seats: SeatInfo | null;
 }
 
 export interface User {
@@ -34,6 +56,9 @@ export interface User {
   lastName: string;
   name: string;
   email: string;
+  phone?: string | null;
+  emailVerified?: boolean;
+  hasPassword?: boolean;
   password?: string;
   initials: string;
   role: string;

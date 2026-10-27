@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { loadSession, openBillingPortal, refreshBilling, startCheckout } from "@/lib/api";
+import { loadSession, openBillingPortal, refreshBilling, startCheckout, updateBillingPeriod, updateSeats } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
 import { useWorkspace } from "@/lib/workspace";
 
@@ -91,6 +91,44 @@ export function BillingSettings() {
     }
   }
 
+  async function changeMix(extraSeats: number, seatPacks: number) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const session = await updateSeats({ extraSeats, seatPacks });
+      if (session.url) {
+        window.location.assign(session.url);
+        return;
+      }
+      setNotice("Pedido enviado. A capacidade muda quando o Dodo confirmar o pagamento.");
+      await refreshBilling();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "Não foi possível atualizar as vagas.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function switchPeriod(period: "month" | "quarter") {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const session = await updateBillingPeriod(period);
+      if (session.url) {
+        window.location.assign(session.url);
+        return;
+      }
+      setNotice("Pedido enviado. O período muda quando o Dodo confirmar o pagamento.");
+      await refreshBilling();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "Não foi possível trocar o período.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reload() {
     setError("");
     setBusy(true);
@@ -106,6 +144,7 @@ export function BillingSettings() {
   }
 
   const period = formatDate(billing?.currentPeriodEnd ?? null);
+  const seats = billing?.seats;
 
   return (
     <section className="space-y-4">
@@ -147,6 +186,79 @@ export function BillingSettings() {
         {confirming ? <p className="mt-4 text-sm text-muted">Confirmando o pagamento…</p> : null}
         {notice ? <p className="mt-4 text-sm text-muted">{notice}</p> : null}
         {error ? <p className="mt-4 text-sm text-red-400">{error}</p> : null}
+        {seats ? (
+          <div className="mt-6 space-y-3 border-t border-line pt-4">
+            <p className="text-sm text-ink">
+              {seats.usageLabel}
+              <span className="text-faint"> · {seats.periodLabel} · {seats.totalLabel}</span>
+            </p>
+            <p className="text-sm text-faint">
+              {seats.included} pessoas incluídas
+              {seats.extraSeats > 0
+                ? ` · ${seats.extraSeats === 1 ? "1 avulsa" : `${seats.extraSeats} avulsas`}`
+                : ""}
+              {seats.seatPacks > 0
+                ? ` · ${seats.seatPacks === 1 ? "1 combo +5" : `${seats.seatPacks} combos +5`}`
+                : ""}
+              . A conta soma as pessoas de todos os espaços, no máximo {seats.max}.
+            </p>
+            {seats.people >= seats.max ? (
+              <p className="text-sm text-muted">O plano aceita no máximo 15 pessoas. Não há vaga acima disso.</p>
+            ) : null}
+            {seats.purchasable ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || confirming || !seats.canAddSingle}
+                  onClick={() => void changeMix(seats.extraSeats + 1, seats.seatPacks)}
+                >
+                  Adicionar 1 pessoa ({seats.singlePriceLabel})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || confirming || !seats.canAddPack}
+                  onClick={() => void changeMix(seats.extraSeats, seats.seatPacks + 1)}
+                >
+                  Adicionar combo +5 ({seats.packPriceLabel})
+                </Button>
+                {seats.canRemoveSingle ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy || confirming}
+                    onClick={() => void changeMix(seats.extraSeats - 1, seats.seatPacks)}
+                  >
+                    Remover 1 avulsa
+                  </Button>
+                ) : null}
+                {seats.canRemovePack ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy || confirming}
+                    onClick={() => void changeMix(seats.extraSeats, seats.seatPacks - 1)}
+                  >
+                    Remover combo +5
+                  </Button>
+                ) : null}
+                {seats.canSwitchPeriod ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy || confirming}
+                    onClick={() => void switchPeriod(seats.period === "month" ? "quarter" : "month")}
+                  >
+                    {seats.period === "month" ? "Mudar para trimestral" : "Mudar para mensal"}
+                  </Button>
+                ) : null}
+              </div>
+            ) : billing?.action === "checkout" ? (
+              <p className="text-sm text-faint">As vagas extras ficam disponíveis depois da assinatura.</p>
+            ) : null}
+          </div>
+        ) : null}
         {billing?.configured === false ? (
           <p className="mt-4 text-sm text-faint">
             As chaves do Dodo Payments ainda não estão no servidor. O botão passa a abrir o checkout

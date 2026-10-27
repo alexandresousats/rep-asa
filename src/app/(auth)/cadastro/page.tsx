@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { GoogleAuthButton } from "@/components/auth/google-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signup } from "@/lib/api";
@@ -61,6 +62,8 @@ export default function SignupPage() {
           Cadastrar
         </Button>
       </form>
+      <p className="my-6 text-center text-xs text-faint">ou</p>
+      <GoogleAuthButton />
       <p className="mt-6 text-center text-sm text-faint">
         Já tem conta?{" "}
         <Link href="/login" className="text-ink">

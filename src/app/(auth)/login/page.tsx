@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
+import { GoogleAuthButton, googleAuthError } from "@/components/auth/google-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { login } from "@/lib/api";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(googleAuthError(params.get("erro")));
 
   return (
     <div>
@@ -53,6 +55,8 @@ export default function LoginPage() {
           Entrar
         </Button>
       </form>
+      <p className="my-6 text-center text-xs text-faint">ou</p>
+      <GoogleAuthButton />
       <div className="mt-6 space-y-2 text-center text-sm text-faint">
         <p>
           <Link href="/redefinir" className="hover:text-ink">
@@ -67,5 +71,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="text-center text-sm text-faint">Carregando…</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -26,6 +26,7 @@ import {
   addProjectMember,
   addSubtask,
   bootstrap,
+  confirmEmail,
   confirmReset,
   createApiKey,
   createProject,
@@ -49,6 +50,7 @@ import {
   listApiKeys,
   listNotifications,
   login,
+  loginWithGoogle,
   markAllNotificationsRead,
   markNotificationRead,
   readAttachment,
@@ -57,6 +59,7 @@ import {
   renameSection,
   reorderTasks,
   requestReset,
+  resendEmailConfirmation,
   selectWorkspace,
   sendMessage,
   signup,
@@ -68,20 +71,30 @@ import {
 } from "./domain";
 import type { Actor } from "./domain";
 import { sessionCookieSecure } from "./cookie";
+import { hashesEqual, randomToken } from "./crypto";
+import { firebaseGoogleProfile } from "./firebase-auth";
+import { exchangeGoogleCode, googleAuthUrl, googleConfigured, googlePkce } from "./google";
+import { appOrigin } from "./mail";
 import { ApiError } from "./errors";
 import {
   assertWorkspaceEntitled,
   billingSnapshot,
+  changeBillingPeriod,
+  changeSeats,
   createCheckout,
   createPortal,
   handleDodoWebhook,
+  quoteSeats,
 } from "./billing";
 import { handleMcpMessage, rpcError } from "./mcp";
 import {
   assertDemandRate,
+  assertGoogleRate,
   assertResetConfirmRate,
   assertResetRate,
   assertSignupRate,
+  assertVerifyConfirmRate,
+  assertVerifyResendRate,
   clientIp,
 } from "./rate-limit";
 
@@ -132,6 +145,8 @@ function parse<T>(schema: z.ZodType<T>, value: unknown) {
 
 const COOKIE = "asa_session";
 const WORKSPACE_COOKIE = "asa_workspace";
+const OAUTH_STATE = "asa_oauth_state";
+const OAUTH_VERIFIER = "asa_oauth_verifier";
 
 function cookieOptions(maxAge?: number) {
   return {
@@ -251,6 +266,83 @@ app.post("/auth/reset/confirm", async (c) => {
   return c.json({ ok: true });
 });
 
+app.post("/auth/verify/confirm", async (c) => {
+  const body = parse(z.object({ token: z.string() }), await c.req.json());
+  await assertVerifyConfirmRate(clientIp(c));
+  await confirmEmail(body.token);
+  return c.json({ ok: true });
+});
+
+app.post("/auth/verify/resend", async (c) => {
+  const actor = await actorOf(c);
+  await assertVerifyResendRate(clientIp(c), actor.email);
+  await resendEmailConfirmation(actor);
+  return c.json({ ok: true });
+});
+
+app.post("/auth/firebase", async (c) => {
+  const body = parse(z.object({ idToken: z.string().min(20).max(5000) }), await c.req.json());
+  await assertGoogleRate(clientIp(c));
+  const result = await loginWithGoogle(await firebaseGoogleProfile(body.idToken));
+  writeSession(c, result.token);
+  writeWorkspace(c, result.workspaceId);
+  return c.json({ ok: true });
+});
+
+function loginPath(error: string) {
+  return `${appOrigin()}/login?erro=${error}`;
+}
+
+function clearOAuth(c: Parameters<typeof deleteCookie>[0]) {
+  deleteCookie(c, OAUTH_STATE, cookieOptions());
+  deleteCookie(c, OAUTH_VERIFIER, cookieOptions());
+}
+
+app.get("/auth/google/start", async (c) => {
+  if (!googleConfigured()) return c.redirect(loginPath("google"));
+  try {
+    await assertGoogleRate(clientIp(c));
+  } catch {
+    return c.redirect(loginPath("google_failed"));
+  }
+  const state = randomToken();
+  const { verifier, challenge } = googlePkce();
+  setCookie(c, OAUTH_STATE, state, cookieOptions(10 * 60));
+  setCookie(c, OAUTH_VERIFIER, verifier, cookieOptions(10 * 60));
+  return c.redirect(googleAuthUrl(state, challenge));
+});
+
+app.get("/auth/google/callback", async (c) => {
+  const state = getCookie(c, OAUTH_STATE);
+  const verifier = getCookie(c, OAUTH_VERIFIER);
+  clearOAuth(c);
+  if (!googleConfigured()) return c.redirect(loginPath("google"));
+  try {
+    await assertGoogleRate(clientIp(c));
+  } catch {
+    return c.redirect(loginPath("google_failed"));
+  }
+  const returned = c.req.query("state") ?? "";
+  const code = c.req.query("code") ?? "";
+  if (c.req.query("error") === "access_denied") return c.redirect(loginPath("google_denied"));
+  if (!state || !verifier || !code || !hashesEqual(state, returned)) {
+    return c.redirect(loginPath("google_failed"));
+  }
+  try {
+    const profile = await exchangeGoogleCode(code, verifier);
+    const result = await loginWithGoogle(profile);
+    writeSession(c, result.token);
+    writeWorkspace(c, result.workspaceId);
+    return c.redirect(`${appOrigin()}/`);
+  } catch (error) {
+    if (error instanceof ApiError && error.message === "O Google não confirmou este e-mail.") {
+      return c.redirect(loginPath("google_unverified"));
+    }
+    console.error("[google] falha no callback", error);
+    return c.redirect(loginPath("google_failed"));
+  }
+});
+
 app.get("/bootstrap", async (c) => c.json(await bootstrap(await actorOf(c))));
 
 app.get("/billing", async (c) => c.json(await billingSnapshot(await actorOf(c))));
@@ -258,6 +350,27 @@ app.get("/billing", async (c) => c.json(await billingSnapshot(await actorOf(c)))
 app.post("/billing/checkout", async (c) => c.json(await createCheckout(await actorOf(c))));
 
 app.post("/billing/portal", async (c) => c.json(await createPortal(await actorOf(c))));
+
+app.post("/billing/seat-quote", async (c) => {
+  const body = parse(z.object({ email: z.string() }), await c.req.json());
+  return c.json(await quoteSeats(await actorOf(c), body.email));
+});
+
+app.post("/billing/seats", async (c) => {
+  const body = parse(
+    z.object({
+      extraSeats: z.number().int().min(0).max(10),
+      seatPacks: z.number().int().min(0).max(2),
+    }),
+    await c.req.json(),
+  );
+  return c.json(await changeSeats(await actorOf(c), body));
+});
+
+app.post("/billing/period", async (c) => {
+  const body = parse(z.object({ period: z.enum(["month", "quarter"]) }), await c.req.json());
+  return c.json(await changeBillingPeriod(await actorOf(c), body.period));
+});
 
 app.post("/webhooks/dodo", async (c) => {
   await handleDodoWebhook(await c.req.text(), {
@@ -377,6 +490,7 @@ app.patch("/users/:id", async (c) => {
       role: z.string().optional(),
       access: access.optional(),
       avatar: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
       password: z.string().optional(),
       currentPassword: z.string().optional(),
     }),

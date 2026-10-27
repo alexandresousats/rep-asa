@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { addMember } from "@/lib/api";
+import { addMember, quoteSeats, updateSeats } from "@/lib/api";
+import { ApiError } from "@/lib/api/client";
 import type { AccessLevel } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
 
@@ -23,12 +24,63 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
   const [access, setAccess] = useState<AccessLevel>("editor");
   const [projectId, setProjectId] = useState<string>("");
   const [error, setError] = useState("");
+  const [seatOffer, setSeatOffer] = useState<{
+    message: string;
+    extraSeats: number;
+    seatPacks: number;
+    detail: string;
+  } | null>(null);
+  const [buying, setBuying] = useState(false);
 
   const projects = useWorkspace((state) => state.projects);
 
   function close() {
     setError("");
+    setSeatOffer(null);
     onClose();
+  }
+
+  async function invite() {
+    const result = await addMember({
+      name,
+      email,
+      password: password.trim() || undefined,
+      role: role.trim() || (isClient ? "Cliente" : "Membro"),
+      access,
+      projectId: projectId || undefined,
+    });
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setName("");
+    setEmail("");
+    setPassword("");
+    setRole("");
+    setAccess("editor");
+    setProjectId("");
+    setError("");
+    setSeatOffer(null);
+    onClose();
+  }
+
+  async function buySeats() {
+    if (!seatOffer) return;
+    setBuying(true);
+    setError("");
+    try {
+      const session = await updateSeats({ extraSeats: seatOffer.extraSeats, seatPacks: seatOffer.seatPacks });
+      if (session.url) {
+        window.location.assign(session.url);
+        return;
+      }
+      setSeatOffer(null);
+      setError("Pedido enviado. Convide de novo quando o Dodo confirmar a nova capacidade.");
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : "Não foi possível comprar as vagas.");
+    } finally {
+      setBuying(false);
+    }
   }
 
   const isClient = access === "cliente";
@@ -48,27 +100,29 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
             setError("Defina uma senha para que o cliente possa fazer login.");
             return;
           }
-          void addMember({
-            name,
-            email,
-            password: password.trim() || undefined,
-            role: role.trim() || (isClient ? "Cliente" : "Membro"),
-            access,
-            projectId: projectId || undefined,
-          }).then((result) => {
-            if (!result.ok) {
-              setError(result.error);
-              return;
-            }
-            setName("");
-            setEmail("");
-            setPassword("");
-            setRole("");
-            setAccess("editor");
-            setProjectId("");
-            setError("");
-            onClose();
-          });
+          setError("");
+          void quoteSeats(email)
+            .then((quote) => {
+              if (quote.blocked) {
+                setSeatOffer(null);
+                setError(quote.message);
+                return;
+              }
+              if (quote.needsPurchase && quote.suggestion) {
+                setSeatOffer({
+                  message: quote.message,
+                  extraSeats: quote.suggestion.extraSeats,
+                  seatPacks: quote.suggestion.seatPacks,
+                  detail: quote.suggestion.detail,
+                });
+                return;
+              }
+              setSeatOffer(null);
+              return invite();
+            })
+            .catch((cause: unknown) => {
+              setError(cause instanceof ApiError ? cause.message : "Não foi possível conferir as vagas.");
+            });
         }}
       >
         <Input label="Nome completo ou do Cliente" value={name} onChange={(event) => setName(event.target.value)} required />
@@ -132,6 +186,14 @@ export function AddMemberDialog({ open, onClose }: { open: boolean; onClose: () 
           placeholder={isClient ? "Ex: Cliente, Responsável Marketing" : "Ex: Designer, Social Media"}
           onChange={(event) => setRole(event.target.value)}
         />
+        {seatOffer ? (
+          <div className="space-y-3 rounded-2xl bg-elevated px-4 py-3">
+            <p className="text-sm text-muted">{seatOffer.message}</p>
+            <Button type="button" disabled={buying} onClick={() => void buySeats()}>
+              {buying ? "Abrindo…" : `Comprar ${seatOffer.detail}`}
+            </Button>
+          </div>
+        ) : null}
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={close}>

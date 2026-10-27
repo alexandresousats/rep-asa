@@ -50,22 +50,31 @@ enum BillingStatus {
   expired
 }
 
+enum BillingPeriod {
+  month
+  quarter
+}
+
 model User {
-  id           String      @id
-  firstName    String
-  lastName     String      @default("")
-  name         String
-  email        String      @unique
-  passwordHash String
-  initials     String
-  role         String
-  access       AccessLevel
-  avatar       String?     @db.Text
-  master       Boolean     @default(false)
-  createdAt    DateTime    @default(now())
+  id              String       @id
+  firstName       String
+  lastName        String       @default("")
+  name            String
+  email           String       @unique
+  passwordHash    String?
+  phone           String?
+  emailVerifiedAt DateTime?
+  initials        String
+  role            String
+  access          AccessLevel
+  avatar          String?      @db.Text
+  master          Boolean      @default(false)
+  createdAt       DateTime     @default(now())
 
   sessions         Session[]
   resetTokens      ResetToken[]
+  emailTokens      EmailToken[]
+  identities       AuthIdentity[]
   ownedProjects    Project[]           @relation("ProjectOwner")
   memberships      ProjectMember[]
   workspaceMembers WorkspaceMember[]   @relation("WorkspaceMembers")
@@ -134,6 +143,27 @@ model ResetToken {
   userId    String
   expiresAt DateTime
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model EmailToken {
+  id        String   @id
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuthIdentity {
+  id         String   @id
+  userId     String
+  provider   String
+  providerId String
+  email      String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+  @@index([userId])
 }
 
 model LoginAttempt {
@@ -348,6 +378,9 @@ model WorkspaceSubscription {
   dodoSubscriptionId String?       @unique
   productId          String?
   status             BillingStatus @default(pending)
+  billingPeriod      BillingPeriod @default(month)
+  extraSeats         Int           @default(0)
+  seatPacks          Int           @default(0)
   cancelAtPeriodEnd  Boolean       @default(false)
   currentPeriodEnd   DateTime?
   sourceUpdatedAt    DateTime?

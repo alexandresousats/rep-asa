@@ -16,6 +16,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { SectionBar, SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
+import { MaintenanceGate } from "@/components/layout/maintenance-gate";
 import { createTask, deleteProject, downloadWorkspaceCsv, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
@@ -366,16 +367,24 @@ function ProjectWorkspace() {
         ) : null}
 
         {view === "demandas" || view === "aprovacoes" ? (
-          <ProjectDemandsView
-            key={view}
-            project={current}
-            tasks={tasks}
-            users={users}
-            tags={tags}
-            initialTab={view === "aprovacoes" ? "aprovacoes" : "demandas"}
-            onSelectTask={(id) => setQuery({ task: id })}
-            onCreateDemand={() => setDemandDialogOpen(true)}
-          />
+          <MaintenanceGate
+            description={
+              view === "aprovacoes"
+                ? "As aprovações estão temporariamente indisponíveis enquanto fazemos melhorias. Volte em breve."
+                : "As demandas estão temporariamente indisponíveis enquanto fazemos melhorias. Volte em breve."
+            }
+          >
+            <ProjectDemandsView
+              key={view}
+              project={current}
+              tasks={tasks}
+              users={users}
+              tags={tags}
+              initialTab={view === "aprovacoes" ? "aprovacoes" : "demandas"}
+              onSelectTask={(id) => setQuery({ task: id })}
+              onCreateDemand={() => setDemandDialogOpen(true)}
+            />
+          </MaintenanceGate>
         ) : null}
         </div>
       </div>

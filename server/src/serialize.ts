@@ -26,6 +26,9 @@ export type PublicUser = {
   lastName: string;
   name: string;
   email: string;
+  phone: string | null;
+  emailVerified: boolean;
+  hasPassword: boolean;
   initials: string;
   role: string;
   access: User["access"];
@@ -42,6 +45,9 @@ export function publicUser(user: User, membership?: MembershipView | null): Publ
     lastName: user.lastName,
     name: user.name,
     email: user.email,
+    phone: user.phone,
+    emailVerified: user.emailVerifiedAt != null,
+    hasPassword: Boolean(user.passwordHash),
     initials: user.initials,
     role: membership?.role ?? user.role,
     access: membership?.access ?? user.access,

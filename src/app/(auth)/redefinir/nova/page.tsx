@@ -12,6 +12,7 @@ function ResetForm() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
 
   return (
@@ -26,6 +27,10 @@ function ResetForm() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
+          if (password !== confirmPassword) {
+            setError("A confirmação da senha não confere.");
+            return;
+          }
           void confirmReset(token, password).then((result) => {
             if (!result.ok) {
               setError(result.error);
@@ -40,6 +45,14 @@ function ResetForm() {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          minLength={6}
+          required
+        />
+        <Input
+          label="Confirmar nova senha"
+          type="password"
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
           minLength={6}
           required
         />

@@ -52,6 +52,19 @@ export async function refreshNotifications() {
   }
 }
 
+export async function loginWithFirebase(idToken: string): Promise<Result> {
+  try {
+    await request("/auth/firebase", {
+      method: "POST",
+      body: JSON.stringify({ idToken }),
+    });
+    await loadSession();
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 export async function login(email: string, password: string): Promise<Result> {
   try {
     await request("/auth/login", {
@@ -103,6 +116,26 @@ export async function openBillingPortal() {
   return request<{ url: string }>("/billing/portal", { method: "POST" });
 }
 
+export async function quoteSeats(email: string) {
+  return request<{
+    people: number;
+    capacity: number;
+    target: number;
+    needsPurchase: boolean;
+    blocked: boolean;
+    message: string;
+    suggestion: { extraSeats: number; seatPacks: number; totalLabel: string; detail: string } | null;
+  }>("/billing/seat-quote", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export async function updateSeats(input: { extraSeats: number; seatPacks: number }) {
+  return request<{ url: string | null }>("/billing/seats", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateBillingPeriod(period: "month" | "quarter") {
+  return request<{ url: string | null }>("/billing/period", { method: "POST", body: JSON.stringify({ period }) });
+}
+
 export async function refreshBilling() {
   const billing = await request<NonNullable<ReturnType<typeof useWorkspace.getState>["billing"]>>(
     "/billing",
@@ -117,6 +150,27 @@ export async function requestReset(email: string): Promise<Result> {
       method: "POST",
       body: JSON.stringify({ email }),
     });
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function confirmEmail(token: string): Promise<Result> {
+  try {
+    await request("/auth/verify/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+export async function resendEmailConfirmation(): Promise<Result> {
+  try {
+    await request("/auth/verify/resend", { method: "POST" });
     return { ok: true };
   } catch (error) {
     return fail(error);
@@ -138,7 +192,10 @@ export async function confirmReset(token: string, password: string): Promise<Res
 export async function updateUser(
   id: string,
   patch: Partial<
-    Pick<User, "firstName" | "lastName" | "name" | "email" | "role" | "access" | "avatar">
+    Pick<
+      User,
+      "firstName" | "lastName" | "name" | "email" | "phone" | "role" | "access" | "avatar"
+    >
   > & {
     password?: string;
     currentPassword?: string;

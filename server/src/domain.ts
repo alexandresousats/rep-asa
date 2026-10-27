@@ -14,9 +14,9 @@ import {
 } from "./crypto";
 import { prisma } from "./db";
 import { ApiError } from "./errors";
-import { billingSnapshot } from "./billing";
+import { assertCanAddPerson, billingSnapshot } from "./billing";
 import { publish } from "./events";
-import { sendMail } from "./mail";
+import { appOrigin, sendMail } from "./mail";
 import { sanitizeRichText } from "./html";
 import {
   publicNotification,
@@ -297,6 +297,7 @@ export async function signup(input: { name: string; email: string; password: str
     },
   });
   const token = await createSession(user.id);
+  await sendEmailConfirmation(user.id, user.email);
   return { created: true as const, token, workspaceId: workspace.id };
 }
 
@@ -310,7 +311,7 @@ export async function login(email: string, password: string) {
     throw new ApiError(429, "Muitas tentativas. Espere alguns minutos.");
   }
   const user = await prisma.user.findUnique({ where: { email: normalized } });
-  const valid = user ? await bcrypt.compare(password, user.passwordHash) : false;
+  const valid = user?.passwordHash ? await bcrypt.compare(password, user.passwordHash) : false;
   if (!user || !valid) {
     await prisma.loginAttempt.create({ data: { id: uid("try"), email: normalized } });
     throw new ApiError(401, "E-mail ou senha inválidos.");
@@ -335,8 +336,7 @@ export async function requestReset(email: string) {
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     },
   });
-  const origin = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const link = `${origin}/redefinir/nova?token=${token}`;
+  const link = `${appOrigin()}/redefinir/nova?token=${token}`;
   try {
     await sendMail({
       to: user.email,
@@ -358,10 +358,175 @@ export async function confirmReset(token: string, password: string) {
   }
   await prisma.user.update({
     where: { id: row.userId },
-    data: { passwordHash: await bcrypt.hash(password, 10) },
+    data: {
+      passwordHash: await bcrypt.hash(password, 10),
+      emailVerifiedAt: new Date(),
+    },
   });
-  await prisma.resetToken.delete({ where: { id: row.id } });
+  await prisma.resetToken.deleteMany({ where: { userId: row.userId } });
+  await prisma.emailToken.deleteMany({ where: { userId: row.userId } });
   await prisma.session.deleteMany({ where: { userId: row.userId } });
+}
+
+const EMAIL_TOKEN_TTL = 24 * 60 * 60 * 1000;
+
+export async function sendEmailConfirmation(userId: string, email: string) {
+  await prisma.emailToken.deleteMany({ where: { userId } });
+  const token = randomToken();
+  await prisma.emailToken.create({
+    data: {
+      id: uid("eml"),
+      tokenHash: sha256(token),
+      userId,
+      expiresAt: new Date(Date.now() + EMAIL_TOKEN_TTL),
+    },
+  });
+  const link = `${appOrigin()}/confirmar?token=${token}`;
+  try {
+    await sendMail({
+      to: email,
+      subject: "Confirme seu e-mail no ASA",
+      text: `Confirme seu e-mail para proteger a conta. O link vale por 24 horas.\n\n${link}`,
+    });
+  } catch (error) {
+    console.error("[mail] falha ao enviar confirmação", error);
+  }
+}
+
+export async function confirmEmail(token: string) {
+  const row = await prisma.emailToken.findUnique({ where: { tokenHash: sha256(token) } });
+  if (!row || row.expiresAt.getTime() < Date.now()) {
+    throw new ApiError(400, "Link inválido ou expirado.");
+  }
+  await prisma.user.update({
+    where: { id: row.userId },
+    data: { emailVerifiedAt: new Date() },
+  });
+  await prisma.emailToken.deleteMany({ where: { userId: row.userId } });
+}
+
+export async function resendEmailConfirmation(actor: Actor) {
+  const user = await prisma.user.findUnique({ where: { id: actor.id } });
+  if (!user || user.emailVerifiedAt) return;
+  await sendEmailConfirmation(user.id, user.email);
+}
+
+function normalizePhone(value: string | null | undefined, current: string | null) {
+  if (value === undefined) return current;
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 32) throw new ApiError(400, "O telefone é longo demais.");
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) {
+    throw new ApiError(400, "Informe um telefone válido.");
+  }
+  return trimmed;
+}
+
+export type GoogleProfile = {
+  sub: string;
+  email: string;
+  emailVerified: boolean;
+  name: string;
+  givenName?: string;
+  familyName?: string;
+};
+
+export async function loginWithGoogle(profile: GoogleProfile) {
+  if (!profile.emailVerified) {
+    throw new ApiError(400, "O Google não confirmou este e-mail.");
+  }
+  const email = profile.email.trim().toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    throw new ApiError(400, "O Google não enviou um e-mail válido.");
+  }
+
+  const identity = await prisma.authIdentity.findUnique({
+    where: { provider_providerId: { provider: "google", providerId: profile.sub } },
+  });
+  if (identity) {
+    if (identity.email !== email) {
+      await prisma.authIdentity.update({ where: { id: identity.id }, data: { email } });
+    }
+    const user = await prisma.user.findUnique({ where: { id: identity.userId } });
+    if (!user) throw new ApiError(400, "Não foi possível entrar com o Google.");
+    const token = await createSession(user.id);
+    const actor = await actorFrom(user, null);
+    return { token, workspaceId: actor.workspaceId };
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    await prisma.authIdentity.create({
+      data: {
+        id: uid("idn"),
+        userId: existing.id,
+        provider: "google",
+        providerId: profile.sub,
+        email,
+      },
+    });
+    const user = existing.emailVerifiedAt
+      ? existing
+      : await prisma.user.update({
+          where: { id: existing.id },
+          data: { emailVerifiedAt: new Date() },
+        });
+    const token = await createSession(user.id);
+    const actor = await actorFrom(user, null);
+    return { token, workspaceId: actor.workspaceId };
+  }
+
+  const given = profile.givenName?.trim() ?? "";
+  const family = profile.familyName?.trim() ?? "";
+  const full = profile.name.trim() || email.split("@")[0] || "Conta Google";
+  const split = given ? { firstName: given, lastName: family } : splitPersonName(full);
+  const person = personNameFields(split.firstName || full, split.lastName);
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        id: uid("u"),
+        ...person,
+        email,
+        passwordHash: null,
+        role: "Administrador",
+        access: "admin",
+        emailVerifiedAt: new Date(),
+        identities: {
+          create: {
+            id: uid("idn"),
+            provider: "google",
+            providerId: profile.sub,
+            email,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApiError(400, "Não foi possível entrar com o Google.");
+    }
+    throw error;
+  }
+  const workspace = await prisma.workspace.create({
+    data: {
+      id: uid("ws"),
+      name: workspaceNameFor(person.name),
+      members: {
+        create: {
+          userId: user.id,
+          access: "admin",
+          status: "active",
+          role: "Administrador",
+          owner: true,
+          acceptedAt: new Date(),
+        },
+      },
+    },
+  });
+  const token = await createSession(user.id);
+  return { token, workspaceId: workspace.id };
 }
 
 async function visibleUserIds(actor: Actor) {
@@ -416,6 +581,7 @@ export async function updateUser(
     role?: string;
     access?: Actor["access"];
     avatar?: string | null;
+    phone?: string | null;
     password?: string;
     currentPassword?: string;
   },
@@ -449,6 +615,8 @@ export async function updateUser(
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new ApiError(400, "Informe um e-mail válido.");
   const taken = await prisma.user.findFirst({ where: { email, NOT: { id } } });
   if (taken) throw new ApiError(400, "Este e-mail já está em uso.");
+  const emailChanged = email !== current.email;
+  const phone = normalizePhone(patch.phone, current.phone);
   const role = (patch.role !== undefined ? patch.role : (membership?.role ?? current.role)).trim();
   if (!role) throw new ApiError(400, "Informe o cargo.");
 
@@ -483,7 +651,7 @@ export async function updateUser(
     if (patch.password.length < 6) {
       throw new ApiError(400, "A senha precisa ter pelo menos 6 caracteres.");
     }
-    if (actor.id === current.id) {
+    if (actor.id === current.id && current.passwordHash) {
       if (!patch.currentPassword) throw new ApiError(400, "Informe a senha atual.");
       const matches = await bcrypt.compare(patch.currentPassword, current.passwordHash);
       if (!matches) throw new ApiError(400, "A senha atual não confere.");
@@ -502,6 +670,8 @@ export async function updateUser(
       lastName: person.lastName,
       name: person.name,
       email,
+      phone,
+      emailVerifiedAt: emailChanged ? null : current.emailVerifiedAt,
       role: actor.id === current.id ? role : current.role,
       passwordHash,
       initials: person.initials,
@@ -514,6 +684,7 @@ export async function updateUser(
         data: { role, access },
       })
     : null;
+  if (emailChanged) await sendEmailConfirmation(user.id, user.email);
   return publicUser(
     user,
     nextMembership
@@ -548,6 +719,7 @@ export async function addMember(
   if (!actor.workspaceId) throw new ApiError(403, "Aceite o convite para entrar num espaço de trabalho.");
 
   let user = await prisma.user.findUnique({ where: { email } });
+  let createdAccount = false;
   if (!user) {
     if (!input.password || input.password.length < 6) {
       throw new ApiError(400, "Informe uma senha para criar a conta.");
@@ -564,6 +736,7 @@ export async function addMember(
         access: input.access,
       },
     });
+    createdAccount = true;
   } else if (input.password && input.password.length >= 6) {
     user = await prisma.user.update({
       where: { id: user.id },
@@ -587,17 +760,20 @@ export async function addMember(
   }
 
   const isClient = input.access === "cliente";
-  const membership = await prisma.workspaceMember.create({
-    data: {
-      workspaceId: actor.workspaceId,
-      userId: user.id,
-      access: input.access,
-      status: isClient ? "active" : "pending",
-      role,
-      owner: false,
-      invitedById: actor.id,
-      acceptedAt: isClient ? new Date() : null,
-    },
+  const membership = await prisma.$transaction(async (tx) => {
+    await assertCanAddPerson(tx, actor.workspaceId!, email);
+    return tx.workspaceMember.create({
+      data: {
+        workspaceId: actor.workspaceId!,
+        userId: user.id,
+        access: input.access,
+        status: isClient ? "active" : "pending",
+        role,
+        owner: false,
+        invitedById: actor.id,
+        acceptedAt: isClient ? new Date() : null,
+      },
+    });
   });
 
   if (input.projectId) {
@@ -614,6 +790,7 @@ export async function addMember(
   }
 
   const workspace = await prisma.workspace.findUnique({ where: { id: actor.workspaceId } });
+  if (createdAccount) await sendEmailConfirmation(user.id, user.email);
   await notify({
     userId: user.id,
     workspaceId: actor.workspaceId,

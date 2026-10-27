@@ -1,5 +1,9 @@
 import nodemailer from "nodemailer";
 
+export function appOrigin() {
+  return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+}
+
 export async function sendMail(input: { to: string; subject: string; text: string }) {
   const smtp = process.env.SMTP_URL;
   if (!smtp) {

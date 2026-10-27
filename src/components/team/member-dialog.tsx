@@ -65,6 +65,7 @@ export function MemberForm({
   const [firstName, setFirstName] = useState(user.firstName ?? fallback.firstName);
   const [lastName, setLastName] = useState(user.lastName ?? fallback.lastName);
   const [email, setEmail] = useState(user.email);
+  const [phone, setPhone] = useState(user.phone ?? "");
   const [role, setRole] = useState(user.role);
   const [access, setAccess] = useState<AccessLevel>(user.access);
   const [avatar, setAvatar] = useState<string | null>(user.avatar ?? null);
@@ -74,6 +75,7 @@ export function MemberForm({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const mustConfirmCurrent = requireCurrentPassword && user.hasPassword !== false;
 
   async function onAvatar(file: File | undefined) {
     setSaved(false);
@@ -95,7 +97,7 @@ export function MemberForm({
     event.preventDefault();
     setSaved(false);
     if (nextPassword || confirmPassword) {
-      if (requireCurrentPassword && !currentPassword) {
+      if (mustConfirmCurrent && !currentPassword) {
         setError("Informe a senha atual.");
         return;
       }
@@ -112,11 +114,15 @@ export function MemberForm({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       email,
+      phone: phone.trim(),
       role,
       access: canEditAccess ? access : user.access,
       ...(avatarChanged ? { avatar } : {}),
       ...(nextPassword
-        ? { password: nextPassword, currentPassword }
+        ? {
+            password: nextPassword,
+            ...(mustConfirmCurrent ? { currentPassword } : {}),
+          }
         : {}),
     }).then((result) => {
       if (!result.ok) {
@@ -191,6 +197,14 @@ export function MemberForm({
           autoComplete="email"
           onChange={(event) => setEmail(event.target.value)}
         />
+        <Input
+          label="Telefone"
+          type="tel"
+          value={phone}
+          autoComplete="tel"
+          placeholder="Opcional"
+          onChange={(event) => setPhone(event.target.value)}
+        />
         {canEditAccess ? (
           <label className="flex w-full flex-col gap-2 text-sm text-muted">
             Nível de acesso
@@ -216,7 +230,7 @@ export function MemberForm({
         )}
       </div>
       <div className="grid gap-4 border-t border-line-subtle pt-4 sm:grid-cols-2">
-        {requireCurrentPassword ? (
+        {mustConfirmCurrent ? (
           <Input
             label="Senha atual"
             type="password"
@@ -228,15 +242,15 @@ export function MemberForm({
         <div
           className={cn(
             "flex flex-col gap-4",
-            !requireCurrentPassword && "sm:max-w-[calc((100%-1rem)/2)]",
+            !mustConfirmCurrent && "sm:max-w-[calc((100%-1rem)/2)]",
           )}
         >
           <Input
-            label="Nova senha"
+            label={user.hasPassword === false ? "Senha" : "Nova senha"}
             type="password"
             value={nextPassword}
             autoComplete="new-password"
-            placeholder="Deixe em branco para manter"
+            placeholder={user.hasPassword === false ? "Defina uma senha" : "Deixe em branco para manter"}
             onChange={(event) => setNextPassword(event.target.value)}
           />
           <Input

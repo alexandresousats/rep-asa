@@ -142,7 +142,7 @@ function SettingsContent() {
               <div>
                 <h2 className="text-sm font-medium text-ink">Perfil</h2>
                 <p className="mt-1 text-sm text-faint">
-                  Nome, avatar, e-mail, senha e cargo da sua conta.
+                  Nome, avatar, e-mail, telefone, senha e cargo da sua conta.
                 </p>
               </div>
               <Card className="border-none">

@@ -19,6 +19,7 @@ async function main() {
       name: "Alexandre Sousa",
       email: "alexandre@asa.app",
       passwordHash: await bcrypt.hash("asa123", 10),
+      emailVerifiedAt: new Date(),
       initials: "AS",
       role: "Direção",
       access: "admin",

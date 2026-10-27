@@ -7,6 +7,7 @@ import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { useWorkspace } from "@/lib/workspace";
 import { PendingInvites } from "./pending-invites";
 import { Paywall } from "@/components/billing/paywall";
+import { EmailConfirmBanner } from "./email-confirm-banner";
 import { SearchDialog } from "./search-dialog";
 import { Sidebar } from "./sidebar";
 
@@ -41,6 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (workspace && !billingActive && !onSettings) {
     return (
       <div className="min-h-dvh bg-base text-ink">
+        <EmailConfirmBanner />
         <Paywall />
       </div>
     );
@@ -83,6 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ) : null}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <EmailConfirmBanner />
         <div className="z-20 flex items-center gap-1 bg-base px-3 py-2 md:hidden">
           <button
             type="button"

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { DemandsWorkspace } from "@/components/demands/demands-workspace";
 import { ShareDemandLinkDialog } from "@/components/demands/share-demand-link-dialog";
+import { MaintenanceGate } from "@/components/layout/maintenance-gate";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { usePrefs } from "@/lib/prefs";
 import { useAccess, useWorkspace } from "@/lib/workspace";
@@ -30,6 +31,7 @@ export default function DemandsPage() {
   );
 
   return (
+    <MaintenanceGate description="As demandas estão temporariamente indisponíveis enquanto fazemos melhorias. Volte em breve.">
     <div className="flex h-full min-h-0 overflow-hidden">
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto w-full max-w-6xl px-6 py-8">
@@ -120,5 +122,6 @@ export default function DemandsPage() {
         defaultProjectId={projectFilter !== "all" ? projectFilter : undefined}
       />
     </div>
+    </MaintenanceGate>
   );
 }

@@ -3,6 +3,7 @@
 import { ThemeProvider } from "next-themes";
 import { useEffect } from "react";
 import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
+import { enableFirebaseAnalytics } from "@/lib/firebase";
 import { agentReady, usePrefs } from "@/lib/prefs";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
@@ -23,6 +24,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       setHasHydrated(true);
     });
     void loadSession();
+    void enableFirebaseAnalytics().catch(() => undefined);
     const timer = window.setInterval(() => {
       void refreshNotifications();
     }, 20000);

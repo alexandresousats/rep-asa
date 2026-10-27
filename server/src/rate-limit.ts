@@ -50,6 +50,19 @@ export async function assertResetConfirmRate(ip: string) {
   await assertRateLimit(`reset-confirm:ip:${ip}`, 8, FIFTEEN_MINUTES);
 }
 
+export async function assertVerifyResendRate(ip: string, email: string) {
+  await assertRateLimit(`verify:ip:${ip}`, 5, FIFTEEN_MINUTES);
+  await assertRateLimit(`verify:email:${email}`, 3, ONE_HOUR);
+}
+
+export async function assertVerifyConfirmRate(ip: string) {
+  await assertRateLimit(`verify-confirm:ip:${ip}`, 8, FIFTEEN_MINUTES);
+}
+
+export async function assertGoogleRate(ip: string) {
+  await assertRateLimit(`google:ip:${ip}`, 20, FIFTEEN_MINUTES);
+}
+
 export async function assertDemandRate(ip: string, action: "info" | "chat" | "submit") {
   const limit = action === "submit" ? 10 : 30;
   await assertRateLimit(`demand:${action}:ip:${ip}`, limit, FIFTEEN_MINUTES);

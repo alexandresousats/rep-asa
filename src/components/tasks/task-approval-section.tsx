@@ -181,6 +181,9 @@ export function TaskApprovalSection({ task }: { task: Task }) {
       ) : null}
 
       {/* Approval Status Card */}
+      {status !== "none" || canWrite ? (
+      <div className="relative overflow-hidden rounded-2xl">
+        <div aria-hidden inert className="pointer-events-none select-none blur-[6px] saturate-50">
       {status === "pending" ? (
         <div className="rounded-2xl border border-amber-500/35 bg-elevated p-3.5">
           <div className="flex items-start gap-2.5">
@@ -330,6 +333,14 @@ export function TaskApprovalSection({ task }: { task: Task }) {
           </div>
         )
       )}
+        </div>
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-base/40">
+          <span className="rounded-full border border-line bg-elevated px-3 py-1 text-xs font-medium text-ink">
+            Em breve
+          </span>
+        </div>
+      </div>
+      ) : null}
 
       {/* Dialog for Approving */}
       <Dialog
