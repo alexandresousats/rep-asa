@@ -1,5 +1,9 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
+import { FirebaseError } from "firebase/app";
 import {
+  applyActionCode,
+  checkActionCode,
+  confirmPasswordReset,
   createUserWithEmailAndPassword,
   getAuth,
   GoogleAuthProvider,
@@ -8,6 +12,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   updateProfile,
+  verifyPasswordResetCode,
 } from "firebase/auth";
 
 const firebaseConfig = {
@@ -75,6 +80,39 @@ export async function refreshFirebaseVerification() {
   await user.reload();
   if (!user.emailVerified) return null;
   return user.getIdToken(true);
+}
+
+export async function lookupFirebasePasswordReset(code: string) {
+  return verifyPasswordResetCode(auth(), code);
+}
+
+export async function confirmFirebasePasswordReset(code: string, password: string) {
+  await confirmPasswordReset(auth(), code, password);
+}
+
+export async function applyFirebaseActionCode(code: string) {
+  await applyActionCode(auth(), code);
+}
+
+export async function recoverFirebaseEmail(code: string) {
+  const info = await checkActionCode(auth(), code);
+  await applyActionCode(auth(), code);
+  return info.data.email ?? "";
+}
+
+export function firebaseActionError(error: unknown) {
+  if (error instanceof FirebaseError) {
+    if (error.code === "auth/expired-action-code" || error.code === "auth/invalid-action-code") {
+      return "Link inválido ou expirado.";
+    }
+    if (error.code === "auth/weak-password") {
+      return "A senha precisa ter pelo menos 6 caracteres.";
+    }
+    if (error.code === "auth/too-many-requests") {
+      return "Muitas tentativas. Espere alguns minutos.";
+    }
+  }
+  return "Não foi possível concluir.";
 }
 
 export async function enableFirebaseAnalytics() {
