@@ -39,6 +39,17 @@ enum TaskStatus {
   done
 }
 
+enum BillingStatus {
+  pending
+  active
+  past_due
+  on_hold
+  paused
+  cancelled
+  failed
+  expired
+}
+
 model User {
   id           String      @id
   firstName    String
@@ -67,6 +78,7 @@ model User {
   notifications    Notification[]
   apiKeys          ApiKey[]
   taskFollows      TaskFollower[]
+  paidSubscriptions WorkspaceSubscription[]
 }
 
 model Workspace {
@@ -84,6 +96,7 @@ model Workspace {
   threads       Thread[]
   notifications Notification[]
   apiKeys       ApiKey[]
+  subscription  WorkspaceSubscription?
 }
 
 model WorkspaceMember {
@@ -326,6 +339,41 @@ model Notification {
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+}
+
+model WorkspaceSubscription {
+  workspaceId        String        @id
+  payerUserId        String?
+  dodoCustomerId     String?
+  dodoSubscriptionId String?       @unique
+  productId          String?
+  status             BillingStatus @default(pending)
+  cancelAtPeriodEnd  Boolean       @default(false)
+  currentPeriodEnd   DateTime?
+  sourceUpdatedAt    DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  workspace          Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  payer              User?         @relation(fields: [payerUserId], references: [id], onDelete: SetNull)
+
+  @@index([dodoCustomerId])
+  @@index([payerUserId])
+}
+
+model WebhookDelivery {
+  id        String   @id
+  type      String
+  createdAt DateTime @default(now())
+}
+
+model BillingCheckout {
+  id          String   @id
+  sessionId   String   @unique
+  workspaceId String
+  userId      String
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
 }
 
 model ApiKey {

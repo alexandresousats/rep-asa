@@ -69,6 +69,13 @@ import {
 import type { Actor } from "./domain";
 import { sessionCookieSecure } from "./cookie";
 import { ApiError } from "./errors";
+import {
+  assertWorkspaceEntitled,
+  billingSnapshot,
+  createCheckout,
+  createPortal,
+  handleDodoWebhook,
+} from "./billing";
 import { handleMcpMessage, rpcError } from "./mcp";
 import {
   assertDemandRate,
@@ -162,6 +169,29 @@ async function actorOf(c: Parameters<typeof getCookie>[0]): Promise<Actor> {
   throw new ApiError(401, "Sessão expirada.");
 }
 
+function billingExempt(method: string, path: string) {
+  if (path === "/health" || path === "/webhooks/dodo") return true;
+  if (path.startsWith("/auth/")) return true;
+  if (path === "/bootstrap" || path === "/billing") return true;
+  if (path === "/billing/checkout" || path === "/billing/portal") return true;
+  if (method === "POST" && /^\/workspaces\/[^/]+\/(select|accept|decline)$/.test(path)) return true;
+  if (
+    path === "/demands/link-info" ||
+    path === "/demands/agent-chat" ||
+    path === "/demands/submit-via-link"
+  ) {
+    return true;
+  }
+  if (path === "/mcp") return true;
+  return false;
+}
+
+app.use("*", async (c, next) => {
+  if (billingExempt(c.req.method, c.req.path)) return next();
+  await assertWorkspaceEntitled(await actorOf(c));
+  return next();
+});
+
 async function readCsvText(c: Parameters<typeof getCookie>[0]) {
   const text = await c.req.text();
   if (text.length > 5_000_000) throw new ApiError(413, "O arquivo passa de 5 MB.");
@@ -222,6 +252,21 @@ app.post("/auth/reset/confirm", async (c) => {
 });
 
 app.get("/bootstrap", async (c) => c.json(await bootstrap(await actorOf(c))));
+
+app.get("/billing", async (c) => c.json(await billingSnapshot(await actorOf(c))));
+
+app.post("/billing/checkout", async (c) => c.json(await createCheckout(await actorOf(c))));
+
+app.post("/billing/portal", async (c) => c.json(await createPortal(await actorOf(c))));
+
+app.post("/webhooks/dodo", async (c) => {
+  await handleDodoWebhook(await c.req.text(), {
+    id: c.req.header("webhook-id") ?? "",
+    signature: c.req.header("webhook-signature") ?? "",
+    timestamp: c.req.header("webhook-timestamp") ?? "",
+  });
+  return c.json({ received: true });
+});
 
 app.post("/workspaces", async (c) => {
   const body = parse(z.object({ name: z.string() }), await c.req.json());
@@ -778,6 +823,13 @@ app.post("/mcp", async (c) => {
   if (!actor) {
     const id = payload && typeof payload === "object" && "id" in payload ? payload.id : null;
     return c.json(rpcError(id as string | number | null, -32001, "Unauthorized"), 401);
+  }
+  try {
+    await assertWorkspaceEntitled(actor);
+  } catch (error) {
+    const id = payload && typeof payload === "object" && "id" in payload ? payload.id : null;
+    const detail = error instanceof ApiError ? error.message : "Assinatura necessária.";
+    return c.json(rpcError(id as string | number | null, -32001, detail), 402);
   }
   const messages = Array.isArray(payload) ? payload : [payload];
   const responses = [];

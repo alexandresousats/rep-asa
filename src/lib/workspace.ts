@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type {
   AppNotification,
+  BillingInfo,
   Message,
   MessageThread,
   Project,
@@ -26,6 +27,7 @@ export interface WorkspaceData {
   threads: MessageThread[];
   messages: Message[];
   notifications: AppNotification[];
+  billing: BillingInfo | null;
 }
 
 interface WorkspaceState extends WorkspaceData {
@@ -58,6 +60,7 @@ const empty: WorkspaceData = {
   threads: [],
   messages: [],
   notifications: [],
+  billing: null,
 };
 
 export const useWorkspace = create<WorkspaceState>((set) => ({

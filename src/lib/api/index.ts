@@ -26,6 +26,7 @@ export async function loadSession() {
       threads: ReturnType<typeof useWorkspace.getState>["threads"];
       messages: ReturnType<typeof useWorkspace.getState>["messages"];
       notifications: ReturnType<typeof useWorkspace.getState>["notifications"];
+      billing: ReturnType<typeof useWorkspace.getState>["billing"];
     }>("/bootstrap");
     useWorkspace.getState().hydrate(data);
   } catch (error) {
@@ -38,7 +39,9 @@ export async function loadSession() {
 }
 
 export async function refreshNotifications() {
-  if (!useWorkspace.getState().user) return;
+  const state = useWorkspace.getState();
+  if (!state.user) return;
+  if (state.workspace && state.billing?.active !== true) return;
   try {
     const notifications = await request<
       ReturnType<typeof useWorkspace.getState>["notifications"]
@@ -90,6 +93,22 @@ export async function logout() {
     // Local session still ends if the server is unreachable.
   }
   useWorkspace.getState().clear();
+}
+
+export async function startCheckout() {
+  return request<{ url: string }>("/billing/checkout", { method: "POST" });
+}
+
+export async function openBillingPortal() {
+  return request<{ url: string }>("/billing/portal", { method: "POST" });
+}
+
+export async function refreshBilling() {
+  const billing = await request<NonNullable<ReturnType<typeof useWorkspace.getState>["billing"]>>(
+    "/billing",
+  );
+  useWorkspace.setState({ billing });
+  return billing;
 }
 
 export async function requestReset(email: string): Promise<Result> {

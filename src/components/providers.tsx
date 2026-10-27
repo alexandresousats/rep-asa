@@ -10,6 +10,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const setHasHydrated = usePrefs((state) => state.setHasHydrated);
   const userId = useWorkspace((state) => state.user?.id);
   const workspaceId = useWorkspace((state) => state.workspace?.id);
+  const billingActive = useWorkspace((state) => state.billing?.active === true);
   const agent = usePrefs((state) => state.agent);
   const prefsHydrated = usePrefs((state) => state.hasHydrated);
   const { canWrite } = useAccess();
@@ -37,17 +38,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [setHasHydrated]);
 
   useEffect(() => {
-    if (!userId || !workspaceId || !prefsHydrated || !canWrite) return;
+    if (!userId || !workspaceId || !prefsHydrated || !canWrite || !billingActive) return;
     if (!agentReady(agent)) return;
     void syncWorkspaceAgent({
       baseUrl: agent.baseUrl.trim(),
       apiKey: agent.apiKey.trim(),
       model: agent.model.trim(),
     }).catch(() => undefined);
-  }, [userId, workspaceId, prefsHydrated, canWrite, agent.baseUrl, agent.apiKey, agent.model]);
+  }, [userId, workspaceId, prefsHydrated, canWrite, billingActive, agent.baseUrl, agent.apiKey, agent.model]);
 
   useEffect(() => {
-    if (!userId) return;
+    const locked = Boolean(workspaceId) && !billingActive;
+    if (!userId || locked) return;
     let source: EventSource | null = null;
     let stopped = false;
     let retry: number | null = null;
@@ -86,7 +88,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       if (retry) window.clearTimeout(retry);
       source?.close();
     };
-  }, [userId, workspaceId]);
+  }, [userId, workspaceId, billingActive]);
 
   return (
     <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="dark" enableSystem={false}>

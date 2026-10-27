@@ -14,6 +14,7 @@ import {
 } from "./crypto";
 import { prisma } from "./db";
 import { ApiError } from "./errors";
+import { billingSnapshot } from "./billing";
 import { publish } from "./events";
 import { sendMail } from "./mail";
 import { sanitizeRichText } from "./html";
@@ -1859,6 +1860,7 @@ export async function deleteApiKey(actor: Actor, id: string) {
 }
 
 export async function bootstrap(actor: Actor) {
+  const billing = await billingSnapshot(actor);
   const memberships = await prisma.workspaceMember.findMany({
     where: { userId: actor.id },
     include: { workspace: true },
@@ -1881,19 +1883,20 @@ export async function bootstrap(actor: Actor) {
       access: item.access,
     }));
   const current = workspaces.find((item) => item.id === actor.workspaceId) ?? null;
-  if (!actor.workspaceId) {
+  if (!actor.workspaceId || !billing.active) {
     return {
       user: actor,
-      workspace: null,
+      workspace: current,
       workspaces,
       invites,
+      billing,
       users: [],
       projects: [],
       tasks: [],
       tags: [],
       threads: [],
       messages: [],
-      notifications: await listNotifications(actor),
+      notifications: actor.workspaceId ? [] : await listNotifications(actor),
     };
   }
   const [users, projects, tasks, tags, threads, messages, notifications] = await Promise.all([
@@ -1910,6 +1913,7 @@ export async function bootstrap(actor: Actor) {
     workspace: current,
     workspaces,
     invites,
+    billing,
     users,
     projects,
     tasks,

@@ -7,6 +7,27 @@ export type AccessLevel = "admin" | "editor" | "leitura" | "cliente";
 export type ApprovalStatus = "none" | "pending" | "approved" | "changes_requested";
 export type DemandFormat = "card" | "carrossel" | "video_longo" | "reels";
 
+export interface BillingInfo {
+  active: boolean;
+  configured: boolean;
+  status:
+    | "pending"
+    | "active"
+    | "past_due"
+    | "on_hold"
+    | "paused"
+    | "cancelled"
+    | "failed"
+    | "expired"
+    | null;
+  statusLabel: string;
+  action: "checkout" | "portal" | "none";
+  priceLabel: string | null;
+  productName: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
 export interface User {
   id: string;
   firstName: string;

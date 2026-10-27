@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { useWorkspace } from "@/lib/workspace";
 import { PendingInvites } from "./pending-invites";
+import { Paywall } from "@/components/billing/paywall";
 import { SearchDialog } from "./search-dialog";
 import { Sidebar } from "./sidebar";
 
@@ -15,6 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const ready = useWorkspace((state) => state.ready);
   const user = useWorkspace((state) => state.user);
   const workspace = useWorkspace((state) => state.workspace);
+  const billingActive = useWorkspace((state) => state.billing?.active === true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -32,6 +34,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!ready || !user) {
     return <div className="min-h-screen bg-base" />;
+  }
+
+  const onSettings = pathname.startsWith("/configuracoes");
+
+  if (workspace && !billingActive && !onSettings) {
+    return (
+      <div className="min-h-dvh bg-base text-ink">
+        <Paywall />
+      </div>
+    );
   }
 
   return (

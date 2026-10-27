@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Building2, Cpu, Hash, Sparkles, User, Users } from "lucide-react";
+import { Building2, Cpu, CreditCard, Hash, Sparkles, User, Users } from "lucide-react";
 import { CreateWorkspaceDialog } from "@/components/layout/create-workspace-dialog";
 import { MemberForm } from "@/components/team/member-dialog";
 import { WorkspaceTeamSection } from "@/components/team/workspace-team-section";
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AgentSettingsCard } from "@/components/settings/agent-settings";
+import { BillingSettings } from "@/components/settings/billing-card";
 import { ApiKeysCard } from "@/components/settings/api-keys";
 import { CsvBackupCard } from "@/components/settings/csv-backup";
 import { TagsManager } from "@/components/settings/tags-manager";
@@ -27,10 +28,11 @@ import { usePrefs } from "@/lib/prefs";
 import type { McpTransport, WorkspaceMembership } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
 
-type SettingsTab = "perfil" | "equipe" | "workspace" | "agente" | "mcp" | "tags";
+type SettingsTab = "perfil" | "assinatura" | "equipe" | "workspace" | "agente" | "mcp" | "tags";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof User }[] = [
   { id: "perfil", label: "Perfil", icon: User },
+  { id: "assinatura", label: "Assinatura", icon: CreditCard },
   { id: "equipe", label: "Equipe", icon: Users },
   { id: "workspace", label: "Espaço de trabalho", icon: Building2 },
   { id: "agente", label: "Agente de IA", icon: Sparkles },
@@ -49,6 +51,7 @@ function normalizeTab(param: string | null): SettingsTab {
   ) {
     return "workspace";
   }
+  if (lower === "assinatura" || lower === "billing" || lower === "plano") return "assinatura";
   if (lower === "equipe" || lower === "team") return "equipe";
   if (lower === "agente" || lower === "ai" || lower === "ia" || lower === "agent") {
     return "agente";
@@ -127,6 +130,8 @@ function SettingsContent() {
           );
         })}
       </div>
+
+      {activeTab === "assinatura" && <BillingSettings />}
 
       {activeTab === "equipe" && <WorkspaceTeamSection />}
 

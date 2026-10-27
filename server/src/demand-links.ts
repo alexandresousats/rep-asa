@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { workspaceIsEntitled } from "./billing";
 import { prisma } from "./db";
 import type { Actor } from "./domain";
 import { notify } from "./domain";
@@ -180,6 +181,9 @@ export async function verifyDemandLinkToken(token: string) {
   if (!payload) {
     throw new ApiError(400, "Link de demanda inválido ou assinatura não reconhecida.");
   }
+  if (!(await workspaceIsEntitled(payload.wId))) {
+    throw new ApiError(402, "Este espaço ainda não tem uma assinatura ativa.");
+  }
 
   const project = await prisma.project.findFirst({
     where: { id: payload.pId, workspaceId: payload.wId },
@@ -289,6 +293,9 @@ export async function submitDemandViaVerifiedLink(
   const payload = parseAndVerifyDemandLink(token);
   if (!payload) {
     throw new ApiError(400, "Link de demanda inválido ou expirado.");
+  }
+  if (!(await workspaceIsEntitled(payload.wId))) {
+    throw new ApiError(402, "Este espaço ainda não tem uma assinatura ativa.");
   }
 
   const project = await prisma.project.findFirst({
