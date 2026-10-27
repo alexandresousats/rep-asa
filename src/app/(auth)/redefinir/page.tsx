@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { FirebaseError } from "firebase/app";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { requestReset } from "@/lib/api";
+import { sendFirebasePasswordReset } from "@/lib/firebase";
 
 export default function ResetRequestPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   return (
     <div>
@@ -23,15 +25,33 @@ export default function ResetRequestPage() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          void requestReset(email).then((result) => {
-            if (!result.ok) {
-              setError(result.error);
-              setSent(false);
-              return;
-            }
-            setError("");
-            setSent(true);
-          });
+          setBusy(true);
+          setError("");
+          setSent(false);
+          void sendFirebasePasswordReset(email)
+            .then(() => {
+              setSent(true);
+              setBusy(false);
+            })
+            .catch((caught: unknown) => {
+              setBusy(false);
+              const absent =
+                caught instanceof FirebaseError &&
+                (caught.code === "auth/user-not-found" || caught.code === "auth/invalid-credential");
+              if (absent) {
+                setSent(true);
+                return;
+              }
+              if (caught instanceof FirebaseError && caught.code === "auth/invalid-email") {
+                setError("Informe um e-mail válido.");
+                return;
+              }
+              if (caught instanceof FirebaseError && caught.code === "auth/too-many-requests") {
+                setError("Muitas tentativas. Espere alguns minutos.");
+                return;
+              }
+              setError("Não foi possível enviar o link.");
+            });
         }}
       >
         <Input
@@ -42,7 +62,7 @@ export default function ResetRequestPage() {
           required
         />
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
-        <Button type="submit" className="w-full">
+        <Button type="submit" className="w-full" disabled={busy}>
           Enviar link
         </Button>
       </form>

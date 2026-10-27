@@ -72,7 +72,7 @@ import {
 import type { Actor } from "./domain";
 import { sessionCookieSecure } from "./cookie";
 import { hashesEqual, randomToken } from "./crypto";
-import { firebaseGoogleProfile } from "./firebase-auth";
+import { firebaseIdentityProfile } from "./firebase-auth";
 import { exchangeGoogleCode, googleAuthUrl, googleConfigured, googlePkce } from "./google";
 import { appOrigin } from "./mail";
 import { ApiError } from "./errors";
@@ -283,7 +283,7 @@ app.post("/auth/verify/resend", async (c) => {
 app.post("/auth/firebase", async (c) => {
   const body = parse(z.object({ idToken: z.string().min(20).max(5000) }), await c.req.json());
   await assertGoogleRate(clientIp(c));
-  const result = await loginWithGoogle(await firebaseGoogleProfile(body.idToken));
+  const result = await loginWithGoogle(await firebaseIdentityProfile(body.idToken));
   writeSession(c, result.token);
   writeWorkspace(c, result.workspaceId);
   return c.json({ ok: true });

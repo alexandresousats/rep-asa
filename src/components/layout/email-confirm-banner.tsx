@@ -1,14 +1,29 @@
 "use client";
 
-import { useState } from "react";
-import { resendEmailConfirmation } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { loginWithFirebase } from "@/lib/api";
+import { refreshFirebaseVerification, resendFirebaseVerification } from "@/lib/firebase";
 import { useWorkspace } from "@/lib/workspace";
 
 export function EmailConfirmBanner() {
   const user = useWorkspace((state) => state.user);
+  const userId = user?.id;
+  const verified = user?.emailVerified;
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!userId || verified !== false) return;
+    let stopped = false;
+    void refreshFirebaseVerification().then(async (idToken) => {
+      if (stopped || !idToken) return;
+      await loginWithFirebase(idToken);
+    });
+    return () => {
+      stopped = true;
+    };
+  }, [userId, verified]);
 
   if (!user || user.emailVerified !== false) return null;
 
@@ -28,15 +43,21 @@ export function EmailConfirmBanner() {
           onClick={() => {
             setBusy(true);
             setError("");
-            void resendEmailConfirmation().then((result) => {
-              setBusy(false);
-              if (!result.ok) {
+            void resendFirebaseVerification()
+              .then((sentByFirebase) => {
+                setBusy(false);
+                if (!sentByFirebase) {
+                  setSent(false);
+                  setError("Entre de novo para reenviar o e-mail de confirmação.");
+                  return;
+                }
+                setSent(true);
+              })
+              .catch(() => {
+                setBusy(false);
                 setSent(false);
-                setError(result.error);
-                return;
-              }
-              setSent(true);
-            });
+                setError("Não foi possível reenviar o e-mail.");
+              });
           }}
         >
           Reenviar e-mail

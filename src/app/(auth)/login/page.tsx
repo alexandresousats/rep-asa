@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { FirebaseError } from "firebase/app";
 import { GoogleAuthButton, googleAuthError } from "@/components/auth/google-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { login } from "@/lib/api";
+import { loginWithFirebase } from "@/lib/api";
+import { signInWithEmail } from "@/lib/firebase";
 
 function LoginForm() {
   const router = useRouter();
@@ -14,6 +16,7 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(googleAuthError(params.get("erro")));
+  const [busy, setBusy] = useState(false);
 
   return (
     <div>
@@ -27,13 +30,36 @@ function LoginForm() {
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          void login(email, password).then((result) => {
-            if (!result.ok) {
-              setError(result.error);
-              return;
-            }
-            router.replace("/");
-          });
+          setBusy(true);
+          setError("");
+          void signInWithEmail(email, password)
+            .then(async (idToken) => {
+              const result = await loginWithFirebase(idToken);
+              if (!result.ok) {
+                setError(result.error);
+                setBusy(false);
+                return;
+              }
+              router.replace("/");
+            })
+            .catch((caught: unknown) => {
+              setBusy(false);
+              if (
+                caught instanceof FirebaseError &&
+                (caught.code === "auth/user-not-found" ||
+                  caught.code === "auth/invalid-credential" ||
+                  caught.code === "auth/invalid-login-credentials" ||
+                  caught.code === "auth/wrong-password")
+              ) {
+                setError("E-mail ou senha inválidos.");
+                return;
+              }
+              if (caught instanceof FirebaseError && caught.code === "auth/too-many-requests") {
+                setError("Muitas tentativas. Espere alguns minutos.");
+                return;
+              }
+              setError("Não foi possível entrar.");
+            });
         }}
       >
         <Input
@@ -51,7 +77,7 @@ function LoginForm() {
           required
         />
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
-        <Button type="submit" className="w-full">
+        <Button type="submit" className="w-full" disabled={busy}>
           Entrar
         </Button>
       </form>

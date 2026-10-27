@@ -16,6 +16,7 @@ import { prisma } from "./db";
 import { ApiError } from "./errors";
 import { assertCanAddPerson, billingSnapshot } from "./billing";
 import { publish } from "./events";
+import { createFirebasePasswordAccount } from "./firebase-auth";
 import { appOrigin, sendMail } from "./mail";
 import { sanitizeRichText } from "./html";
 import {
@@ -430,10 +431,16 @@ export type GoogleProfile = {
   name: string;
   givenName?: string;
   familyName?: string;
+  provider?: "google" | "password";
 };
 
 export async function loginWithGoogle(profile: GoogleProfile) {
-  if (!profile.emailVerified) {
+  const provider = profile.provider ?? "google";
+  const denied =
+    provider === "google"
+      ? "Não foi possível entrar com o Google."
+      : "Não foi possível entrar.";
+  if (provider === "google" && !profile.emailVerified) {
     throw new ApiError(400, "O Google não confirmou este e-mail.");
   }
   const email = profile.email.trim().toLowerCase();
@@ -442,14 +449,20 @@ export async function loginWithGoogle(profile: GoogleProfile) {
   }
 
   const identity = await prisma.authIdentity.findUnique({
-    where: { provider_providerId: { provider: "google", providerId: profile.sub } },
+    where: { provider_providerId: { provider, providerId: profile.sub } },
   });
   if (identity) {
     if (identity.email !== email) {
       await prisma.authIdentity.update({ where: { id: identity.id }, data: { email } });
     }
-    const user = await prisma.user.findUnique({ where: { id: identity.userId } });
-    if (!user) throw new ApiError(400, "Não foi possível entrar com o Google.");
+    let user = await prisma.user.findUnique({ where: { id: identity.userId } });
+    if (!user) throw new ApiError(400, denied);
+    if (profile.emailVerified && !user.emailVerifiedAt) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerifiedAt: new Date() },
+      });
+    }
     const token = await createSession(user.id);
     const actor = await actorFrom(user, null);
     return { token, workspaceId: actor.workspaceId };
@@ -457,11 +470,14 @@ export async function loginWithGoogle(profile: GoogleProfile) {
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
+    if (!profile.emailVerified) {
+      throw new ApiError(400, "Este e-mail já tem conta. Entre ou redefina a senha.");
+    }
     await prisma.authIdentity.create({
       data: {
         id: uid("idn"),
         userId: existing.id,
-        provider: "google",
+        provider,
         providerId: profile.sub,
         email,
       },
@@ -479,7 +495,8 @@ export async function loginWithGoogle(profile: GoogleProfile) {
 
   const given = profile.givenName?.trim() ?? "";
   const family = profile.familyName?.trim() ?? "";
-  const full = profile.name.trim() || email.split("@")[0] || "Conta Google";
+  const full =
+    profile.name.trim() || email.split("@")[0] || (provider === "google" ? "Conta Google" : "Conta");
   const split = given ? { firstName: given, lastName: family } : splitPersonName(full);
   const person = personNameFields(split.firstName || full, split.lastName);
   let user;
@@ -492,11 +509,11 @@ export async function loginWithGoogle(profile: GoogleProfile) {
         passwordHash: null,
         role: "Administrador",
         access: "admin",
-        emailVerifiedAt: new Date(),
+        emailVerifiedAt: profile.emailVerified ? new Date() : null,
         identities: {
           create: {
             id: uid("idn"),
-            provider: "google",
+            provider,
             providerId: profile.sub,
             email,
           },
@@ -505,7 +522,7 @@ export async function loginWithGoogle(profile: GoogleProfile) {
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new ApiError(400, "Não foi possível entrar com o Google.");
+      throw new ApiError(400, denied);
     }
     throw error;
   }
@@ -719,11 +736,15 @@ export async function addMember(
   if (!actor.workspaceId) throw new ApiError(403, "Aceite o convite para entrar num espaço de trabalho.");
 
   let user = await prisma.user.findUnique({ where: { email } });
-  let createdAccount = false;
   if (!user) {
     if (!input.password || input.password.length < 6) {
       throw new ApiError(400, "Informe uma senha para criar a conta.");
     }
+    const firebaseId = await createFirebasePasswordAccount({
+      email,
+      password: input.password,
+      name,
+    });
     const { firstName, lastName } = splitPersonName(name);
     const person = personNameFields(firstName, lastName);
     user = await prisma.user.create({
@@ -731,19 +752,17 @@ export async function addMember(
         id: uid("u"),
         ...person,
         email,
-        passwordHash: await bcrypt.hash(input.password, 10),
+        passwordHash: null,
         role,
         access: input.access,
-      },
-    });
-    createdAccount = true;
-  } else if (input.password && input.password.length >= 6) {
-    user = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash: await bcrypt.hash(input.password, 10),
-        role,
-        access: input.access,
+        identities: {
+          create: {
+            id: uid("idn"),
+            provider: "password",
+            providerId: firebaseId,
+            email,
+          },
+        },
       },
     });
   }
@@ -790,7 +809,6 @@ export async function addMember(
   }
 
   const workspace = await prisma.workspace.findUnique({ where: { id: actor.workspaceId } });
-  if (createdAccount) await sendEmailConfirmation(user.id, user.email);
   await notify({
     userId: user.id,
     workspaceId: actor.workspaceId,

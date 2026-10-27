@@ -229,39 +229,45 @@ export function MemberForm({
           </div>
         )}
       </div>
-      <div className="grid gap-4 border-t border-line-subtle pt-4 sm:grid-cols-2">
-        {mustConfirmCurrent ? (
-          <Input
-            label="Senha atual"
-            type="password"
-            value={currentPassword}
-            autoComplete="current-password"
-            onChange={(event) => setCurrentPassword(event.target.value)}
-          />
-        ) : null}
-        <div
-          className={cn(
-            "flex flex-col gap-4",
-            !mustConfirmCurrent && "sm:max-w-[calc((100%-1rem)/2)]",
-          )}
-        >
-          <Input
-            label={user.hasPassword === false ? "Senha" : "Nova senha"}
-            type="password"
-            value={nextPassword}
-            autoComplete="new-password"
-            placeholder={user.hasPassword === false ? "Defina uma senha" : "Deixe em branco para manter"}
-            onChange={(event) => setNextPassword(event.target.value)}
-          />
-          <Input
-            label="Confirmar nova senha"
-            type="password"
-            value={confirmPassword}
-            autoComplete="new-password"
-            onChange={(event) => setConfirmPassword(event.target.value)}
-          />
+      {user.hasPassword === false ? (
+        <p className="border-t border-line-subtle pt-4 text-sm text-faint">
+          A senha é a do login. Para trocar, use Esqueci a senha na tela de entrada.
+        </p>
+      ) : (
+        <div className="grid gap-4 border-t border-line-subtle pt-4 sm:grid-cols-2">
+          {mustConfirmCurrent ? (
+            <Input
+              label="Senha atual"
+              type="password"
+              value={currentPassword}
+              autoComplete="current-password"
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          ) : null}
+          <div
+            className={cn(
+              "flex flex-col gap-4",
+              !mustConfirmCurrent && "sm:max-w-[calc((100%-1rem)/2)]",
+            )}
+          >
+            <Input
+              label="Nova senha"
+              type="password"
+              value={nextPassword}
+              autoComplete="new-password"
+              placeholder="Deixe em branco para manter"
+              onChange={(event) => setNextPassword(event.target.value)}
+            />
+            <Input
+              label="Confirmar nova senha"
+              type="password"
+              value={confirmPassword}
+              autoComplete="new-password"
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </div>
         </div>
-      </div>
+      )}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {saved ? <p className="text-sm text-faint">Perfil atualizado.</p> : null}
       <div className="flex justify-end">
