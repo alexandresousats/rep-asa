@@ -16,13 +16,32 @@ import {
   createSection,
   createTask,
   deleteSection,
+  flushTaskUpdate,
   reorderSections,
   setTaskStatus,
   updateTask,
 } from "@/lib/api";
 import { useAccess } from "@/lib/workspace";
 import { EMPTY_FILTERS, filterTasks, isFiltering, type TaskFilterState } from "@/lib/task-filters";
+import {
+  beforeIdForRow,
+  moveWithinSection,
+  planSectionTransfer,
+  rootIdsInSection,
+  sectionEdgeTarget,
+} from "@/lib/task-move";
 import type { Project, Tag, Task, User } from "@/lib/types";
+
+const TASK_DRAG_TYPE = "application/x-rep-asa-task";
+
+type TaskDrag = {
+  id: string | null;
+  idRef: { current: string | null };
+  overTaskId: string | null;
+  onDragIdChange: (id: string | null) => void;
+  onOverTask: (id: string | null) => void;
+  onMove: (sourceId: string, overTaskId: string | null, beforeId: string | null) => void;
+};
 
 export function SubtaskMark() {
   return (
@@ -40,6 +59,7 @@ export function TaskList({
   selectedId,
   onSelect,
   onReorder,
+  drag,
   showHeader = true,
   filters: controlledFilters,
   onFiltersChange,
@@ -52,6 +72,7 @@ export function TaskList({
   selectedId?: string | null;
   onSelect: (id: string) => void;
   onReorder?: (ids: string[]) => void;
+  drag?: TaskDrag;
   showHeader?: boolean;
   filters?: TaskFilterState;
   onFiltersChange?: (filters: TaskFilterState) => void;
@@ -60,6 +81,8 @@ export function TaskList({
   const { canWrite } = useAccess();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const activeDragId = drag ? drag.id : dragId;
+  const activeOverId = drag ? drag.overTaskId : overId;
   const [localFilters, setLocalFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
   const filters = controlledFilters ?? localFilters;
   const setFilters = onFiltersChange ?? setLocalFilters;
@@ -78,19 +101,23 @@ export function TaskList({
   ]);
 
   function move(sourceId: string, targetId: string) {
-    if (!sourceId || sourceId === targetId) return;
-    const ids = roots.map((task) => task.id);
-    const from = ids.indexOf(sourceId);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    const next = [...ids];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    onReorder?.(next);
+    const next = moveWithinSection(
+      roots.map((task) => task.id),
+      sourceId,
+      targetId,
+    );
+    if (next) onReorder?.(next);
   }
 
   return (
-    <div className="min-w-[720px]">
+    <div
+      className="min-w-[720px]"
+      data-task-list
+      onDragOver={(event) => {
+        if (!drag?.idRef.current) return;
+        event.preventDefault();
+      }}
+    >
       {showHeader ? (
         <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_130px_120px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
           <span>Nome</span>
@@ -98,7 +125,13 @@ export function TaskList({
         </div>
       ) : null}
       {rows.length === 0 ? (
-        <p className="px-4 py-8 text-sm text-faint">
+        <p
+          className="px-4 py-8 text-sm text-faint"
+          onDragOver={(event) => {
+            if (!drag?.idRef.current) return;
+            event.preventDefault();
+          }}
+        >
           {filtering ? "Nenhuma tarefa com esses filtros." : emptyLabel}
         </p>
       ) : null}
@@ -110,6 +143,7 @@ export function TaskList({
           <div
             key={task.id}
             data-task-row
+            data-drop-id={dropId}
             role="button"
             tabIndex={0}
             draggable={Boolean(onReorder) && canWrite && !filtering && !task.parentId}
@@ -117,33 +151,69 @@ export function TaskList({
               if (task.parentId) return;
               event.dataTransfer.effectAllowed = "move";
               event.dataTransfer.setData("text/plain", task.id);
-              setDragId(task.id);
+              try {
+                event.dataTransfer.setData(TASK_DRAG_TYPE, task.id);
+              } catch {
+                // text/plain already carries the task id.
+              }
+              if (drag) drag.onDragIdChange(task.id);
+              else setDragId(task.id);
             }}
             onClick={() => onSelect(task.id)}
             onKeyDown={(event) => {
               if (event.key === "Enter") onSelect(task.id);
             }}
             onDragOver={(event) => {
-              if (!dragId) return;
+              const current = drag?.idRef.current ?? dragId;
+              if (!current) return;
               event.preventDefault();
-              setOverId(dropId);
+              event.dataTransfer.dropEffect = "move";
+              if (drag) drag.onOverTask(dropId);
+              else setOverId(dropId);
+            }}
+            onDragLeave={(event) => {
+              if (!drag) return;
+              const next = event.relatedTarget;
+              if (next instanceof Node && event.currentTarget.contains(next)) return;
+              if (drag.overTaskId === dropId) drag.onOverTask(null);
             }}
             onDrop={(event) => {
               event.preventDefault();
-              move(event.dataTransfer.getData("text/plain") || dragId || "", dropId);
-              setDragId(null);
-              setOverId(null);
+              event.stopPropagation();
+              const current = drag?.idRef.current ?? dragId;
+              const sourceId =
+                event.dataTransfer.getData(TASK_DRAG_TYPE) ||
+                event.dataTransfer.getData("text/plain") ||
+                current ||
+                "";
+              const rect = event.currentTarget.getBoundingClientRect();
+              const after = event.clientY > rect.top + rect.height / 2;
+              const beforeId = beforeIdForRow(
+                roots.map((item) => item.id),
+                dropId,
+                after,
+              );
+              if (drag) drag.onMove(sourceId, dropId, beforeId);
+              else move(sourceId, dropId);
+              if (drag) {
+                drag.onDragIdChange(null);
+                drag.onOverTask(null);
+              } else {
+                setDragId(null);
+                setOverId(null);
+              }
             }}
             onDragEnd={() => {
-              setDragId(null);
+              if (drag) drag.onDragIdChange(null);
+              else setDragId(null);
               setOverId(null);
             }}
             className={cn(
               "grid w-full cursor-pointer grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
               selectedId === task.id && "bg-elevated",
-              task.status === "done" && dragId !== task.id && "opacity-50",
-              dragId === task.id && "opacity-40",
-              overId === task.id && dragId && dragId !== task.id && "bg-hover",
+              task.status === "done" && activeDragId !== task.id && "opacity-50",
+              activeDragId === task.id && "opacity-40",
+              activeOverId === task.id && activeDragId && activeDragId !== task.id && "bg-hover",
             )}
           >
             <span
@@ -256,7 +326,14 @@ export function GroupedTaskList({
   const [deleteError, setDeleteError] = useState("");
   const [draggingSection, setDraggingSection] = useState<string | null>(null);
   const [sectionDropAt, setSectionDropAt] = useState<number | null>(null);
+  const [taskDragId, setTaskDragId] = useState<string | null>(null);
+  const [overTaskId, setOverTaskId] = useState<string | null>(null);
+  const [taskOver, setTaskOver] = useState<{ section: string; edge: "start" | "end" } | null>(
+    null,
+  );
   const sectionDrag = useRef<string | null>(null);
+  const taskDragRef = useRef<string | null>(null);
+  const taskDropHandled = useRef(false);
   const people = users.slice().sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const skipSectionBlur = useRef(false);
   const [prevSectionDraft, setPrevSectionDraft] = useState(sectionDraft);
@@ -282,6 +359,41 @@ export function GroupedTaskList({
     onDraftSection(null);
   }
 
+  function clearTaskDrag() {
+    taskDragRef.current = null;
+    setTaskDragId(null);
+    setOverTaskId(null);
+    setTaskOver(null);
+  }
+
+  function dropTask(
+    sourceId: string,
+    section: string,
+    targetTaskId: string | null,
+    beforeId: string | null,
+  ) {
+    if (taskDropHandled.current) return;
+    taskDropHandled.current = true;
+    if (!onReorder || !sourceId || isFiltering(filters)) return;
+    const source = tasks.find((task) => task.id === sourceId);
+    if (!source || source.parentId) return;
+    if (source.section === section) {
+      const orderedIds = moveWithinSection(rootIdsInSection(tasks, section), sourceId, targetTaskId);
+      if (orderedIds) onReorder(orderedIds);
+      return;
+    }
+    const plan = planSectionTransfer(tasks, sourceId, section, beforeId);
+    if (!plan) return;
+    updateTask(plan.sourceId, { section: plan.section, order: plan.order });
+    for (const childId of plan.childIds) updateTask(childId, { section: plan.section });
+    flushTaskUpdate(plan.sourceId);
+    for (const childId of plan.childIds) flushTaskUpdate(childId);
+    onReorder(plan.orderedIds);
+    setCollapsed((current) =>
+      current[plan.section] ? { ...current, [plan.section]: false } : current,
+    );
+  }
+
   const pendingCount = pendingDelete
     ? tasks.filter((task) => task.section === pendingDelete && !task.id.startsWith("hist-")).length
     : 0;
@@ -298,27 +410,78 @@ export function GroupedTaskList({
         const items = tasks.filter((task) => task.section === section);
         const count = items.filter((task) => !task.parentId).length;
         const canOrder = isAdmin && sections.length > 1;
+        const showTaskLine =
+          Boolean(taskDragId) && taskOver?.section === section && !overTaskId && !draggingSection;
         return (
           <div
             key={section}
             id={`secao-${section}`}
-            onDragOver={(event) => {
-              if (!sectionDrag.current) return;
+            onDragEnter={(event) => {
+              if (sectionDrag.current || !taskDragRef.current || isFiltering(filters)) return;
               event.preventDefault();
-              const rect = event.currentTarget.getBoundingClientRect();
-              const after = event.clientY > rect.top + rect.height / 2;
-              setSectionDropAt(after ? index + 1 : index);
+            }}
+            onDragOver={(event) => {
+              if (sectionDrag.current) {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                const after = event.clientY > rect.top + rect.height / 2;
+                setSectionDropAt(after ? index + 1 : index);
+                return;
+              }
+              if (!taskDragRef.current || isFiltering(filters)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              const rootCount = rootIdsInSection(tasks, section).length;
+              const edge =
+                rootCount === 0 ? "start" : edgeFromPointer(event.currentTarget, event.clientY);
+              setTaskOver((current) =>
+                current?.section === section && current.edge === edge ? current : { section, edge },
+              );
+            }}
+            onDragLeave={(event) => {
+              if (sectionDrag.current) return;
+              const next = event.relatedTarget;
+              if (next instanceof Node && event.currentTarget.contains(next)) return;
+              setTaskOver((current) => (current?.section === section ? null : current));
+              setOverTaskId(null);
             }}
             onDrop={(event) => {
-              if (!sectionDrag.current) return;
+              if (sectionDrag.current) {
+                event.preventDefault();
+                const source = event.dataTransfer.getData("text/plain") || sectionDrag.current;
+                const rect = event.currentTarget.getBoundingClientRect();
+                const after = event.clientY > rect.top + rect.height / 2;
+                moveSection(sections, projectId, source, after ? index + 1 : index);
+                sectionDrag.current = null;
+                setDraggingSection(null);
+                setSectionDropAt(null);
+                return;
+              }
+              if (!taskDragRef.current || isFiltering(filters)) return;
               event.preventDefault();
-              const source = event.dataTransfer.getData("text/plain") || sectionDrag.current;
-              const rect = event.currentTarget.getBoundingClientRect();
-              const after = event.clientY > rect.top + rect.height / 2;
-              moveSection(sections, projectId, source, after ? index + 1 : index);
-              sectionDrag.current = null;
-              setDraggingSection(null);
-              setSectionDropAt(null);
+              const sourceId =
+                event.dataTransfer.getData(TASK_DRAG_TYPE) ||
+                event.dataTransfer.getData("text/plain") ||
+                taskDragRef.current;
+              const row =
+                event.target instanceof Element ? event.target.closest("[data-task-row]") : null;
+              if (row instanceof HTMLElement && event.currentTarget.contains(row)) {
+                const overId = row.getAttribute("data-drop-id");
+                if (overId) {
+                  const rect = row.getBoundingClientRect();
+                  const after = event.clientY > rect.top + rect.height / 2;
+                  const beforeId = beforeIdForRow(rootIdsInSection(tasks, section), overId, after);
+                  dropTask(sourceId, section, overId, beforeId);
+                  clearTaskDrag();
+                  return;
+                }
+              }
+              const ids = rootIdsInSection(tasks, section);
+              const edge =
+                ids.length === 0 ? "start" : edgeFromPointer(event.currentTarget, event.clientY);
+              const target = sectionEdgeTarget(ids, edge);
+              dropTask(sourceId, section, target.overTaskId, target.beforeId);
+              clearTaskDrag();
             }}
             className={cn(draggingSection === section && "opacity-40")}
           >
@@ -375,8 +538,12 @@ export function GroupedTaskList({
                 </button>
               ) : null}
             </div>
+            {!open && showTaskLine ? <div className="mx-4 h-0.5 rounded-full bg-ink" /> : null}
             {open ? (
               <>
+                {showTaskLine && taskOver?.edge === "start" ? (
+                  <div className="mx-4 h-0.5 rounded-full bg-ink" />
+                ) : null}
                 <TaskList
                   tasks={items}
                   users={users}
@@ -384,11 +551,38 @@ export function GroupedTaskList({
                   selectedId={selectedId}
                   onSelect={onSelect}
                   onReorder={onReorder}
+                  drag={
+                    onReorder
+                      ? {
+                          id: taskDragId,
+                          idRef: taskDragRef,
+                          overTaskId,
+                          onDragIdChange: (id) => {
+                            if (!id) {
+                              clearTaskDrag();
+                              return;
+                            }
+                            taskDropHandled.current = false;
+                            taskDragRef.current = id;
+                            setTaskDragId(id);
+                          },
+                          onOverTask: (id) => {
+                            setOverTaskId((current) => (current === id ? current : id));
+                          },
+                          onMove: (sourceId, targetTaskId, beforeId) => {
+                            dropTask(sourceId, section, targetTaskId, beforeId);
+                          },
+                        }
+                      : undefined
+                  }
                   showHeader={false}
                   filters={filters}
                   onFiltersChange={setFilters}
                   emptyLabel="Nenhuma tarefa nesta sessão."
                 />
+                {showTaskLine && taskOver?.edge === "end" ? (
+                  <div className="mx-4 h-0.5 rounded-full bg-ink" />
+                ) : null}
                 {draftSection === section ? (
                   <DraftRow
                     key={draftKey}
@@ -503,6 +697,12 @@ export function GroupedTaskList({
       </Dialog>
     </div>
   );
+}
+
+function edgeFromPointer(sectionEl: HTMLElement, clientY: number): "start" | "end" {
+  const list = sectionEl.querySelector("[data-task-list]");
+  if (!(list instanceof HTMLElement)) return "start";
+  return clientY <= list.getBoundingClientRect().top ? "start" : "end";
 }
 
 function moveSection(sections: string[], projectId: string, source: string, index: number) {

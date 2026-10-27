@@ -488,6 +488,40 @@ function cancelTaskSave(id: string) {
   taskSnapshots.delete(id);
 }
 
+function scheduleTaskSave(id: string, delay: number) {
+  const timer = taskTimers.get(id);
+  if (timer) clearTimeout(timer);
+  taskTimers.delete(id);
+  const send = () => {
+    const body = { ...(taskBuffers.get(id) ?? {}) };
+    delete body.completedAt;
+    delete body.comments;
+    delete body.subtasks;
+    delete body.id;
+    const snapshot = taskSnapshots.get(id);
+    taskBuffers.delete(id);
+    taskTimers.delete(id);
+    taskSnapshots.delete(id);
+    if (Object.keys(body).length === 0) return;
+    void request<Task>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    })
+      .then((task) => {
+        const pending = taskBuffers.get(id);
+        useWorkspace.getState().upsertTask(pending ? { ...task, ...pending, id: task.id } : task);
+      })
+      .catch(() => {
+        if (snapshot && !taskBuffers.has(id)) useWorkspace.getState().upsertTask(snapshot);
+      });
+  };
+  if (delay <= 0) {
+    send();
+    return;
+  }
+  taskTimers.set(id, setTimeout(send, delay));
+}
+
 export function updateTask(id: string, patch: Partial<Task>) {
   const state = useWorkspace.getState();
   const current = state.tasks.find((task) => task.id === id);
@@ -495,33 +529,12 @@ export function updateTask(id: string, patch: Partial<Task>) {
   if (!taskSnapshots.has(id)) taskSnapshots.set(id, current);
   state.upsertTask({ ...current, ...patch, id: current.id });
   taskBuffers.set(id, { ...(taskBuffers.get(id) ?? {}), ...patch });
-  const timer = taskTimers.get(id);
-  if (timer) clearTimeout(timer);
-  taskTimers.set(
-    id,
-    setTimeout(() => {
-      const body = { ...(taskBuffers.get(id) ?? {}) };
-      delete body.completedAt;
-      delete body.comments;
-      delete body.subtasks;
-      delete body.id;
-      const snapshot = taskSnapshots.get(id);
-      taskBuffers.delete(id);
-      taskTimers.delete(id);
-      taskSnapshots.delete(id);
-      void request<Task>(`/tasks/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      })
-        .then((task) => {
-          const pending = taskBuffers.get(id);
-          useWorkspace.getState().upsertTask(pending ? { ...task, ...pending, id: task.id } : task);
-        })
-        .catch(() => {
-          if (snapshot && !taskBuffers.has(id)) useWorkspace.getState().upsertTask(snapshot);
-        });
-    }, 280),
-  );
+  scheduleTaskSave(id, 280);
+}
+
+export function flushTaskUpdate(id: string) {
+  if (!taskBuffers.has(id) && !taskTimers.has(id)) return;
+  scheduleTaskSave(id, 0);
 }
 
 export async function deleteTask(id: string): Promise<Result> {
