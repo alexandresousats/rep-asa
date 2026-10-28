@@ -136,7 +136,7 @@ export function Sidebar({
               title={item.label}
               onClick={onNavigate}
               className={cn(
-                "relative flex items-center rounded-full text-sm transition-colors",
+                "relative flex items-center rounded-xl text-sm transition-colors",
                 collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
                 sidebarNavItemClass(active),
               )}

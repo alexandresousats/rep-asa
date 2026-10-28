@@ -1,6 +1,6 @@
 /** Item ativo/inativo nas sidebars principal e do chat (cores via CSS vars do tema). */
 const SIDEBAR_NAV_ACTIVE =
-  "font-medium border border-[var(--sidebar-nav-active-border)] bg-[var(--sidebar-nav-active-bg)] text-[var(--sidebar-nav-active-fg)] [box-shadow:var(--sidebar-nav-active-shadow)]";
+  "font-medium border border-transparent bg-[var(--sidebar-nav-active-bg)] text-[var(--sidebar-nav-active-fg)] shadow-none";
 
 const SIDEBAR_NAV_IDLE =
   "border border-transparent text-muted hover:bg-hover hover:text-ink";
