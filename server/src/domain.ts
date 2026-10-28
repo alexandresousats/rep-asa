@@ -2054,6 +2054,59 @@ export async function deleteApiKey(actor: Actor, id: string) {
   await prisma.apiKey.delete({ where: { id } });
 }
 
+const supportLabels = {
+  ticket: "Ticket",
+  bug: "Bug",
+  tecnico: "Suporte técnico",
+} as const;
+
+export async function createSupportRequest(
+  actor: Actor,
+  input: { kind: keyof typeof supportLabels; subject: string; message: string; page?: string },
+) {
+  const subject = input.subject.trim();
+  const message = input.message.trim();
+  if (subject.length < 3 || subject.length > 120) throw new ApiError(400, "Informe um assunto.");
+  if (message.length < 10 || message.length > 4000) {
+    throw new ApiError(400, "Descreva o pedido com um pouco mais de detalhe.");
+  }
+  const page = input.page?.trim().slice(0, 300) || null;
+  await prisma.supportRequest.create({
+    data: {
+      id: uid("sup"),
+      userId: actor.id,
+      workspaceId: actor.workspaceId,
+      kind: input.kind,
+      subject,
+      body: message,
+      page,
+    },
+  });
+  const to = process.env.SUPPORT_EMAIL?.trim();
+  const text = [
+    `${supportLabels[input.kind]} de ${actor.name} <${actor.email}>`,
+    actor.workspaceName ? `Espaço: ${actor.workspaceName}` : null,
+    page ? `Página: ${page}` : null,
+    "",
+    subject,
+    "",
+    message,
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+  if (to) {
+    try {
+      await sendMail({ to, subject: `[ASA] ${supportLabels[input.kind]}: ${subject}`, text });
+    } catch (error) {
+      console.error(error);
+    }
+    return;
+  }
+  if (process.env.NODE_ENV !== "production") {
+    console.info(`[suporte]\n${text}`);
+  }
+}
+
 export async function bootstrap(actor: Actor) {
   const billing = await billingSnapshot(actor);
   const memberships = await prisma.workspaceMember.findMany({

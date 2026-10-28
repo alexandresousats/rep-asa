@@ -88,6 +88,7 @@ model User {
   apiKeys          ApiKey[]
   taskFollows      TaskFollower[]
   paidSubscriptions WorkspaceSubscription[]
+  supportRequests  SupportRequest[]
 }
 
 model Workspace {
@@ -106,6 +107,7 @@ model Workspace {
   notifications Notification[]
   apiKeys       ApiKey[]
   subscription  WorkspaceSubscription?
+  supportRequests SupportRequest[]
 }
 
 model WorkspaceMember {
@@ -406,6 +408,28 @@ model BillingCheckout {
   userId      String
   createdAt   DateTime @default(now())
 
+  @@index([workspaceId])
+}
+
+enum SupportKind {
+  ticket
+  bug
+  tecnico
+}
+
+model SupportRequest {
+  id          String      @id
+  userId      String
+  workspaceId String?
+  kind        SupportKind
+  subject     String
+  body        String
+  page        String?
+  createdAt   DateTime    @default(now())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
   @@index([workspaceId])
 }
 

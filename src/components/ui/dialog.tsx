@@ -22,7 +22,7 @@ export function Dialog({
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/75"
         aria-label="Fechar"
         onClick={onClose}
       />

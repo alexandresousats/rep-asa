@@ -38,6 +38,7 @@ import {
   createTag,
   createTask,
   createThread,
+  createSupportRequest,
   setTaskFollow,
   updateProject,
   declineInvite,
@@ -198,6 +199,7 @@ function billingExempt(method: string, path: string) {
     return true;
   }
   if (path === "/mcp") return true;
+  if (path === "/support") return true;
   return false;
 }
 
@@ -344,6 +346,20 @@ app.get("/auth/google/callback", async (c) => {
 });
 
 app.get("/bootstrap", async (c) => c.json(await bootstrap(await actorOf(c))));
+
+app.post("/support", async (c) => {
+  const body = parse(
+    z.object({
+      kind: z.enum(["ticket", "bug", "tecnico"]),
+      subject: z.string().trim().min(3).max(120),
+      message: z.string().trim().min(10).max(4000),
+      page: z.string().trim().max(300).optional(),
+    }),
+    await c.req.json(),
+  );
+  await createSupportRequest(await actorOf(c), body);
+  return c.json({ ok: true });
+});
 
 app.get("/billing", async (c) => c.json(await billingSnapshot(await actorOf(c))));
 

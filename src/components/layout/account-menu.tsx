@@ -1,11 +1,12 @@
 "use client";
 
-import { CreditCard, LogOut, Settings, UserPlus } from "lucide-react";
+import { CreditCard, LifeBuoy, LogOut, Settings, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Avatar } from "@/components/ui/avatar";
 import type { SettingsTab } from "@/components/settings/settings-dialog";
+import { SupportDialog } from "@/components/layout/support-dialog";
 import { logout } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/lib/workspace";
@@ -19,6 +20,7 @@ export function AccountMenu({
 }) {
   const user = useWorkspace((state) => state.user);
   const [open, setOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
 
@@ -63,8 +65,13 @@ export function AccountMenu({
             setOpen(false);
             void logout().then(() => router.replace("/login"));
           }}
+          onOpenSupport={() => {
+            setOpen(false);
+            setSupportOpen(true);
+          }}
         />
       ) : null}
+      <SupportDialog open={supportOpen} onClose={() => setSupportOpen(false)} />
     </>
   );
 }
@@ -76,6 +83,7 @@ function AccountMenuPanel({
   onClose,
   onOpenSettings,
   onLogout,
+  onOpenSupport,
 }: {
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   collapsed: boolean;
@@ -83,6 +91,7 @@ function AccountMenuPanel({
   onClose: () => void;
   onOpenSettings: (tab: SettingsTab) => void;
   onLogout: () => void;
+  onOpenSupport: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 268 });
@@ -94,7 +103,7 @@ function AccountMenuPanel({
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const width = 268;
-      const height = menu?.offsetHeight ?? 280;
+      const height = menu?.offsetHeight || 320;
       let left = collapsed ? rect.right + 8 : rect.left;
       let top = collapsed ? rect.bottom - height : rect.top - height - 8;
 
@@ -149,6 +158,7 @@ function AccountMenuPanel({
       onClick: () => onOpenSettings("equipe"),
     },
     { label: "Atualizar plano", icon: CreditCard, onClick: () => onOpenSettings("assinatura") },
+    { label: "Suporte", icon: LifeBuoy, onClick: onOpenSupport },
   ];
 
   return createPortal(

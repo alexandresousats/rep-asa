@@ -99,6 +99,20 @@ export async function signup(input: {
   }
 }
 
+export async function submitSupport(input: {
+  kind: "ticket" | "bug" | "tecnico";
+  subject: string;
+  message: string;
+  page?: string;
+}): Promise<Result> {
+  try {
+    await request("/support", { method: "POST", body: JSON.stringify(input) });
+    return { ok: true };
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 export async function logout() {
   try {
     await request("/auth/logout", { method: "POST" });
