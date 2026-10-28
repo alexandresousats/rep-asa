@@ -13,7 +13,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import {
   sidebarNavIconClass,
@@ -568,7 +569,7 @@ export function AgentSidebar({
                         setDragOverFolderId(null);
                       }}
                       className={cn(
-                        "group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-[14px] transition-all cursor-pointer active:cursor-grabbing select-none",
+                        "group relative flex items-center justify-between rounded-xl px-2.5 py-1.5 text-[14px] transition-all cursor-pointer active:cursor-grabbing select-none",
                         sidebarNavItemClass(isActive),
                         isBeingDragged && "opacity-40 scale-95 shadow-md cursor-grabbing",
                       )}
@@ -579,9 +580,9 @@ export function AgentSidebar({
                           selectSession(session.id);
                           onClose?.();
                         }}
-                        className="min-w-0 flex-1 text-left cursor-pointer text-inherit active:cursor-grabbing"
+                        className="flex min-w-0 flex-1 items-center text-left cursor-pointer text-inherit active:cursor-grabbing"
                       >
-                        <span className="block truncate text-[14px] leading-5 text-inherit">
+                        <span className="block truncate -translate-y-px text-inherit">
                           {session.title}
                         </span>
                         {folder && (
@@ -597,25 +598,20 @@ export function AgentSidebar({
                       </button>
 
                       {/* Botões de Ação na Conversa */}
-                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div
+                        className={cn(
+                          "flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                          menuSessionId === session.id && "opacity-100",
+                        )}
+                      >
                         {/* Dropdown de Pasta */}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setMenuSessionId((prev) => (prev === session.id ? null : session.id))
-                            }
-                            title="Mover para pasta / Opções"
-                            className="rounded-md p-1 text-faint hover:bg-elevated hover:text-ink"
-                          >
-                            <MoreVertical className="h-3.5 w-3.5" />
-                          </button>
-
-                          {menuSessionId === session.id && (
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute top-full right-0 z-50 mt-1 w-52 rounded-xl bg-elevated p-1 text-xs shadow-xl border border-line animate-in fade-in"
-                            >
+                        <SessionOptionsMenu
+                          open={menuSessionId === session.id}
+                          onToggle={() =>
+                            setMenuSessionId((prev) => (prev === session.id ? null : session.id))
+                          }
+                          onClose={() => setMenuSessionId(null)}
+                        >
                               <div className="px-2 py-1 text-[10px] uppercase font-semibold text-faint">
                                 Mover para pasta
                               </div>
@@ -680,9 +676,7 @@ export function AgentSidebar({
                                   </span>
                                 </span>
                               </button>
-                            </div>
-                          )}
-                        </div>
+                        </SessionOptionsMenu>
 
                         <button
                           type="button"
@@ -691,17 +685,17 @@ export function AgentSidebar({
                             setEditingTitle(session.title);
                           }}
                           title="Renomear"
-                          className="rounded-md p-1 text-faint hover:bg-elevated hover:text-ink"
+                          className="rounded p-0.5 text-faint hover:bg-elevated hover:text-ink"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="h-3 w-3" />
                         </button>
                         <button
                           type="button"
                           onClick={() => moveToTrash(session.id)}
                           title={`Mover para a lixeira. Apagada em ${TRASH_RETENTION_DAYS} dias`}
-                          className="rounded-md p-1 text-faint hover:bg-elevated hover:text-red-400"
+                          className="rounded p-0.5 text-faint hover:bg-elevated hover:text-red-400"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                     </div>
@@ -843,6 +837,100 @@ function TrashPanel({
         </div>
       )}
     </div>
+  );
+}
+
+function SessionOptionsMenu({
+  open,
+  onToggle,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    function updatePosition() {
+      const button = buttonRef.current;
+      const menu = menuRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const width = menu?.offsetWidth ?? 208;
+      const height = menu?.offsetHeight ?? 220;
+      let left = rect.right - width;
+      let top = rect.bottom + 4;
+      left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+      if (top + height > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - height - 4);
+      }
+      setCoords({ top, left });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      onClose();
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onToggle}
+        title="Mover para pasta / Opções"
+        aria-expanded={open}
+        className="rounded p-0.5 text-faint hover:bg-elevated hover:text-ink"
+      >
+        <MoreVertical className="h-3 w-3" />
+      </button>
+      {open
+        ? createPortal(
+            <div
+              ref={menuRef}
+              onClick={(event) => event.stopPropagation()}
+              style={{ top: coords.top, left: coords.left }}
+              className="fixed z-[60] w-52 rounded-xl border border-line bg-elevated p-1 text-xs shadow-xl menu-in"
+            >
+              {children}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
