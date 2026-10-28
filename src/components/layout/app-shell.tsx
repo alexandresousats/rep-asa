@@ -8,6 +8,7 @@ import { useWorkspace } from "@/lib/workspace";
 import { PendingInvites } from "./pending-invites";
 import { Paywall } from "@/components/billing/paywall";
 import { EmailConfirmBanner } from "./email-confirm-banner";
+import { SettingsDialog, type SettingsTab } from "@/components/settings/settings-dialog";
 import { SearchDialog } from "./search-dialog";
 import { Sidebar } from "./sidebar";
 
@@ -22,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
 
   useEffect(() => {
     if (ready && !user) {
@@ -32,6 +34,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    setSettingsTab(null);
+  }, [pathname]);
+
+  function openSettings(tab: SettingsTab) {
+    setSettingsTab(tab);
+    setMobileOpen(false);
+  }
 
   if (!ready || !user) {
     return <div className="min-h-screen bg-base" />;
@@ -56,6 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onOpenAssistant={() => setAssistantOpen(true)}
           onOpenSearch={() => setSearchOpen(true)}
           onCollapse={() => setCollapsed((open) => !open)}
+          onOpenSettings={openSettings}
         />
       </div>
 
@@ -79,6 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 setMobileOpen(false);
               }}
               onCollapse={() => setMobileOpen(false)}
+              onOpenSettings={openSettings}
             />
           </div>
         </div>
@@ -117,6 +130,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
       <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+      {settingsTab && !pathname.startsWith("/configuracoes") ? (
+        <SettingsDialog
+          open
+          tab={settingsTab}
+          onTabChange={setSettingsTab}
+          onClose={() => setSettingsTab(null)}
+        />
+      ) : null}
     </div>
   );
 }

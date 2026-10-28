@@ -8,21 +8,16 @@ import {
   LayoutGrid,
   ListTodo,
   MessageSquare,
-  Moon,
   PartyPopper,
-  Settings,
   PanelLeft,
   Search,
   Sparkles,
-  Sun,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
-import { useRouter } from "next/navigation";
-import { Avatar } from "@/components/ui/avatar";
-import { logout } from "@/lib/api";
+import { AccountMenu } from "@/components/layout/account-menu";
+import type { SettingsTab } from "@/components/settings/settings-dialog";
 import { cn } from "@/lib/cn";
 import { sidebarNavIconClass, sidebarNavItemClass } from "@/lib/sidebar-nav";
 import { useWorkspace } from "@/lib/workspace";
@@ -41,7 +36,6 @@ const NAV = [
   { href: "/datas-comemorativas", label: "Datas Comemorativas", icon: PartyPopper, match: "/datas-comemorativas" },
   { href: "/mensagens", label: "Mensagens", icon: MessageSquare, match: "/mensagens" },
   { href: "/insights", label: "Insights", icon: ChartColumn },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 export function Sidebar({
@@ -50,18 +44,16 @@ export function Sidebar({
   onOpenAssistant,
   onOpenSearch,
   onCollapse,
+  onOpenSettings,
 }: {
   collapsed?: boolean;
   onNavigate?: () => void;
   onOpenAssistant?: () => void;
   onOpenSearch?: () => void;
   onCollapse?: () => void;
+  onOpenSettings: (tab: SettingsTab) => void;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { resolvedTheme, setTheme } = useTheme();
-  const isDark = resolvedTheme !== "light";
-  const user = useWorkspace((state) => state.user);
   const workspace = useWorkspace((state) => state.workspace);
   const workspaces = useWorkspace((state) => state.workspaces);
   const tasks = useWorkspace((state) => state.tasks);
@@ -116,6 +108,7 @@ export function Sidebar({
           workspaces={workspaces}
           collapsed={collapsed}
           onCreateWorkspace={() => setCreating(true)}
+          onOpenSettings={() => onOpenSettings("workspace")}
         />
       </div>
 
@@ -169,59 +162,8 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className={cn("mt-auto", collapsed ? "flex w-full flex-col items-center gap-1" : "space-y-3 px-1")}>
-        <button
-          type="button"
-          title={isDark ? "Modo claro" : "Modo escuro"}
-          onClick={() => setTheme(isDark ? "light" : "dark")}
-          className={cn(
-            "flex items-center rounded-full text-sm text-muted hover:bg-hover hover:text-ink",
-            collapsed ? "h-9 w-9 justify-center" : "w-full gap-3 px-3 py-2",
-          )}
-        >
-          {isDark ? (
-            <Sun className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-          ) : (
-            <Moon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-          )}
-          <span
-            className={cn(
-              "overflow-hidden transition-all duration-300",
-              collapsed ? "hidden" : "max-w-40 opacity-100",
-            )}
-          >
-            {isDark ? "Modo claro" : "Modo escuro"}
-          </span>
-        </button>
-
-        <div
-          className={cn(
-            "flex items-center gap-3 rounded-2xl",
-            collapsed ? "h-9 w-9 justify-center" : "px-2 py-2",
-          )}
-        >
-          <Avatar initials={user?.initials ?? "AS"} src={user?.avatar} name={user?.name} />
-          <div
-            className={cn(
-              "min-w-0 flex-1 items-center gap-3 overflow-hidden transition-all duration-300",
-              collapsed ? "hidden" : "flex max-w-40 opacity-100",
-            )}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm text-ink">{user?.name ?? "ASA"}</p>
-              <p className="truncate text-xs text-faint">{user?.role ?? "Membro"}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                void logout().then(() => router.replace("/login"));
-              }}
-              className="text-[11px] text-faint hover:text-ink"
-            >
-              Sair
-            </button>
-          </div>
-        </div>
+      <div className={cn("mt-auto", collapsed ? "flex w-full flex-col items-center" : "px-1")}>
+        <AccountMenu collapsed={collapsed} onOpenSettings={onOpenSettings} />
       </div>
       <CreateWorkspaceDialog open={creating} onClose={() => setCreating(false)} />
     </aside>

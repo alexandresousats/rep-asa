@@ -6,7 +6,6 @@ import {
   Plus,
   Settings,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { selectWorkspace } from "@/lib/api";
@@ -18,15 +17,16 @@ export function WorkspaceDropdown({
   workspaces,
   collapsed,
   onCreateWorkspace,
+  onOpenSettings,
 }: {
   workspace: WorkspaceInfo | null;
   workspaces: WorkspaceMembership[];
   collapsed: boolean;
   onCreateWorkspace: () => void;
+  onOpenSettings: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const router = useRouter();
 
   const currentInitial = workspace?.name
     ? workspace.name.trim().charAt(0).toUpperCase()
@@ -94,7 +94,7 @@ export function WorkspaceDropdown({
           }}
           onOpenSettings={() => {
             setIsOpen(false);
-            router.push("/configuracoes");
+            onOpenSettings();
           }}
         />
       ) : null}
