@@ -35,7 +35,17 @@ export function EditableTitle({
         autoFocus
         value={value}
         aria-label="Título da tarefa"
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={(event) => {
+          const input = event.currentTarget;
+          const placeCaret = () => {
+            const fits = input.clientWidth > 0 && input.scrollWidth <= input.clientWidth + 1;
+            const caret = fits ? input.value.length : 0;
+            input.setSelectionRange(caret, caret);
+            input.scrollLeft = 0;
+          };
+          placeCaret();
+          requestAnimationFrame(placeCaret);
+        }}
         onChange={(event) => setValue(event.target.value)}
         onClick={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
@@ -53,8 +63,10 @@ export function EditableTitle({
           }
         }}
         onBlur={commit}
+        style={{ textOverflow: "clip" }}
         className={cn(
-          "min-w-0 flex-1 bg-transparent text-inherit outline-none",
+          "min-w-0 max-w-full bg-transparent text-inherit outline-none",
+          Tag === "h2" ? "block w-full" : "flex-1",
           className,
         )}
       />
