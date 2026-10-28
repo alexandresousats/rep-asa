@@ -184,7 +184,8 @@ export function RichText({
 
   async function handlePaste(event: React.ClipboardEvent<HTMLDivElement>) {
     event.preventDefault();
-    const plainShortcut = plainPasteRef.current || event.shiftKey;
+    const shiftKey = (event.nativeEvent as { shiftKey?: boolean }).shiftKey === true;
+    const plainShortcut = plainPasteRef.current || shiftKey;
     plainPasteRef.current = false;
     const data = event.clipboardData;
     if (!data) return;
