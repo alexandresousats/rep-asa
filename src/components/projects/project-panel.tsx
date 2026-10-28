@@ -121,19 +121,6 @@ export function ProjectPanel({
         </span>
       </div>
       <div className="px-4 py-4 sm:px-6">
-      <Card className="mb-4 border-none">
-        <div className="mb-3 flex items-center justify-between text-sm">
-          <span className="text-faint">Conclusão do projeto</span>
-          <span className="text-ink">{stats.percent}%</span>
-        </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-line">
-          <div
-            className="h-full rounded-full"
-            style={{ width: `${stats.percent}%`, backgroundColor: accent }}
-          />
-        </div>
-      </Card>
-
       <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Concluídas" value={stats.done} />
         <Stat label="Por concluir" value={stats.open} />
@@ -733,7 +720,6 @@ function buildStats(
     overdue: overdueTasks.length,
     doing,
     todo: openTasks.length - doing,
-    percent: roots.length === 0 ? 0 : Math.round((doneTasks.length / roots.length) * 100),
     thisWeek: openTasks.filter((task) => inWeek(task, weekStart, weekEnd)).length,
     unassigned: openTasks.filter((task) => !task.assigneeId).length,
     undated: openTasks.filter((task) => !task.dueDate).length,

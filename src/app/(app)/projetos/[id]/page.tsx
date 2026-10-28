@@ -183,19 +183,20 @@ function ProjectWorkspace() {
             {exportError ? <p className="mt-2 text-xs text-red-400">{exportError}</p> : null}
           </div>
           <div className="flex items-center gap-3">
-            <Button
+            <button
               type="button"
-              variant="outline"
+              aria-label="Exportar CSV"
+              title="Exportar CSV"
               onClick={() => {
                 setExportError("");
                 void downloadWorkspaceCsv(project.id).catch((reason: Error) =>
                   setExportError(reason.message),
                 );
               }}
+              className="rounded-full p-2 text-faint transition-colors hover:bg-hover hover:text-ink"
             >
-              <Download className="h-4 w-4" />
-              Exportar CSV
-            </Button>
+              <Download className="h-4 w-4" strokeWidth={1.75} />
+            </button>
             {canWrite ? (
               <>
                 <div ref={addMenuRef} className="relative">
