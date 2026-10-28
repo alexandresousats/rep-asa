@@ -1,6 +1,6 @@
 "use client";
 
-import { endOfWeek, startOfDay, startOfWeek } from "date-fns";
+import { startOfDay } from "date-fns";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowUpRight, SquarePen } from "lucide-react";
@@ -10,6 +10,7 @@ import { TagChip } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatDay, parseDate } from "@/lib/dates";
 import { computeInsights } from "@/lib/insights";
+import { tasksLeavingThisWeek } from "@/lib/week-posts";
 import { useWorkspace } from "@/lib/workspace";
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { ChatThread } from "@/components/chat/chat-thread";
@@ -124,25 +125,7 @@ function Dashboard() {
   const tags = useWorkspace((state) => state.tags);
   const firstName = user?.name.split(" ")[0] ?? "equipe";
   const [showAllWeek, setShowAllWeek] = useState(false);
-  const weekPosts = useMemo(() => {
-    const today = startOfDay(new Date());
-    const weekStart = startOfWeek(today, { weekStartsOn: 1 });
-    const weekEnd = startOfDay(endOfWeek(today, { weekStartsOn: 1 }));
-    return tasks
-      .filter((task) => {
-        if (
-          task.id.startsWith("hist-") ||
-          task.parentId ||
-          task.status === "done" ||
-          !task.dueDate
-        ) {
-          return false;
-        }
-        const due = startOfDay(parseDate(task.dueDate));
-        return due >= weekStart && due <= weekEnd;
-      })
-      .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""));
-  }, [tasks]);
+  const weekPosts = useMemo(() => tasksLeavingThisWeek(tasks), [tasks]);
   const visibleWeekPosts = showAllWeek ? weekPosts : weekPosts.slice(0, 10);
   const midpoint = Math.ceil(visibleWeekPosts.length / 2);
   const firstCol = visibleWeekPosts.slice(0, midpoint);
@@ -199,6 +182,11 @@ function Dashboard() {
                 <WeekPostRow
                   key={task.id}
                   task={task}
+                  parentTitle={
+                    task.parentId
+                      ? tasks.find((item) => item.id === task.parentId)?.title
+                      : undefined
+                  }
                   projects={projects}
                   users={users}
                   tags={tags}
@@ -210,6 +198,11 @@ function Dashboard() {
                 <WeekPostRow
                   key={task.id}
                   task={task}
+                  parentTitle={
+                    task.parentId
+                      ? tasks.find((item) => item.id === task.parentId)?.title
+                      : undefined
+                  }
                   projects={projects}
                   users={users}
                   tags={tags}
@@ -322,11 +315,13 @@ function QuickLink({
 
 function WeekPostRow({
   task,
+  parentTitle,
   projects,
   users,
   tags,
 }: {
   task: Task;
+  parentTitle?: string;
   projects: Project[];
   users: User[];
   tags: Tag[];
@@ -353,7 +348,10 @@ function WeekPostRow({
             className="h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: project?.color }}
           />
-          <span className="truncate">{project?.name}</span>
+          <span className="truncate">
+            {project?.name}
+            {parentTitle ? ` · ${parentTitle}` : ""}
+          </span>
           {overdue ? <span>atrasado</span> : null}
         </span>
       </span>
