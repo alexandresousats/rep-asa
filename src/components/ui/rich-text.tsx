@@ -17,6 +17,13 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import {
+  highlightStyle,
+  plainTextToEditorHtml,
+  RICH_TEXT_MARK,
+  RICH_TEXT_MIME,
+  stripExternalPasteHtml,
+} from "@/lib/paste-html";
 
 const BLOCKS = [
   { label: "Texto padrão", value: "p" },
@@ -70,12 +77,13 @@ async function sanitizeEditorHtml(value: string) {
   if (!purifyHooked) {
     purifyHooked = true;
     DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
-      if (
-        data.attrName === "style" &&
-        /url\s*\(|expression\s*\(|javascript:/i.test(data.attrValue)
-      ) {
+      if (data.attrName !== "style") return;
+      const next = highlightStyle(data.attrValue);
+      if (!next) {
         data.keepAttr = false;
+        return;
       }
+      data.attrValue = next;
     });
   }
   return DOMPurify.sanitize(plainToHtml(value), RICH_TEXT_PURIFY);
@@ -93,6 +101,7 @@ export function RichText({
   const [active, setActive] = useState(false);
   const [menu, setMenu] = useState(false);
   const [more, setMore] = useState(false);
+  const plainPasteRef = useRef(false);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -118,6 +127,81 @@ export function RichText({
     const empty = !editorRef.current?.textContent?.trim();
     onChange(empty ? "" : html);
     setMenu((editorRef.current?.textContent ?? "").trim() === "/");
+  }
+
+  function insertHtml(html: string) {
+    const editor = editorRef.current;
+    if (!html || !editor) return;
+    editor.focus();
+    const selection = document.getSelection();
+    const range =
+      selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+        ? selection.getRangeAt(0)
+        : null;
+    if (!range) {
+      editor.insertAdjacentHTML("beforeend", html);
+    } else {
+      range.deleteContents();
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      const fragment = template.content;
+      const last = fragment.lastChild;
+      range.insertNode(fragment);
+      if (last) {
+        range.setStartAfter(last);
+        range.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    }
+    publish();
+  }
+
+  function writeInternalClipboard(event: React.ClipboardEvent<HTMLDivElement>) {
+    const editor = editorRef.current;
+    const selection = document.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+    const holder = document.createElement("div");
+    holder.appendChild(range.cloneContents());
+    event.clipboardData.setData("text/html", `${RICH_TEXT_MARK}${holder.innerHTML}`);
+    event.clipboardData.setData("text/plain", selection.toString());
+    event.clipboardData.setData(RICH_TEXT_MIME, "1");
+    event.preventDefault();
+  }
+
+  function handleCopy(event: React.ClipboardEvent<HTMLDivElement>) {
+    writeInternalClipboard(event);
+  }
+
+  function handleCut(event: React.ClipboardEvent<HTMLDivElement>) {
+    writeInternalClipboard(event);
+    if (!event.defaultPrevented) return;
+    document.execCommand("delete");
+    publish();
+  }
+
+  async function handlePaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const plainShortcut = plainPasteRef.current || event.shiftKey;
+    plainPasteRef.current = false;
+    const data = event.clipboardData;
+    if (!data) return;
+    const plain = data.getData("text/plain");
+    const html = data.getData("text/html");
+    const internal =
+      data.getData(RICH_TEXT_MIME) === "1" || html.includes(RICH_TEXT_MARK);
+    if (plainShortcut || !html) {
+      insertHtml(plainTextToEditorHtml(plain));
+      return;
+    }
+    if (internal) {
+      const cleaned = await sanitizeEditorHtml(html.replaceAll(RICH_TEXT_MARK, ""));
+      insertHtml(cleaned);
+      return;
+    }
+    insertHtml(stripExternalPasteHtml(html) || plainTextToEditorHtml(plain));
   }
 
   return (
@@ -242,6 +326,16 @@ export function RichText({
         contentEditable
         suppressContentEditableWarning
         data-placeholder="Digite / para abrir o menu"
+        onKeyDown={(event) => {
+          plainPasteRef.current =
+            (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "v";
+        }}
+        onKeyUp={() => {
+          plainPasteRef.current = false;
+        }}
+        onCopy={handleCopy}
+        onCut={handleCut}
+        onPaste={handlePaste}
         onInput={publish}
         className="rich-editor min-h-24 w-full px-3 py-3 text-sm leading-6 text-ink outline-none"
       />

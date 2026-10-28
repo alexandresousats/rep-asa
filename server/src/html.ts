@@ -1,11 +1,7 @@
 import sanitizeHtml from "sanitize-html";
+import { HIGHLIGHT_BACKGROUND } from "../../src/lib/paste-html";
 
 const MAX_DESCRIPTION = 20_000;
-
-const background = [
-  /^#[0-9a-f]{3,8}$/i,
-  /^rgb\(\s*(?:\d{1,3}\s*,\s*){2}\d{1,3}\s*\)$/i,
-];
 
 export function sanitizeRichText(value: string) {
   const trimmed = value.trim().slice(0, MAX_DESCRIPTION);
@@ -41,8 +37,8 @@ export function sanitizeRichText(value: string) {
       mark: ["style"],
     },
     allowedStyles: {
-      span: { "background-color": background },
-      mark: { "background-color": background },
+      span: { "background-color": HIGHLIGHT_BACKGROUND },
+      mark: { "background-color": HIGHLIGHT_BACKGROUND },
     },
     allowedSchemes: ["http", "https", "mailto"],
     allowProtocolRelative: false,

@@ -132,6 +132,21 @@ body {
   color: var(--text-tertiary);
 }
 
+.rich-editor :where(span, font, p, div, li, h1, h4, h5, h6) {
+  color: inherit !important;
+  font-size: inherit !important;
+  font-family: inherit !important;
+  background-color: transparent !important;
+}
+
+.rich-editor mark,
+.rich-editor span[style*="fde68a"],
+.rich-editor span[style*="FDE68A"],
+.rich-editor span[style*="253, 230, 138"],
+.rich-editor span[style*="253,230,138"] {
+  background-color: #fde68a !important;
+}
+
 .rich-editor h2 {
   font-size: 1.25rem;
   font-weight: 500;
