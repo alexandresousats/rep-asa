@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
 import { useWorkspace } from "@/lib/workspace";
+import { WorkspaceInviteCards } from "../layout/workspace-invite-cards";
 import { Logo } from "../layout/logo";
 
 export function Paywall() {
@@ -22,6 +23,7 @@ export function Paywall() {
   const workspace = useWorkspace((state) => state.workspace);
   const workspaces = useWorkspace((state) => state.workspaces);
   const user = useWorkspace((state) => state.user);
+  const invites = useWorkspace((state) => state.invites);
   const returnedFromCheckout = Boolean(
     searchParams.get("subscription_id") || searchParams.get("status"),
   );
@@ -87,6 +89,16 @@ export function Paywall() {
             ? `${workspace.name} ainda não tem uma assinatura ativa. O pagamento libera todas as funções deste espaço.`
             : "O pagamento libera todas as funções do espaço de trabalho."}
         </p>
+        {invites.length > 0 ? (
+          <div className="mt-6">
+            <p className="text-sm font-medium text-ink">Convites</p>
+            <p className="mt-1 mb-4 text-sm leading-6 text-muted">
+              Aceite para entrar no espaço atribuído. O plano e as vagas ficam com o administrador
+              desse espaço.
+            </p>
+            <WorkspaceInviteCards />
+          </div>
+        ) : null}
         {billing?.priceLabel ? (
           <p className="mt-6 text-3xl font-medium tracking-tight text-ink">
             {billing.priceLabel}

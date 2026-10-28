@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTheme } from "next-themes";
 import {
+  Bell,
   Building2,
   Cpu,
   CreditCard,
@@ -23,6 +24,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AgentSettingsCard } from "@/components/settings/agent-settings";
 import { BillingSettings } from "@/components/settings/billing-card";
+import { NotificationSettings } from "@/components/settings/notification-settings";
 import { ApiKeysCard } from "@/components/settings/api-keys";
 import { CsvBackupCard } from "@/components/settings/csv-backup";
 import { TagsManager } from "@/components/settings/tags-manager";
@@ -45,6 +47,7 @@ export type SettingsTab =
   | "assinatura"
   | "equipe"
   | "workspace"
+  | "notificacoes"
   | "agente"
   | "mcp"
   | "tags";
@@ -56,6 +59,7 @@ const GROUPS: { label: string; items: { id: SettingsTab; label: string; icon: ty
       { id: "perfil", label: "Conta", icon: User },
       { id: "aparencia", label: "Aparência", icon: Palette },
       { id: "workspace", label: "Espaço de trabalho", icon: Building2 },
+      { id: "notificacoes", label: "Notificações", icon: Bell },
     ],
   },
   {
@@ -89,6 +93,9 @@ export function normalizeSettingsTab(param: string | null): SettingsTab {
     lower === "espaço de trabalho"
   ) {
     return "workspace";
+  }
+  if (lower === "notificacoes" || lower === "notificações" || lower === "notifications") {
+    return "notificacoes";
   }
   if (lower === "assinatura" || lower === "billing" || lower === "plano") return "assinatura";
   if (lower === "equipe" || lower === "team") return "equipe";
@@ -256,6 +263,7 @@ function SettingsBody({ tab }: { tab: SettingsTab }) {
   return (
     <>
       {tab === "assinatura" && <BillingSettings />}
+      {tab === "notificacoes" && <NotificationSettings />}
       {tab === "equipe" && <WorkspaceTeamSection />}
       {tab === "aparencia" && <AppearanceSettings />}
 

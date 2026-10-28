@@ -191,6 +191,7 @@ function billingExempt(method: string, path: string) {
   if (path === "/bootstrap" || path === "/billing") return true;
   if (path === "/billing/checkout" || path === "/billing/portal") return true;
   if (method === "POST" && /^\/workspaces\/[^/]+\/(select|accept|decline)$/.test(path)) return true;
+  if (path === "/notifications" || path.startsWith("/notifications/")) return true;
   if (
     path === "/demands/link-info" ||
     path === "/demands/agent-chat" ||
@@ -462,7 +463,7 @@ app.post("/workspaces/:id/accept", async (c) => {
   const actor = await actorOf(c);
   const id = c.req.param("id");
   await acceptInvite(actor, id);
-  if (!actor.workspaceId) writeWorkspace(c, id);
+  if (!actor.apiKeyId) writeWorkspace(c, id);
   return c.json({ ok: true });
 });
 

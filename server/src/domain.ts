@@ -2144,7 +2144,7 @@ export async function bootstrap(actor: Actor) {
       tags: [],
       threads: [],
       messages: [],
-      notifications: actor.workspaceId ? [] : await listNotifications(actor),
+      notifications: await listNotifications(actor),
     };
   }
   const [users, projects, tasks, tags, threads, messages, notifications] = await Promise.all([

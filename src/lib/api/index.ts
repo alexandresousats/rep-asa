@@ -41,7 +41,6 @@ export async function loadSession() {
 export async function refreshNotifications() {
   const state = useWorkspace.getState();
   if (!state.user) return;
-  if (state.workspace && state.billing?.active !== true) return;
   try {
     const notifications = await request<
       ReturnType<typeof useWorkspace.getState>["notifications"]
