@@ -8,7 +8,14 @@ import { Avatar } from "@/components/ui/avatar";
 import { TagChip } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { deleteSection, reorderSections, setTaskStatus, reorderTasks, updateTask } from "@/lib/api";
+import {
+  createSection,
+  deleteSection,
+  reorderSections,
+  reorderTasks,
+  setTaskStatus,
+  updateTask,
+} from "@/lib/api";
 import { useAccess } from "@/lib/workspace";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
@@ -34,6 +41,8 @@ export function TaskKanban({
   onSelect,
   onCreate,
   draggable = true,
+  sectionDraft = false,
+  onSectionDraftOpened,
 }: {
   projectId: string;
   sections: string[];
@@ -43,6 +52,8 @@ export function TaskKanban({
   onSelect: (id: string) => void;
   onCreate: (section: string) => void;
   draggable?: boolean;
+  sectionDraft?: boolean;
+  onSectionDraftOpened?: () => void;
 }) {
   const { canWrite, isAdmin } = useAccess();
   const [dragId, setDragId] = useState<string | null>(null);
@@ -62,6 +73,25 @@ export function TaskKanban({
   const suppressClick = useRef(false);
   const settling = useRef(false);
   const [columnDragName, setColumnDragName] = useState<string | null>(null);
+  const [newSection, setNewSection] = useState<string | null>(null);
+  const skipSectionBlur = useRef(false);
+  const draftColumnRef = useRef<HTMLElement>(null);
+  const [prevSectionDraft, setPrevSectionDraft] = useState(sectionDraft);
+  if (sectionDraft !== prevSectionDraft) {
+    setPrevSectionDraft(sectionDraft);
+    if (sectionDraft) setNewSection("");
+  }
+
+  useEffect(() => {
+    if (sectionDraft) onSectionDraftOpened?.();
+  }, [sectionDraft, onSectionDraftOpened]);
+
+  const draftOpen = newSection !== null;
+
+  useEffect(() => {
+    if (!draftOpen) return;
+    draftColumnRef.current?.scrollIntoView({ block: "nearest", inline: "end" });
+  }, [draftOpen]);
 
   function columnTasks(section: string) {
     return tasks
@@ -493,6 +523,50 @@ export function TaskKanban({
           </section>
         );
       })}
+      {isAdmin && newSection !== null ? (
+        <section
+          ref={draftColumnRef}
+          className="flex h-full w-72 shrink-0 flex-col rounded-2xl bg-elevated"
+        >
+          <form
+            className="px-3 py-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const name = newSection.trim();
+              skipSectionBlur.current = true;
+              setNewSection(null);
+              if (!name) return;
+              void createSection(projectId, name);
+            }}
+          >
+            <input
+              autoFocus
+              value={newSection}
+              aria-label="Nova sessão"
+              placeholder="Nova sessão"
+              onChange={(event) => setNewSection(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  skipSectionBlur.current = true;
+                  setNewSection(null);
+                }
+              }}
+              onBlur={() => {
+                if (skipSectionBlur.current) {
+                  skipSectionBlur.current = false;
+                  return;
+                }
+                const name = newSection.trim();
+                setNewSection(null);
+                if (!name) return;
+                void createSection(projectId, name);
+              }}
+              className="h-8 w-full rounded-full bg-base px-3 text-sm text-ink outline-none placeholder:text-faint"
+            />
+          </form>
+        </section>
+      ) : null}
       <Dialog
         open={pendingDelete !== null}
         title="Excluir sessão"

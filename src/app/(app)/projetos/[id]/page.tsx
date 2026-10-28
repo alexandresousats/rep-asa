@@ -238,7 +238,7 @@ function ProjectWorkspace() {
                             onClick={() => {
                               setAddMenu(false);
                               setPendingSection(true);
-                              if (view !== "lista") setQuery({ view: "lista" });
+                              if (view !== "lista" && view !== "kanban") setQuery({ view: "lista" });
                             }}
                             className="block w-full rounded-xl px-3 py-2 text-left text-sm text-ink hover:bg-hover"
                           >
@@ -349,6 +349,8 @@ function ProjectWorkspace() {
             onSelect={(id) => setQuery({ task: id })}
             onCreate={canWrite ? addTask : () => undefined}
             draggable={canWrite}
+            sectionDraft={pendingSection}
+            onSectionDraftOpened={() => setPendingSection(false)}
           />
         ) : null}
 
