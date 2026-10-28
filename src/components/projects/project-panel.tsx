@@ -74,7 +74,7 @@ export function ProjectPanel({
 
   return (
     <div className="w-full">
-      <div className="sticky top-0 z-10 -mx-4 mb-4 flex flex-wrap items-center gap-2 border-b border-line-subtle bg-base px-4 py-3 sm:-mx-6 sm:px-6">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
         {PERIODS.map((item) => (
           <button
             key={item.id}
@@ -120,6 +120,7 @@ export function ProjectPanel({
             : "Todo o projeto"}
         </span>
       </div>
+      <div className="px-4 py-4 sm:px-6">
       <Card className="mb-4 border-none">
         <div className="mb-3 flex items-center justify-between text-sm">
           <span className="text-faint">Conclusão do projeto</span>
@@ -231,6 +232,7 @@ export function ProjectPanel({
             </div>
           )}
         </Card>
+      </div>
       </div>
     </div>
   );

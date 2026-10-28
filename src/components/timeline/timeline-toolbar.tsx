@@ -2,6 +2,7 @@
 
 import {
   ArrowDownUp,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ListFilter,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/cn";
@@ -64,6 +66,9 @@ export function TimelineToolbar({
   onUndatedClick,
   users,
   tags,
+  sections,
+  activeSection,
+  onSectionChange,
 }: {
   undatedCount: number;
   visibleWeeks: number;
@@ -82,11 +87,15 @@ export function TimelineToolbar({
   onUndatedClick: () => void;
   users: User[];
   tags: Tag[];
+  sections?: string[];
+  activeSection?: string;
+  onSectionChange?: (section: string) => void;
 }) {
-  const [menu, setMenu] = useState<"filter" | "sort" | "options" | null>(null);
+  const [menu, setMenu] = useState<"filter" | "sort" | "options" | "section" | null>(null);
   const filterRef = useRef<HTMLButtonElement>(null);
   const sortRef = useRef<HTMLButtonElement>(null);
   const optionsRef = useRef<HTMLButtonElement>(null);
+  const sectionRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!menu) return;
@@ -129,9 +138,55 @@ export function TimelineToolbar({
     onFiltersChange({ ...filters, tags: nextTags });
   }
 
+  const sectionLabel =
+    !activeSection || activeSection === SECTION_FILTER_ALL ? "Todas" : activeSection;
+
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line-subtle bg-base px-4 py-2 sm:px-6">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
       <div className="flex items-center gap-1">
+        {sections && onSectionChange ? (
+          <>
+            <button
+              ref={sectionRef}
+              type="button"
+              onClick={() => setMenu((current) => (current === "section" ? null : "section"))}
+              className={cn(
+                "flex max-w-[16rem] items-center gap-1.5 rounded-full px-2 py-1 text-xs",
+                menu === "section" ? "bg-hover text-ink" : "text-faint hover:bg-hover hover:text-ink",
+              )}
+            >
+              <span>Sessão</span>
+              <span className="truncate font-medium text-ink">{sectionLabel}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+            </button>
+            {menu === "section" ? (
+              <ToolbarMenu anchorRef={sectionRef} width={220}>
+                <MenuOption
+                  selected={!activeSection || activeSection === SECTION_FILTER_ALL}
+                  onClick={() => {
+                    onSectionChange(SECTION_FILTER_ALL);
+                    setMenu(null);
+                  }}
+                >
+                  Todas as sessões
+                </MenuOption>
+                {sections.map((section) => (
+                  <MenuOption
+                    key={section}
+                    selected={activeSection === section}
+                    onClick={() => {
+                      onSectionChange(section);
+                      setMenu(null);
+                    }}
+                  >
+                    {section}
+                  </MenuOption>
+                ))}
+              </ToolbarMenu>
+            ) : null}
+            <span className="mx-1 hidden h-4 w-px bg-line-subtle sm:block" />
+          </>
+        ) : null}
         <button
           type="button"
           aria-label="Período anterior"

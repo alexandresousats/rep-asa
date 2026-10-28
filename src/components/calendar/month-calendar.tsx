@@ -453,25 +453,10 @@ export function MonthCalendar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Asana-style Top Navigation & Filter Bar */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line-subtle pb-4 shrink-0">
-        {/* Left side: Quick Add & Smooth Month Navigation */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
         <div className="flex flex-wrap items-center gap-2.5">
-          {canWrite ? (
-            <button
-              type="button"
-              onClick={() => {
-                const todayStr = toISODate(today);
-                setCreatingDate(todayStr);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-ink px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:opacity-90 transition-opacity dark:text-black"
-            >
-              <Plus className="h-3.5 w-3.5 stroke-[2.5]" />
-              <span>Adicionar uma tarefa</span>
-            </button>
-          ) : null}
-
           {/* Month Stepper & Today */}
-          <div className="inline-flex items-center rounded-xl border border-line bg-elevated/60 p-0.5 shadow-xs">
+          <div className="inline-flex items-center">
             <button
               type="button"
               aria-label="Mês anterior"
@@ -515,7 +500,7 @@ export function MonthCalendar({
           </div>
 
           {/* Month title: updates dynamically in real-time as you scroll! */}
-          <h2 className="text-base sm:text-lg font-bold tracking-tight text-ink">
+          <h2 className="text-sm font-medium tracking-tight text-ink">
             {format(visibleMonth, "MMMM", { locale: ptBR }).charAt(0).toUpperCase() +
               format(visibleMonth, "MMMM", { locale: ptBR }).slice(1)}{" "}
             de {format(visibleMonth, "yyyy")}
@@ -532,7 +517,7 @@ export function MonthCalendar({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar..."
-              className="h-8 w-28 sm:w-36 rounded-xl border border-line bg-elevated/60 pl-8 pr-7 text-xs text-ink placeholder:text-faint outline-none focus:w-48 focus:border-ink transition-all"
+              className="h-8 w-28 rounded-full bg-hover/70 pl-8 pr-7 text-xs text-ink placeholder:text-faint outline-none transition-all focus:w-48 sm:w-36"
             />
             {search ? (
               <button
@@ -550,21 +535,16 @@ export function MonthCalendar({
             type="button"
             onClick={() => setShowUndated((prev) => !prev)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-2.5 text-xs transition-colors",
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs transition-colors",
               showUndated
-                ? "bg-ink text-white dark:text-black font-medium border-transparent shadow-xs"
-                : "bg-elevated/60 text-faint hover:border-line-subtle hover:text-ink",
+                ? "bg-hover font-medium text-ink"
+                : "text-faint hover:bg-hover hover:text-ink",
             )}
           >
             <Clock className="h-3.5 w-3.5" />
             <span>Sem data</span>
             <span
-              className={cn(
-                "rounded-full px-1.5 py-0.2 text-[10px] font-semibold",
-                showUndated
-                  ? "bg-white/20 text-white dark:bg-black/20 dark:text-black"
-                  : "bg-base text-ink",
-              )}
+              className="text-[10px] font-semibold text-ink"
             >
               {undatedTasks.length}
             </span>
@@ -576,10 +556,10 @@ export function MonthCalendar({
               type="button"
               onClick={() => setFilterOpen((prev) => !prev)}
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-2.5 text-xs transition-colors",
-                activeFiltersCount > 0
-                  ? "border-ink text-ink bg-hover font-medium"
-                  : "bg-elevated/60 text-faint hover:border-line-subtle hover:text-ink",
+                "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs transition-colors",
+                activeFiltersCount > 0 || filterOpen
+                  ? "bg-hover font-medium text-ink"
+                  : "text-faint hover:bg-hover hover:text-ink",
               )}
             >
               <Filter className="h-3.5 w-3.5" />
@@ -735,7 +715,7 @@ export function MonthCalendar({
       </div>
 
       {/* Main Continuous Calendar Area + Undated Drawer */}
-      <div className="relative flex flex-1 min-h-0 overflow-hidden">
+      <div className="relative m-4 flex min-h-0 flex-1 overflow-hidden">
         {/* Continuous Scroll Container (Asana-style) */}
         <div
           ref={scrollContainerRef}

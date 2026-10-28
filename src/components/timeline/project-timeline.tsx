@@ -46,6 +46,7 @@ export function ProjectTimeline({
   users,
   sections,
   activeSection,
+  onSectionChange,
   accent,
   selectedId,
   onSelect,
@@ -55,6 +56,7 @@ export function ProjectTimeline({
   users: User[];
   sections: string[];
   activeSection: string;
+  onSectionChange: (section: string) => void;
   accent: string;
   selectedId?: string | null;
   onSelect: (id: string) => void;
@@ -182,6 +184,9 @@ export function ProjectTimeline({
           }
           users={users}
           tags={tags}
+          sections={sections}
+          activeSection={activeSection}
+          onSectionChange={onSectionChange}
         />
         <p className="px-6 py-10 text-sm text-faint">
           {showingUndatedOnly
@@ -218,6 +223,9 @@ export function ProjectTimeline({
             date: current.date === "undated" ? "all" : "undated",
           }))
         }
+        sections={sections}
+        activeSection={activeSection}
+        onSectionChange={onSectionChange}
         users={users}
         tags={tags}
       />

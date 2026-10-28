@@ -13,7 +13,7 @@ import { ProjectPanel } from "@/components/projects/project-panel";
 import { ProjectTimeline } from "@/components/timeline/project-timeline";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { SectionBar, SECTION_FILTER_ALL } from "@/components/projects/section-bar";
+import { SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
 import { MaintenanceGate } from "@/components/layout/maintenance-gate";
@@ -298,26 +298,13 @@ function ProjectWorkspace() {
         ) : null}
 
         {view === "cronograma" ? (
-          <SectionBar
-            projectId={current.id}
-            sections={sections}
-            active={cronogramaSection}
-            accent={project.color}
-            canManage={isAdmin}
-            includeAllTab
-            onSelect={setPickedSection}
-            pendingDraft={pendingSection}
-            onDraftOpened={() => setPendingSection(false)}
-          />
-        ) : null}
-
-        {view === "cronograma" ? (
           <ProjectTimeline
             tasks={tasks}
             tags={tags}
             users={users}
             sections={sections}
             activeSection={cronogramaSection}
+            onSectionChange={setPickedSection}
             accent={project.color}
             selectedId={selectedId}
             onSelect={(id) => setQuery({ task: id })}
@@ -325,7 +312,7 @@ function ProjectWorkspace() {
         ) : null}
 
         {view === "calendario" ? (
-          <div className="h-full min-h-0 flex flex-col p-4 sm:p-6">
+          <div className="flex h-full min-h-0 flex-col">
             <MonthCalendar
               month={month}
               onMonthChange={setMonth}
@@ -341,16 +328,14 @@ function ProjectWorkspace() {
         ) : null}
 
         {view === "painel" ? (
-          <div className="h-full min-h-0 flex flex-col p-4 sm:p-6">
-            <ProjectPanel
-              tasks={tasks}
-              users={users}
-              tags={tags}
-              sections={sections}
-              accent={project.color}
-              onSelect={(id) => setQuery({ task: id })}
-            />
-          </div>
+          <ProjectPanel
+            tasks={tasks}
+            users={users}
+            tags={tags}
+            sections={sections}
+            accent={project.color}
+            onSelect={(id) => setQuery({ task: id })}
+          />
         ) : null}
 
         {view === "kanban" ? (

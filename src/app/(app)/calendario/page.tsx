@@ -26,7 +26,7 @@ export default function CalendarPage() {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
-      <div className="min-h-0 min-w-0 flex-1 flex flex-col p-4 sm:p-6 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <MonthCalendar
           month={month}
           onMonthChange={setMonth}
