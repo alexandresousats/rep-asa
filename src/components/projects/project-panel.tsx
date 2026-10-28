@@ -12,6 +12,7 @@ import {
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useMemo, useState } from "react";
+import { DatePickerField } from "@/components/tasks/task-date-picker";
 import { Avatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
@@ -88,32 +89,28 @@ export function ProjectPanel({
             {item.label}
           </button>
         ))}
-        <label className="ml-1 text-xs text-faint">
+        <span className="ml-1 inline-flex items-center gap-2 text-xs text-faint">
           De
-          <input
-            type="date"
-            aria-label="Data inicial"
-            value={from}
-            onChange={(event) => {
+          <DatePickerField
+            value={from || null}
+            ariaLabel="Data inicial"
+            onChange={(value) => {
               setPeriod("custom");
-              setFrom(event.target.value);
+              setFrom(value ?? "");
             }}
-            className="ml-2 h-8 rounded-full border border-line bg-elevated px-3 text-xs text-ink outline-none"
           />
-        </label>
-        <label className="text-xs text-faint">
+        </span>
+        <span className="inline-flex items-center gap-2 text-xs text-faint">
           Até
-          <input
-            type="date"
-            aria-label="Data final"
-            value={to}
-            onChange={(event) => {
+          <DatePickerField
+            value={to || null}
+            ariaLabel="Data final"
+            onChange={(value) => {
               setPeriod("custom");
-              setTo(event.target.value);
+              setTo(value ?? "");
             }}
-            className="ml-2 h-8 rounded-full border border-line bg-elevated px-3 text-xs text-ink outline-none"
           />
-        </label>
+        </span>
         <span className="text-xs text-faint">
           {range.start || range.end
             ? `${stats.total.toLocaleString("pt-BR")} ${stats.total === 1 ? "tarefa" : "tarefas"} no período`

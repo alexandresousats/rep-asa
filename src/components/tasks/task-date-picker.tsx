@@ -24,6 +24,56 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { monthGrid, parseDate, toISODate, WEEKDAYS } from "@/lib/dates";
 
+export function DatePickerField({
+  value,
+  onChange,
+  ariaLabel,
+  emptyLabel = "Sem data",
+}: {
+  value: string | null;
+  onChange: (value: string | null) => void;
+  ariaLabel: string;
+  emptyLabel?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const selectedDate = value ? parseDate(value) : null;
+  const label = selectedDate
+    ? format(selectedDate, "d 'de' MMM", { locale: ptBR })
+    : emptyLabel;
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={ariaLabel}
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+        className={cn(
+          "inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-elevated px-3 text-xs",
+          selectedDate ? "text-ink" : "text-faint",
+          isOpen && "border-ink/50 ring-1 ring-ink/10",
+        )}
+      >
+        <CalendarIcon className="h-3.5 w-3.5 text-faint" />
+        <span>{label}</span>
+      </button>
+      {isOpen ? (
+        <DatePickerMenu
+          anchorRef={buttonRef}
+          currentDate={selectedDate}
+          onClose={() => setIsOpen(false)}
+          onSelect={(date) => {
+            onChange(date ? toISODate(date) : null);
+            setIsOpen(false);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function TaskDatePicker({
   dueDate,
   canWrite,
@@ -194,7 +244,7 @@ function DatePickerMenu({
         left: coords.left,
         width: 280,
       }}
-      className="fixed z-50 rounded-2xl border border-line bg-elevated/95 p-3 shadow-2xl backdrop-blur-md menu-in"
+      className="fixed z-50 rounded-2xl border border-line bg-elevated p-3 shadow-2xl menu-in"
     >
       {/* Quick presets */}
       <div className="grid grid-cols-3 gap-1 pb-2">
