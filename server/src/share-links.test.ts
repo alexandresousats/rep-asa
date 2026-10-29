@@ -416,6 +416,18 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.equal(JSON.stringify(listed.json).includes(token), false);
     assert.equal(JSON.stringify(listed.json).includes(pin), false);
 
+    current = editor;
+    const linkPath = `/projects/${projectId}/share-links/${linkId}`;
+    for (const [method, url, body] of [
+      ["GET", `/projects/${projectId}/share-links`, undefined],
+      ["PATCH", linkPath, { label: "Outro" }],
+      ["POST", `${linkPath}/revoke`, undefined],
+      ["POST", `${linkPath}/regenerate`, undefined],
+    ] as const) {
+      assert.equal((await call(method, url, { body })).status, 403, `${method} ${url}`);
+    }
+    current = actor;
+
     const locked = await call("GET", `/public/share/${token}`);
     assert.equal(locked.status, 200);
     assert.deepEqual(locked.json, { requiresPin: true });

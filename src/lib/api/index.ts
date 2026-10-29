@@ -1,4 +1,4 @@
-import type { Priority, Task, TaskStatus, User } from "../types";
+import type { Priority, ShareLink, ShareLinkInput, Task, TaskStatus, User } from "../types";
 import { usePrefs } from "../prefs";
 import { useWorkspace } from "../workspace";
 import { ApiError, request } from "./client";
@@ -952,5 +952,38 @@ export async function importWorkspaceCsv(csv: string, projectId?: string) {
     method: "POST",
     body: csv,
     headers: { "content-type": "text/csv; charset=utf-8" },
+  });
+}
+
+function shareLinksPath(projectId: string, linkId?: string) {
+  const base = `/projects/${encodeURIComponent(projectId)}/share-links`;
+  return linkId ? `${base}/${encodeURIComponent(linkId)}` : base;
+}
+
+export async function listShareLinks(projectId: string) {
+  return request<ShareLink[]>(shareLinksPath(projectId));
+}
+
+export async function createShareLink(projectId: string, input: ShareLinkInput) {
+  return request<ShareLink & { token: string }>(shareLinksPath(projectId), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateShareLink(projectId: string, linkId: string, input: ShareLinkInput) {
+  return request<ShareLink>(shareLinksPath(projectId, linkId), {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function revokeShareLink(projectId: string, linkId: string) {
+  return request<ShareLink>(`${shareLinksPath(projectId, linkId)}/revoke`, { method: "POST" });
+}
+
+export async function regenerateShareLink(projectId: string, linkId: string) {
+  return request<ShareLink & { token: string }>(`${shareLinksPath(projectId, linkId)}/regenerate`, {
+    method: "POST",
   });
 }

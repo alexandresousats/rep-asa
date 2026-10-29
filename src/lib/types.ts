@@ -295,3 +295,26 @@ export interface AssistantReply {
   createdAt: string;
 }
 
+
+export type ShareVisibility = "public" | "private";
+
+export interface ShareLink {
+  id: string;
+  projectId: string;
+  label: string;
+  visibility: ShareVisibility;
+  hasPin: boolean;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  lastAccessAt: string | null;
+  accessCount: number;
+  createdById: string;
+}
+
+export interface ShareLinkInput {
+  label?: string;
+  expiresAt?: string | null;
+  visibility?: ShareVisibility;
+  pin?: string;
+}

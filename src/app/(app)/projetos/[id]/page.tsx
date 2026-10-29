@@ -1,6 +1,6 @@
 "use client";
 
-import { FileDown, Pencil, Plus, Trash2 } from "lucide-react";
+import { FileDown, Link2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
@@ -19,6 +19,7 @@ import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
 import { MaintenanceGate } from "@/components/layout/maintenance-gate";
 import { ExportCsvDialog } from "@/components/projects/export-csv-dialog";
+import { ShareLinksDialog } from "@/components/share/share-links-dialog";
 import { createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
@@ -61,6 +62,7 @@ function ProjectWorkspace() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [listFiltered, setListFiltered] = useState<string[] | null>(null);
   const [calendarFiltered, setCalendarFiltered] = useState<string[] | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -194,6 +196,13 @@ function ProjectWorkspace() {
             <ActionMenu
               label="Mais opções do projeto"
               items={[
+                {
+                  id: "share-link",
+                  label: "Compartilhar via link",
+                  icon: Link2,
+                  hidden: !isAdmin,
+                  onSelect: () => setShareOpen(true),
+                },
                 {
                   id: "export-csv",
                   label: "Exportar CSV",
@@ -416,6 +425,13 @@ function ProjectWorkspace() {
         filteredIds={filteredIds}
         onClose={() => setExportOpen(false)}
       />
+      {isAdmin ? (
+        <ShareLinksDialog
+          open={shareOpen}
+          projectId={project.id}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
       <CreateDemandDialog
         open={demandDialogOpen}
         onClose={() => setDemandDialogOpen(false)}
