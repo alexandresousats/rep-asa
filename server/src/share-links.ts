@@ -399,11 +399,17 @@ export function toPublicTask(task: PublicTaskRow) {
   };
 }
 
-function inRange(task: { startDate: string | null; dueDate: string | null }, from?: string, to?: string) {
-  if (!from && !to) return true;
+// Tarefas sem data ficam fora de qualquer período; a página as mostra numa seção "Sem data".
+function inRange(
+  task: { startDate: string | null; dueDate: string | null },
+  from?: string,
+  to?: string,
+  includeUndated = false,
+) {
   const start = task.startDate ?? task.dueDate;
   const end = task.dueDate ?? task.startDate;
-  if (!start || !end) return false;
+  if (!start || !end) return includeUndated || (!from && !to);
+  if (!from && !to) return true;
   if (from && end < from) return false;
   if (to && start > to) return false;
   return true;
@@ -415,7 +421,7 @@ function readRange(c: Context) {
   if ((from && !DAY.test(from)) || (to && !DAY.test(to)) || (from && to && from > to)) {
     throw new ApiError(400, "Período inválido.");
   }
-  return { from, to };
+  return { from, to, includeUndated: c.req.query("includeUndated") === "1" };
 }
 
 async function publicOverview(link: ShareLinkRow) {
@@ -430,13 +436,13 @@ async function publicOverview(link: ShareLinkRow) {
   };
 }
 
-async function publicTasks(link: ShareLinkRow, from?: string, to?: string) {
+async function publicTasks(link: ShareLinkRow, from?: string, to?: string, includeUndated = false) {
   const rows = await prisma.task.findMany({
     where: { projectId: link.projectId, parentId: null },
     select: taskSelect,
   });
   return rows
-    .filter((task) => inRange(task, from, to))
+    .filter((task) => inRange(task, from, to, includeUndated))
     .sort((a, b) => {
       const left = a.dueDate ?? "9999-99-99";
       const right = b.dueDate ?? "9999-99-99";
@@ -601,7 +607,9 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     if (opened.state === "unavailable") return unavailable(c);
     if (opened.state === "locked") return lockedResponse();
     const range = readRange(c);
-    return c.json({ tasks: await publicTasks(opened.link, range.from, range.to) });
+    return c.json({
+      tasks: await publicTasks(opened.link, range.from, range.to, range.includeUndated),
+    });
   });
 
   app.get("/public/share/:token", async (c) => {

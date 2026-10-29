@@ -83,10 +83,14 @@ export async function unlockShare(token: string, pin: string) {
   });
 }
 
-export async function listShareTasks(token: string, range?: { from?: string; to?: string }) {
+export async function listShareTasks(
+  token: string,
+  range?: { from?: string; to?: string; includeUndated?: boolean },
+) {
   const query = new URLSearchParams();
   if (range?.from) query.set("from", range.from);
   if (range?.to) query.set("to", range.to);
+  if (range?.includeUndated) query.set("includeUndated", "1");
   const suffix = query.size ? `?${query.toString()}` : "";
   const data = await call<{ tasks: PublicTask[] }>(sharePath(token, `/tasks${suffix}`));
   return data.tasks;

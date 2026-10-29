@@ -292,6 +292,15 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
         createdAt: "2026-10-01",
       },
     });
+    await prisma.task.create({
+      data: {
+        id: `${prefix}-undated`,
+        projectId,
+        title: "Sem data definida",
+        section: "Geral",
+        createdAt: "2026-10-01",
+      },
+    });
     await prisma.taskDependency.create({ data: { blockerId: outsideId, blockedId: taskId } });
     await prisma.task.create({
       data: {
@@ -498,6 +507,16 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.equal(tasks.text.includes("Fora do mês"), false);
     assert.equal(tasks.text.includes("<script"), false);
     assert.match(tasks.text, /Texto visivel do cliente/);
+
+    const withUndated = await call(
+      "GET",
+      `/public/share/${token}/tasks?from=2026-10-01&to=2026-10-31&includeUndated=1`,
+      { cookie },
+    );
+    assert.deepEqual(
+      (withUndated.json?.tasks as { title: string }[]).map((item) => item.title),
+      ["Entrega visível", "Sem data definida"],
+    );
 
     const detail = await call("GET", `/public/share/${token}/tasks/${taskId}`, { cookie });
     assert.equal(detail.status, 200);

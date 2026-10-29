@@ -29,7 +29,7 @@ type View =
   | { kind: "locked"; workspace: PublicBrand }
   | { kind: "open"; project: { name: string; color: string }; workspace: PublicBrand };
 
-type MonthTasks = { key: string; tasks: PublicTask[] } | null;
+type MonthTasks = { key: string; tasks: PublicTask[]; undated: PublicTask[] } | null;
 
 const TABS: { id: Tab; label: string; icon: typeof House }[] = [
   { id: "inicio", label: "Início", icon: House },
@@ -89,9 +89,13 @@ export function ClientSharePage({ token }: { token: string }) {
   const reloadTasks = useCallback(() => {
     const from = toISODate(startOfMonth(month));
     const to = toISODate(endOfMonth(month));
-    return listShareTasks(token, { from, to }).then(
-      (tasks) => {
-        setMonthTasks({ key: from, tasks });
+    return listShareTasks(token, { from, to, includeUndated: true }).then(
+      (all) => {
+        setMonthTasks({
+          key: from,
+          tasks: all.filter((task) => task.startDate || task.dueDate),
+          undated: all.filter((task) => !task.startDate && !task.dueDate),
+        });
         setTasksError("");
       },
       (reason: unknown) => {
@@ -143,7 +147,7 @@ export function ClientSharePage({ token }: { token: string }) {
     );
   }
 
-  const tasks = monthTasks?.key === monthKey ? monthTasks.tasks : null;
+  const current = monthTasks?.key === monthKey ? monthTasks : null;
 
   return (
     <div className="min-h-dvh pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-10">
@@ -209,12 +213,22 @@ export function ClientSharePage({ token }: { token: string }) {
               Tentar de novo
             </button>
           </div>
-        ) : tasks === null ? (
+        ) : current === null ? (
           <ListSkeleton />
         ) : tab === "inicio" ? (
-          <ClientHome month={month} tasks={tasks} onSeeCalendar={() => setTab("calendario")} />
+          <ClientHome
+            month={month}
+            tasks={current.tasks}
+            onSeeCalendar={() => setTab("calendario")}
+          />
         ) : (
-          <ClientCalendar month={month} tasks={tasks} />
+          <ClientCalendar
+            token={token}
+            month={month}
+            onMonthChange={setMonth}
+            tasks={current.tasks}
+            undated={current.undated}
+          />
         )}
       </main>
 
