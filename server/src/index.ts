@@ -98,6 +98,7 @@ import {
   assertVerifyResendRate,
   clientIp,
 } from "./rate-limit";
+import { registerProjectExportRoutes } from "./project-export";
 import { isPublicSharePath, registerShareRoutes } from "./share-links";
 
 const access = z.enum(["admin", "editor", "leitura", "cliente"]);
@@ -987,6 +988,7 @@ app.get("/mcp", (c) => c.json(rpcError(null, -32000, "Use POST."), 405));
 app.delete("/mcp", (c) => c.json(rpcError(null, -32000, "Sessão stateless."), 405));
 
 registerShareRoutes(app, { actorOf });
+registerProjectExportRoutes(app, { actorOf });
 
 const port = Number(process.env.PORT ?? 4000);
 const hostname = process.env.HOST ?? "127.0.0.1";

@@ -10,9 +10,11 @@ import { workspaceIsEntitled } from "./billing";
 import { sessionCookieSecure } from "./cookie";
 import { randomToken, sha256, uid } from "./crypto";
 import { prisma } from "./db";
-import type { Actor } from "./domain";
+import { notify, type Actor } from "./domain";
 import { ApiError } from "./errors";
+import { publish } from "./events";
 import { sanitizeRichText } from "./html";
+import { publicTask as internalTask } from "./serialize";
 import { assertRateLimit, clientIp } from "./rate-limit";
 
 const LINK_MISSING = "Link não encontrado.";
@@ -41,6 +43,14 @@ const linkInput = z.object({
 
 type LinkInput = z.infer<typeof linkInput>;
 
+const feedbackInput = z.object({
+  clientName: z.string().trim().min(1).max(80),
+  clientEmail: z.union([z.literal(""), z.string().trim().email().max(200)]).optional(),
+  message: z.string().max(2000).optional(),
+});
+
+type FeedbackInput = z.infer<typeof feedbackInput>;
+
 type ShareLinkRow = {
   id: string;
   projectId: string;
@@ -59,11 +69,16 @@ type ShareLinkRow = {
 
 type Opened =
   | { state: "unavailable" }
-  | { state: "locked" }
+  | { state: "locked"; workspaceId: string }
   | { state: "open"; link: ShareLinkRow };
 
 export function isPublicSharePath(pathName: string) {
   return pathName === "/public/share" || pathName.startsWith("/public/share/");
+}
+
+// O navegador chega na API pelo proxy do Next em /api, então o cookie precisa desse prefixo.
+function shareCookiePrefix() {
+  return (process.env.SHARE_COOKIE_PATH_PREFIX ?? "/api").replace(/\/$/, "");
 }
 
 export function shareCookieOptions(token: string) {
@@ -71,7 +86,7 @@ export function shareCookieOptions(token: string) {
     httpOnly: true,
     sameSite: "Lax" as const,
     secure: sessionCookieSecure(),
-    path: `/public/share/${token}`,
+    path: `${shareCookiePrefix()}/public/share/${token}`,
     maxAge: SHARE_TTL_SECONDS,
   };
 }
@@ -163,6 +178,169 @@ function adminLink(row: ShareLinkRow) {
     accessCount: row.accessCount,
     createdById: row.createdById,
   };
+}
+
+// Bloqueio do PIN: 5 erros seguidos do mesmo IP, ou 15 no link vindos de qualquer IP,
+// travam o unlock com espera crescente. O acerto zera os dois contadores.
+const IP_FAILURES = 5;
+const LINK_FAILURES = 15;
+const LOCK_STEPS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+const ALERT_FAILURES = 20;
+const ONE_HOUR = 60 * 60 * 1000;
+const LOOKBACK = 24 * ONE_HOUR;
+const VIEW_GAP = 30 * 60 * 1000;
+
+export function shareIpHash(ip: string) {
+  return createHmac("sha256", shareSecret()).update(`ip:${ip}`).digest("hex").slice(0, 24);
+}
+
+export function lockDelay(failures: number, threshold: number) {
+  if (failures < threshold) return 0;
+  return LOCK_STEPS_MS[Math.min(failures - threshold, LOCK_STEPS_MS.length - 1)];
+}
+
+async function failureStreak(linkId: string, ipHash?: string) {
+  const scope = { linkId, ...(ipHash ? { ipHash } : {}) };
+  const since = new Date(Date.now() - LOOKBACK);
+  const lastOk = await prisma.shareLinkEvent.findFirst({
+    where: { ...scope, kind: "unlock_ok", createdAt: { gt: since } },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  const where = {
+    ...scope,
+    kind: "unlock_fail" as const,
+    createdAt: { gt: lastOk?.createdAt ?? since },
+  };
+  const [count, last] = await Promise.all([
+    prisma.shareLinkEvent.count({ where }),
+    prisma.shareLinkEvent.findFirst({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+  ]);
+  return { count, last: last?.createdAt ?? null };
+}
+
+// Devolve quantos ms faltam para liberar o unlock; 0 quando não há bloqueio.
+async function unlockWait(linkId: string, ipHash: string) {
+  const [byIp, byLink] = await Promise.all([
+    failureStreak(linkId, ipHash),
+    failureStreak(linkId),
+  ]);
+  const now = Date.now();
+  const wait = (streak: { count: number; last: Date | null }, threshold: number) =>
+    streak.last ? Math.max(0, streak.last.getTime() + lockDelay(streak.count, threshold) - now) : 0;
+  return Math.max(wait(byIp, IP_FAILURES), wait(byLink, LINK_FAILURES));
+}
+
+function lockedOut(waitMs: number): never {
+  const minutes = Math.max(1, Math.ceil(waitMs / 60_000));
+  throw new ApiError(
+    429,
+    `Muitas tentativas. Tente de novo em ${minutes} ${minutes === 1 ? "minuto" : "minutos"}.`,
+  );
+}
+
+async function alertAdminsAboutPin(link: ShareLinkRow) {
+  const since = new Date(Date.now() - ONE_HOUR);
+  // Tentativas barradas pelo bloqueio também contam: o ataque continua mesmo travado.
+  const failures = await prisma.shareLinkEvent.count({
+    where: {
+      linkId: link.id,
+      kind: { in: ["unlock_fail", "unlock_blocked"] },
+      createdAt: { gt: since },
+    },
+  });
+  if (failures < ALERT_FAILURES) return;
+  const href = `/projetos/${link.projectId}?compartilhar=${link.id}`;
+  const recent = await prisma.notification.findFirst({
+    where: { type: "share_pin_alert", href, createdAt: { gt: since } },
+    select: { id: true },
+  });
+  if (recent) return;
+  const admins = await prisma.workspaceMember.findMany({
+    where: {
+      workspaceId: link.workspaceId,
+      status: "active",
+      OR: [{ access: "admin" }, { owner: true }],
+    },
+    select: { userId: true },
+  });
+  const name = link.label ? `“${link.label}”` : "do cliente";
+  await Promise.all(
+    admins.map((admin) =>
+      notify({
+        userId: admin.userId,
+        workspaceId: link.workspaceId,
+        type: "share_pin_alert",
+        title: "Muitas tentativas de PIN",
+        body: `O link ${name} recebeu ${failures} PINs errados na última hora. Considere trocar o PIN.`,
+        href,
+      }),
+    ),
+  );
+}
+
+function recordEvent(
+  linkId: string,
+  kind: "view" | "unlock_ok" | "unlock_fail" | "unlock_blocked",
+  ipHash: string,
+) {
+  return prisma.shareLinkEvent.create({ data: { id: uid("sev"), linkId, kind, ipHash } });
+}
+
+// Uma visita conta uma vez a cada 30 minutos por IP, não a cada chamada da API.
+async function noteVisit(linkId: string, ipHash: string) {
+  const recent = await prisma.shareLinkEvent.findFirst({
+    where: { linkId, ipHash, kind: "view", createdAt: { gt: new Date(Date.now() - VIEW_GAP) } },
+    select: { id: true },
+  });
+  if (recent) return;
+  await recordEvent(linkId, "view", ipHash);
+  noteAccess(linkId);
+}
+
+export async function shareLinkActivity(actor: Actor, projectId: string, linkId: string) {
+  const link = await adminLinkRow(actor, projectId, linkId);
+  const [events, feedback] = await Promise.all([
+    prisma.shareLinkEvent.findMany({
+      where: { linkId: link.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { id: true, kind: true, ipHash: true, createdAt: true },
+    }),
+    prisma.clientFeedback.findMany({
+      where: { shareLinkId: link.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        kind: true,
+        clientName: true,
+        createdAt: true,
+        task: { select: { id: true, title: true } },
+      },
+    }),
+  ]);
+  return [
+    ...events.map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      visitor: event.ipHash.slice(0, 6),
+      createdAt: event.createdAt.toISOString(),
+    })),
+    ...feedback.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      clientName: item.clientName,
+      task: item.task,
+      createdAt: item.createdAt.toISOString(),
+    })),
+  ]
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, 100);
 }
 
 function noteAccess(id: string) {
@@ -308,13 +486,12 @@ async function openPublic(c: Context, token: string): Promise<Opened> {
   await assertSharePublicRate(clientIp(c), token);
   const link = await resolveShareLink(token);
   if (!link) throw new ApiError(404, LINK_MISSING);
-  noteAccess(link.id);
   if (!(await workspaceIsEntitled(link.workspaceId))) return { state: "unavailable" };
   if (
     link.visibility === "private" &&
     !sessionMatches(getCookie(c, SHARE_COOKIE), link.id, link.sessionVersion)
   ) {
-    return { state: "locked" };
+    return { state: "locked", workspaceId: link.workspaceId };
   }
   return { state: "open", link };
 }
@@ -323,8 +500,19 @@ function unavailable(c: Context) {
   return c.json({ unavailable: true });
 }
 
-function lockedResponse(c: Context, revealPin: boolean) {
-  if (revealPin) return c.json({ requiresPin: true });
+// A tela de PIN mostra só a marca do workspace; nada do projeto antes do PIN.
+async function lockedOverview(c: Context, workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { name: true, logo: true },
+  });
+  return c.json({
+    requiresPin: true,
+    workspace: { name: workspace?.name ?? "", logo: workspace?.logo ?? null },
+  });
+}
+
+function lockedResponse(): never {
   throw new ApiError(401, PIN_REQUIRED);
 }
 
@@ -342,6 +530,10 @@ const taskSelect = {
   referenceUrls: true,
   tags: { select: { tag: { select: { name: true, color: true } } } },
   attachments: { select: { id: true, name: true, mime: true, size: true } },
+  clientFeedback: {
+    select: { kind: true, clientName: true, message: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  },
 } as const;
 
 type PublicTaskRow = {
@@ -358,6 +550,12 @@ type PublicTaskRow = {
   referenceUrls: string | null;
   tags: { tag: { name: string; color: string } }[];
   attachments: { id: string; name: string; mime: string; size: number }[];
+  clientFeedback?: {
+    kind: "approved" | "changes_requested";
+    clientName: string;
+    message: string | null;
+    createdAt: Date;
+  }[];
 };
 
 export function toPublicTask(task: PublicTaskRow) {
@@ -380,14 +578,27 @@ export function toPublicTask(task: PublicTaskRow) {
       mime: file.mime,
       size: file.size,
     })),
+    // Só o histórico do próprio cliente, sem e-mail.
+    clientFeedback: (task.clientFeedback ?? []).map((item) => ({
+      kind: item.kind,
+      clientName: item.clientName,
+      message: item.message,
+      createdAt: item.createdAt.toISOString(),
+    })),
   };
 }
 
-function inRange(task: { startDate: string | null; dueDate: string | null }, from?: string, to?: string) {
-  if (!from && !to) return true;
+// Tarefas sem data ficam fora de qualquer período; a página as mostra numa seção "Sem data".
+function inRange(
+  task: { startDate: string | null; dueDate: string | null },
+  from?: string,
+  to?: string,
+  includeUndated = false,
+) {
   const start = task.startDate ?? task.dueDate;
   const end = task.dueDate ?? task.startDate;
-  if (!start || !end) return false;
+  if (!start || !end) return includeUndated || (!from && !to);
+  if (!from && !to) return true;
   if (from && end < from) return false;
   if (to && start > to) return false;
   return true;
@@ -399,7 +610,7 @@ function readRange(c: Context) {
   if ((from && !DAY.test(from)) || (to && !DAY.test(to)) || (from && to && from > to)) {
     throw new ApiError(400, "Período inválido.");
   }
-  return { from, to };
+  return { from, to, includeUndated: c.req.query("includeUndated") === "1" };
 }
 
 async function publicOverview(link: ShareLinkRow) {
@@ -414,13 +625,13 @@ async function publicOverview(link: ShareLinkRow) {
   };
 }
 
-async function publicTasks(link: ShareLinkRow, from?: string, to?: string) {
+async function publicTasks(link: ShareLinkRow, from?: string, to?: string, includeUndated = false) {
   const rows = await prisma.task.findMany({
     where: { projectId: link.projectId, parentId: null },
     select: taskSelect,
   });
   return rows
-    .filter((task) => inRange(task, from, to))
+    .filter((task) => inRange(task, from, to, includeUndated))
     .sort((a, b) => {
       const left = a.dueDate ?? "9999-99-99";
       const right = b.dueDate ?? "9999-99-99";
@@ -430,6 +641,63 @@ async function publicTasks(link: ShareLinkRow, from?: string, to?: string) {
     .map(toPublicTask);
 }
 
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function addDays(day: string, amount: number) {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function monthBounds(month: string) {
+  const [year, number] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(year, number, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
+}
+
+function percent(part: number, total: number) {
+  return total === 0 ? 0 : Math.round((part / total) * 100);
+}
+
+// Os números saem da mesma seleção que /tasks usa para o mês, para baterem com a aba Calendário.
+export async function publicSummary(link: ShareLinkRow, month: string, today: string) {
+  const { from, to } = monthBounds(month);
+  const tasks = await publicTasks(link, from, to);
+  const done = tasks.filter((task) => task.status === "done").length;
+  const pending = tasks.filter((task) => task.approvalStatus === "pending");
+  const approved = tasks.filter((task) => task.approvalStatus === "approved").length;
+  const changes = tasks.filter((task) => task.approvalStatus === "changes_requested").length;
+  const weekEnd = addDays(today, 6);
+  const upcoming = (await publicTasks(link, today, weekEnd))
+    .filter((task) => {
+      const due = task.dueDate ?? task.startDate;
+      return Boolean(due) && due! >= today && due! <= weekEnd;
+    })
+    .slice(0, 8);
+  const formats = new Map<string, number>();
+  for (const task of tasks) {
+    const name = task.demandFormat?.trim() || "Outros";
+    formats.set(name, (formats.get(name) ?? 0) + 1);
+  }
+  return {
+    month,
+    totals: {
+      total: tasks.length,
+      done,
+      pending: pending.length,
+      approved,
+      changes,
+      donePercent: percent(done, tasks.length),
+      approvedPercent: percent(approved, tasks.length),
+    },
+    upcoming,
+    attention: pending,
+    formats: [...formats.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "pt")),
+  };
+}
+
 async function publicTask(link: ShareLinkRow, taskId: string) {
   const task = await prisma.task.findFirst({
     where: { id: taskId, projectId: link.projectId, parentId: null },
@@ -437,6 +705,103 @@ async function publicTask(link: ShareLinkRow, taskId: string) {
   });
   if (!task) throw new ApiError(404, "Tarefa não encontrada.");
   return toPublicTask(task);
+}
+
+// Texto puro: sem caracteres de controle, que poderiam bagunçar a exibição.
+function plainText(value: string | undefined) {
+  return (value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
+}
+
+async function recordClientFeedback(
+  link: ShareLinkRow,
+  taskId: string,
+  kind: "approved" | "changes_requested",
+  input: FeedbackInput,
+) {
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, projectId: link.projectId, parentId: null },
+    select: {
+      id: true,
+      title: true,
+      projectId: true,
+      assigneeId: true,
+      followers: { select: { userId: true } },
+    },
+  });
+  if (!task) throw new ApiError(404, "Tarefa não encontrada.");
+  const message = plainText(input.message);
+  if (kind === "changes_requested" && !message) {
+    throw new ApiError(400, "Descreva o ajuste que você precisa.");
+  }
+  const clientName = plainText(input.clientName).slice(0, 80);
+  if (!clientName) throw new ApiError(400, "Informe seu nome.");
+  const clientEmail = input.clientEmail?.trim() || null;
+  const now = new Date();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.clientFeedback.create({
+      data: {
+        id: uid("cfb"),
+        taskId: task.id,
+        shareLinkId: link.id,
+        kind,
+        clientName,
+        clientEmail,
+        message: message || null,
+        createdAt: now,
+      },
+    });
+    return tx.task.update({
+      where: { id: task.id },
+      data: {
+        approvalStatus: kind,
+        approvalFeedback: message || null,
+        approvedAt: now.toISOString(),
+        approvedById: null,
+        approvedByClientName: clientName,
+        updatedAt: now.toISOString(),
+      },
+      include: {
+        tags: { select: { tagId: true } },
+        comments: { orderBy: { createdAt: "asc" } },
+        followers: { select: { userId: true } },
+        attachments: { orderBy: { createdAt: "asc" } },
+        clientFeedback: { orderBy: { createdAt: "asc" } },
+      },
+    });
+  });
+
+  publish({ workspaceId: link.workspaceId, kind: "task", task: internalTask(updated) });
+  const recipients = new Set(
+    [task.assigneeId, ...task.followers.map((item) => item.userId)].filter(
+      (id): id is string => Boolean(id),
+    ),
+  );
+  if (recipients.size === 0) recipients.add(link.createdById);
+  const approved = kind === "approved";
+  await Promise.all(
+    [...recipients].map((userId) =>
+      notify({
+        userId,
+        workspaceId: link.workspaceId,
+        type: "task_approval",
+        title: approved ? "Aprovado pelo cliente" : "Ajuste solicitado pelo cliente",
+        body: approved
+          ? `${clientName} aprovou “${task.title}” pelo link do cliente.`
+          : `${clientName} pediu ajuste em “${task.title}”: ${message.slice(0, 280)}`,
+        href: `/projetos/${task.projectId}?task=${task.id}`,
+      }).catch(() => {
+        console.error("Não foi possível notificar sobre a resposta do cliente.");
+      }),
+    ),
+  );
+
+  return publicTask(link, task.id);
+}
+
+async function assertShareWriteRate(ip: string, token: string) {
+  await assertRateLimit(`share:write:ip:${ip}`, 20, FIFTEEN_MINUTES);
+  await assertRateLimit(`share:write:token:${sha256(token)}`, 40, FIFTEEN_MINUTES);
 }
 
 async function publicAttachment(link: ShareLinkRow, taskId: string, attachmentId: string) {
@@ -485,6 +850,13 @@ async function readBody(c: Context) {
 }
 
 export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => Promise<Actor> }) {
+  app.use("/public/share/*", async (c, next) => {
+    await next();
+    c.header("X-Robots-Tag", "noindex, nofollow");
+    c.header("Referrer-Policy", "no-referrer");
+    if (!c.res.headers.has("Cache-Control")) c.header("Cache-Control", "no-store");
+  });
+
   app.post("/projects/:projectId/share-links", async (c) => {
     const input = parse(linkInput, await readBody(c));
     return c.json(
@@ -509,6 +881,12 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     );
   });
 
+  app.get("/projects/:projectId/share-links/:linkId/activity", async (c) => {
+    return c.json(
+      await shareLinkActivity(await deps.actorOf(c), c.req.param("projectId"), c.req.param("linkId")),
+    );
+  });
+
   app.post("/projects/:projectId/share-links/:linkId/revoke", async (c) => {
     return c.json(
       await revokeShareLink(await deps.actorOf(c), c.req.param("projectId"), c.req.param("linkId")),
@@ -530,9 +908,17 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     await assertSharePublicRate(clientIp(c), token);
     const link = await resolveShareLink(token);
     if (!link) throw new ApiError(404, LINK_MISSING);
-    noteAccess(link.id);
     if (!(await workspaceIsEntitled(link.workspaceId))) return unavailable(c);
     if (link.visibility !== "private") throw new ApiError(400, "Este link não usa PIN.");
+    const ipHash = shareIpHash(clientIp(c));
+    const wait = await unlockWait(link.id, ipHash);
+    if (wait > 0) {
+      await recordEvent(link.id, "unlock_blocked", ipHash);
+      await alertAdminsAboutPin(link).catch(() => {
+        console.error("Não foi possível avisar os admins sobre as tentativas de PIN.");
+      });
+      lockedOut(wait);
+    }
     const body = await readBody(c);
     const submitted =
       body && typeof body === "object" && "pin" in body ? (body as { pin: unknown }).pin : undefined;
@@ -545,7 +931,14 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
         matches = false;
       }
     }
-    if (!matches) throw new ApiError(401, PIN_REJECTED);
+    if (!matches) {
+      await recordEvent(link.id, "unlock_fail", ipHash);
+      await alertAdminsAboutPin(link).catch(() => {
+        console.error("Não foi possível avisar os admins sobre as tentativas de PIN.");
+      });
+      throw new ApiError(401, PIN_REJECTED);
+    }
+    await recordEvent(link.id, "unlock_ok", ipHash);
     setCookie(c, SHARE_COOKIE, signShareSession(link.id, link.sessionVersion), shareCookieOptions(token));
     return c.json({ ok: true });
   });
@@ -553,7 +946,7 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
   app.get("/public/share/:token/tasks/:taskId/attachments/:attachmentId/preview", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     const file = await publicAttachment(opened.link, c.req.param("taskId"), c.req.param("attachmentId"));
     return sendFile(c, file, "inline");
   });
@@ -561,30 +954,60 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
   app.get("/public/share/:token/tasks/:taskId/attachments/:attachmentId", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     const file = await publicAttachment(opened.link, c.req.param("taskId"), c.req.param("attachmentId"));
     return sendFile(c, file, "attachment");
+  });
+
+  for (const [action, kind] of [
+    ["approve", "approved"],
+    ["request-changes", "changes_requested"],
+  ] as const) {
+    app.post(`/public/share/:token/tasks/:taskId/${action}`, async (c) => {
+      const token = c.req.param("token");
+      const opened = await openPublic(c, token);
+      if (opened.state === "unavailable") return unavailable(c);
+      if (opened.state === "locked") return lockedResponse();
+      await assertShareWriteRate(clientIp(c), token);
+      const input = parse(feedbackInput, await readBody(c));
+      return c.json(await recordClientFeedback(opened.link, c.req.param("taskId"), kind, input));
+    });
+  }
+
+  app.get("/public/share/:token/summary", async (c) => {
+    const opened = await openPublic(c, c.req.param("token"));
+    if (opened.state === "unavailable") return unavailable(c);
+    if (opened.state === "locked") return lockedResponse();
+    const month = c.req.query("month")?.trim() ?? "";
+    const today = c.req.query("today")?.trim() || new Date().toISOString().slice(0, 10);
+    if (!MONTH.test(month) || !DAY.test(today)) throw new ApiError(400, "Período inválido.");
+    return c.json(await publicSummary(opened.link, month, today));
   });
 
   app.get("/public/share/:token/tasks/:taskId", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     return c.json(await publicTask(opened.link, c.req.param("taskId")));
   });
 
   app.get("/public/share/:token/tasks", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     const range = readRange(c);
-    return c.json({ tasks: await publicTasks(opened.link, range.from, range.to) });
+    return c.json({
+      tasks: await publicTasks(opened.link, range.from, range.to, range.includeUndated),
+    });
   });
 
   app.get("/public/share/:token", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, true);
+    if (opened.state === "locked") return lockedOverview(c, opened.workspaceId);
+    void noteVisit(opened.link.id, shareIpHash(clientIp(c))).catch(() => {
+      console.error("Não foi possível registrar a visita ao link.");
+    });
     return c.json(await publicOverview(opened.link));
   });
 }

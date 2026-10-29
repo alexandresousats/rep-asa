@@ -42,6 +42,7 @@ const taskInclude = {
   comments: { orderBy: { createdAt: "asc" as const } },
   followers: { select: { userId: true } },
   attachments: { orderBy: { createdAt: "asc" as const } },
+  clientFeedback: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.TaskInclude;
 
 const projectInclude = {
@@ -1520,6 +1521,7 @@ export async function updateTaskApproval(
         input.status === "approved" || input.status === "changes_requested" ? now : null,
       approvedById:
         input.status === "approved" || input.status === "changes_requested" ? actor.id : null,
+      approvedByClientName: null,
     },
   });
 

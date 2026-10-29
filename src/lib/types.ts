@@ -175,6 +175,17 @@ export interface Task {
   approvalFeedback?: string | null;
   approvedAt?: string | null;
   approvedById?: string | null;
+  approvedByClientName?: string | null;
+  clientFeedback?: ClientFeedbackEntry[];
+}
+
+export interface ClientFeedbackEntry {
+  id: string;
+  kind: "approved" | "changes_requested";
+  clientName: string;
+  clientEmail: string | null;
+  message: string | null;
+  createdAt: string;
 }
 
 export interface Message {
@@ -295,3 +306,41 @@ export interface AssistantReply {
   createdAt: string;
 }
 
+
+export type ShareVisibility = "public" | "private";
+
+export interface ShareLink {
+  id: string;
+  projectId: string;
+  label: string;
+  visibility: ShareVisibility;
+  hasPin: boolean;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  lastAccessAt: string | null;
+  accessCount: number;
+  createdById: string;
+}
+
+export interface ShareLinkInput {
+  label?: string;
+  expiresAt?: string | null;
+  visibility?: ShareVisibility;
+  pin?: string;
+}
+
+export type ShareLinkActivity =
+  | {
+      id: string;
+      kind: "view" | "unlock_ok" | "unlock_fail" | "unlock_blocked";
+      visitor: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      kind: "approved" | "changes_requested";
+      clientName: string;
+      task: { id: string; title: string };
+      createdAt: string;
+    };

@@ -253,6 +253,8 @@ model Task {
   approvedAt       String?
   approvedById     String?
   approvedBy       User?          @relation("TaskApprover", fields: [approvedById], references: [id])
+  approvedByClientName String?
+  clientFeedback   ClientFeedback[]
 
   @@index([projectId])
   @@index([assigneeId])
@@ -459,9 +461,53 @@ model ClientShareLink {
   project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy      User            @relation("ShareLinkCreator", fields: [createdById], references: [id])
+  feedback       ClientFeedback[]
+  events         ShareLinkEvent[]
 
   @@index([projectId])
   @@index([workspaceId])
+}
+
+enum ShareLinkEventKind {
+  view
+  unlock_ok
+  unlock_fail
+  unlock_blocked
+}
+
+// Auditoria do link e base do bloqueio do PIN. Guarda o IP só como hash e nunca o PIN.
+model ShareLinkEvent {
+  id        String             @id
+  linkId    String
+  kind      ShareLinkEventKind
+  ipHash    String
+  createdAt DateTime           @default(now())
+  link      ClientShareLink    @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([linkId, kind, createdAt])
+  @@index([linkId, ipHash, createdAt])
+}
+
+enum ClientFeedbackKind {
+  approved
+  changes_requested
+}
+
+// Aprovação ou pedido de ajuste feito pelo cliente no link, que não é um usuário do app.
+model ClientFeedback {
+  id          String             @id
+  taskId      String
+  shareLinkId String?
+  kind        ClientFeedbackKind
+  clientName  String
+  clientEmail String?
+  message     String?            @db.Text
+  createdAt   DateTime           @default(now())
+  task        Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  shareLink   ClientShareLink?   @relation(fields: [shareLinkId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@index([shareLinkId])
 }
 
 model ApiKey {

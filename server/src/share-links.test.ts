@@ -55,6 +55,11 @@ const FORBIDDEN_KEYS = new Set([
   "createdById",
 ]);
 
+const LOCKED = {
+  requiresPin: true,
+  workspace: { name: "Espaço do cliente", logo: "https://example.com/logo.png" },
+};
+
 const created = {
   userId: "",
   workspaceId: "",
@@ -92,7 +97,7 @@ test("o cookie do PIN é httpOnly, Secure em produção e restrito ao link", () 
     assert.equal(options.httpOnly, true);
     assert.equal(options.sameSite, "Lax");
     assert.equal(options.secure, true);
-    assert.equal(options.path, "/public/share/tok_abc");
+    assert.equal(options.path, "/api/public/share/tok_abc");
     assert.equal(options.maxAge, 12 * 60 * 60);
   } finally {
     if (previous === undefined) delete process.env.COOKIE_SECURE;
@@ -119,6 +124,7 @@ test("o DTO público não carrega campos internos", () => {
   assert.deepEqual(Object.keys(dto).sort(), [
     "approvalStatus",
     "attachments",
+    "clientFeedback",
     "demandFormat",
     "description",
     "dueDate",
@@ -287,6 +293,15 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
         createdAt: "2026-10-01",
       },
     });
+    await prisma.task.create({
+      data: {
+        id: `${prefix}-undated`,
+        projectId,
+        title: "Sem data definida",
+        section: "Geral",
+        createdAt: "2026-10-01",
+      },
+    });
     await prisma.taskDependency.create({ data: { blockerId: outsideId, blockedId: taskId } });
     await prisma.task.create({
       data: {
@@ -416,9 +431,21 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.equal(JSON.stringify(listed.json).includes(token), false);
     assert.equal(JSON.stringify(listed.json).includes(pin), false);
 
+    current = editor;
+    const linkPath = `/projects/${projectId}/share-links/${linkId}`;
+    for (const [method, url, body] of [
+      ["GET", `/projects/${projectId}/share-links`, undefined],
+      ["PATCH", linkPath, { label: "Outro" }],
+      ["POST", `${linkPath}/revoke`, undefined],
+      ["POST", `${linkPath}/regenerate`, undefined],
+    ] as const) {
+      assert.equal((await call(method, url, { body })).status, 403, `${method} ${url}`);
+    }
+    current = actor;
+
     const locked = await call("GET", `/public/share/${token}`);
     assert.equal(locked.status, 200);
-    assert.deepEqual(locked.json, { requiresPin: true });
+    assert.deepEqual(locked.json, LOCKED);
     assertNoSecrets(locked.json, locked.text);
 
     const lockedTasks = await call("GET", `/public/share/${token}/tasks`);
@@ -448,7 +475,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.match(setCookie, /Secure/);
     assert.match(setCookie, /SameSite=Lax/);
     assert.match(setCookie, /Max-Age=43200/);
-    assert.match(setCookie, new RegExp(`Path=/public/share/${token}`));
+    assert.match(setCookie, new RegExp(`Path=/api/public/share/${token}`));
     assert.equal(setCookie.includes(pin), false);
     const cookie = setCookie.split(";")[0];
     const payload = JSON.parse(
@@ -463,6 +490,8 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
 
     const overview = await call("GET", `/public/share/${token}`, { cookie });
     assert.equal(overview.status, 200);
+    assert.equal(overview.headers.get("x-robots-tag"), "noindex, nofollow");
+    assert.equal(overview.headers.get("referrer-policy"), "no-referrer");
     assert.deepEqual(overview.json, {
       project: { name: "Projeto visível", color: "#0284c7" },
       workspace: { name: "Espaço do cliente", logo: "https://example.com/logo.png" },
@@ -479,6 +508,50 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.equal(tasks.text.includes("Fora do mês"), false);
     assert.equal(tasks.text.includes("<script"), false);
     assert.match(tasks.text, /Texto visivel do cliente/);
+
+    const withUndated = await call(
+      "GET",
+      `/public/share/${token}/tasks?from=2026-10-01&to=2026-10-31&includeUndated=1`,
+      { cookie },
+    );
+    assert.deepEqual(
+      (withUndated.json?.tasks as { title: string }[]).map((item) => item.title),
+      ["Entrega visível", "Sem data definida"],
+    );
+
+    const summary = await call(
+      "GET",
+      `/public/share/${token}/summary?month=2026-10&today=2026-10-12`,
+      { cookie },
+    );
+    assert.equal(summary.status, 200);
+    assertNoSecrets(summary.json, summary.text);
+    const totals = summary.json?.totals as Record<string, number>;
+    // Bate com /tasks do mesmo mês: só "Entrega visível"; subtarefa e "Sem data" ficam fora.
+    assert.equal(totals.total, titles.length);
+    assert.deepEqual(totals, {
+      total: 1,
+      done: 0,
+      pending: 1,
+      approved: 0,
+      changes: 0,
+      donePercent: 0,
+      approvedPercent: 0,
+    });
+    assert.deepEqual(
+      (summary.json?.upcoming as { id: string }[]).map((item) => item.id),
+      [taskId],
+    );
+    assert.deepEqual(
+      (summary.json?.attention as { id: string }[]).map((item) => item.id),
+      [taskId],
+    );
+    assert.deepEqual(summary.json?.formats, [{ name: "Reels", count: 1 }]);
+    assert.equal(
+      (await call("GET", `/public/share/${token}/summary?month=2026-13`, { cookie })).status,
+      400,
+    );
+    assert.equal((await call("GET", `/public/share/${token}/summary?month=2026-10`)).status, 401);
 
     const detail = await call("GET", `/public/share/${token}/tasks/${taskId}`, { cookie });
     assert.equal(detail.status, 200);
@@ -516,6 +589,67 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     );
     assert.equal(wrongFile.status, 404);
 
+    created.rateKeys.push("share:write:ip:203.0.113.44", `share:write:token:${sha256(token)}`);
+    const approvePath = `/public/share/${token}/tasks/${taskId}/approve`;
+    const changesPath = `/public/share/${token}/tasks/${taskId}/request-changes`;
+    const client = { clientName: "Bruna Cliente", clientEmail: `bruna.${SECRET}@example.com` };
+    assert.equal((await call("POST", approvePath, { body: client })).status, 401);
+    assert.equal(
+      (await call("POST", changesPath, { body: { ...client, message: "   " }, cookie })).status,
+      400,
+    );
+    assert.equal(
+      (await call("POST", approvePath, { body: { clientName: "" }, cookie })).status,
+      400,
+    );
+    for (const id of [subtaskId, otherTaskId]) {
+      const blocked = await call("POST", `/public/share/${token}/tasks/${id}/approve`, {
+        body: client,
+        cookie,
+      });
+      assert.equal(blocked.status, 404);
+    }
+    const untouched = await prisma.task.findUniqueOrThrow({ where: { id: subtaskId } });
+    assert.equal(untouched.approvalStatus, "none");
+
+    const approved = await call("POST", approvePath, { body: client, cookie });
+    assert.equal(approved.status, 200);
+    assertNoSecrets(approved.json, approved.text);
+    assert.equal(approved.json?.approvalStatus, "approved");
+    const afterApprove = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    assert.equal(afterApprove.approvalStatus, "approved");
+    assert.equal(afterApprove.approvedByClientName, "Bruna Cliente");
+    assert.equal(afterApprove.approvedById, null);
+
+    const xss = '<img src=x onerror="alert(1)"> trocar a capa';
+    const askedChanges = await call("POST", changesPath, { body: { ...client, message: xss }, cookie });
+    assert.equal(askedChanges.status, 200);
+    assert.equal(askedChanges.json?.approvalStatus, "changes_requested");
+    const history = askedChanges.json?.clientFeedback as { kind: string; clientName: string; message: string | null }[];
+    assert.deepEqual(
+      history.map((item) => [item.kind, item.clientName, item.message]),
+      [
+        ["approved", "Bruna Cliente", null],
+        ["changes_requested", "Bruna Cliente", xss],
+      ],
+    );
+    const feedbackRows = await prisma.clientFeedback.findMany({
+      where: { taskId },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.equal(feedbackRows.length, 2);
+    assert.equal(feedbackRows[1].message, xss);
+    assert.equal(feedbackRows[1].shareLinkId, linkId);
+    assert.equal(feedbackRows[1].clientEmail, client.clientEmail);
+    const notes = await prisma.notification.findMany({
+      where: { userId, type: "task_approval" },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.equal(notes.length, 2);
+    assert.match(notes[0].title, /Aprovado pelo cliente/);
+    assert.match(notes[1].body, /Bruna Cliente pediu ajuste/);
+    assert.equal(notes[1].href, `/projetos/${projectId}?task=${taskId}`);
+
     const madePublic = await call("PATCH", `/projects/${projectId}/share-links/${linkId}`, {
       body: { visibility: "public" },
     });
@@ -530,7 +664,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     const stale = await call("GET", `/public/share/${token}/tasks`, { cookie });
     assert.equal(stale.status, 401);
     const askPin = await call("GET", `/public/share/${token}`, { cookie });
-    assert.deepEqual(askPin.json, { requiresPin: true });
+    assert.deepEqual(askPin.json, LOCKED);
 
     const changed = await call("PATCH", `/projects/${projectId}/share-links/${linkId}`, {
       body: { pin: nextPin },
@@ -580,7 +714,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.deepEqual(revoked.json, missing.json);
 
     const revived = await call("GET", `/public/share/${nextToken}`);
-    assert.deepEqual(revived.json, { requiresPin: true });
+    assert.deepEqual(revived.json, LOCKED);
 
     await prisma.workspaceSubscription.update({
       where: { workspaceId },
@@ -622,18 +756,23 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.equal(blob.includes(pin), false);
     assert.equal(blob.includes(nextPin), false);
 
+    // A visita conta uma vez por IP, mesmo com várias aberturas; acesso travado não conta.
     const started = Date.now();
     while (Date.now() - started < 2000) {
-      const fresh = await prisma.clientShareLink.findFirst({
-        where: { tokenHash: sha256(nextToken) },
-      });
+      const fresh = await prisma.clientShareLink.findUnique({ where: { id: linkId } });
       if ((fresh?.accessCount ?? 0) >= 1) break;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    const counted = await prisma.clientShareLink.findFirstOrThrow({
+    const counted = await prisma.clientShareLink.findUniqueOrThrow({ where: { id: linkId } });
+    assert.equal(counted.accessCount, 1);
+    assert.equal(
+      await prisma.shareLinkEvent.count({ where: { linkId, kind: "view" } }),
+      1,
+    );
+    const lockedLink = await prisma.clientShareLink.findFirstOrThrow({
       where: { tokenHash: sha256(nextToken) },
     });
-    assert.ok(counted.accessCount >= 1);
+    assert.equal(lockedLink.accessCount, 0);
   } finally {
     for (const method of methods) console[method] = original[method];
   }

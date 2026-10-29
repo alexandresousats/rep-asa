@@ -302,6 +302,7 @@ export function GroupedTaskList({
   onDraftSection,
   sectionDraft = false,
   onSectionDraftOpened,
+  onFilteredChange,
 }: {
   projectId: string;
   sections: string[];
@@ -315,6 +316,7 @@ export function GroupedTaskList({
   onDraftSection: (section: string | null) => void;
   sectionDraft?: boolean;
   onSectionDraftOpened?: () => void;
+  onFilteredChange?: (ids: string[] | null) => void;
 }) {
   const { canWrite, isAdmin } = useAccess();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -349,6 +351,13 @@ export function GroupedTaskList({
       onSectionDraftOpened?.();
     }
   }, [sectionDraft, onSectionDraftOpened]);
+
+  useEffect(() => {
+    if (!onFilteredChange) return;
+    onFilteredChange(
+      isFiltering(filters) ? filterTasks(tasks, filters, "tree").map((task) => task.id) : null,
+    );
+  }, [tasks, filters, onFilteredChange]);
 
   async function commitDraft(section: string, title: string, keepOpen: boolean) {
     await createTask({ projectId, title, section });

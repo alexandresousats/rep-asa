@@ -1,4 +1,12 @@
-import type { Priority, Task, TaskStatus, User } from "../types";
+import type {
+  Priority,
+  ShareLink,
+  ShareLinkActivity,
+  ShareLinkInput,
+  Task,
+  TaskStatus,
+  User,
+} from "../types";
 import { usePrefs } from "../prefs";
 import { useWorkspace } from "../workspace";
 import { ApiError, request } from "./client";
@@ -909,6 +917,20 @@ function csvQuery(projectId?: string) {
 
 export async function downloadWorkspaceCsv(projectId?: string) {
   const res = await fetch(`/api/workspace/csv${csvQuery(projectId)}`, { credentials: "include" });
+  await saveCsvResponse(res);
+}
+
+export async function exportProjectCsv(projectId: string, taskIds?: string[]) {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/export.csv`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(taskIds ? { taskIds } : {}),
+  });
+  await saveCsvResponse(res);
+}
+
+async function saveCsvResponse(res: Response) {
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new ApiError(res.status, data?.error ?? "Não foi possível exportar o CSV.");
@@ -939,4 +961,41 @@ export async function importWorkspaceCsv(csv: string, projectId?: string) {
     body: csv,
     headers: { "content-type": "text/csv; charset=utf-8" },
   });
+}
+
+function shareLinksPath(projectId: string, linkId?: string) {
+  const base = `/projects/${encodeURIComponent(projectId)}/share-links`;
+  return linkId ? `${base}/${encodeURIComponent(linkId)}` : base;
+}
+
+export async function listShareLinks(projectId: string) {
+  return request<ShareLink[]>(shareLinksPath(projectId));
+}
+
+export async function createShareLink(projectId: string, input: ShareLinkInput) {
+  return request<ShareLink & { token: string }>(shareLinksPath(projectId), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateShareLink(projectId: string, linkId: string, input: ShareLinkInput) {
+  return request<ShareLink>(shareLinksPath(projectId, linkId), {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function revokeShareLink(projectId: string, linkId: string) {
+  return request<ShareLink>(`${shareLinksPath(projectId, linkId)}/revoke`, { method: "POST" });
+}
+
+export async function regenerateShareLink(projectId: string, linkId: string) {
+  return request<ShareLink & { token: string }>(`${shareLinksPath(projectId, linkId)}/regenerate`, {
+    method: "POST",
+  });
+}
+
+export async function listShareLinkActivity(projectId: string, linkId: string) {
+  return request<ShareLinkActivity[]>(`${shareLinksPath(projectId, linkId)}/activity`);
 }

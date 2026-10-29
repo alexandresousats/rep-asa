@@ -54,14 +54,15 @@ export function parseCsv(text: string, delimiter: CsvDelimiter = ","): string[][
 
 export function serializeCsv(
   rows: string[][],
-  options?: { quoteColumns?: number[]; delimiter?: CsvDelimiter },
+  options?: { quoteColumns?: number[]; quoteAll?: boolean; delimiter?: CsvDelimiter },
 ): string {
   const delimiter = options?.delimiter ?? ",";
   const quoteColumns = new Set(options?.quoteColumns ?? []);
+  const quoteAll = options?.quoteAll ?? false;
   const body = rows
     .map((row) =>
       row
-        .map((value, column) => escapeCell(value, delimiter, quoteColumns.has(column) && value.length > 0))
+        .map((value, column) => escapeCell(value, delimiter, quoteAll || (quoteColumns.has(column) && value.length > 0)))
         .join(delimiter),
     )
     .join("\r\n");

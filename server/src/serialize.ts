@@ -1,4 +1,5 @@
 import type {
+  ClientFeedback,
   Comment,
   Notification,
   Project,
@@ -80,6 +81,7 @@ export function publicTask(
     comments: Comment[];
     followers?: { userId: string }[];
     attachments?: { id: string; name: string; mime: string; size: number }[];
+    clientFeedback?: ClientFeedback[];
   },
 ) {
   return {
@@ -120,6 +122,16 @@ export function publicTask(
     approvalFeedback: task.approvalFeedback,
     approvedAt: task.approvedAt,
     approvedById: task.approvedById,
+    approvedByClientName: task.approvedByClientName,
+    clientFeedback:
+      task.clientFeedback?.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        clientName: item.clientName,
+        clientEmail: item.clientEmail,
+        message: item.message,
+        createdAt: item.createdAt.toISOString(),
+      })) ?? [],
   };
 }
 
