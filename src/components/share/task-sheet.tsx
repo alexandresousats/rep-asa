@@ -38,7 +38,7 @@ const PURIFY = {
 type Step = "idle" | "identify" | "approve" | "changes";
 type Done = { kind: "approved" | "changes_requested"; name: string } | null;
 
-function readIdentity(): ClientIdentity | null {
+export function readIdentity(): ClientIdentity | null {
   try {
     const raw = window.localStorage.getItem(IDENTITY_KEY);
     if (!raw) return null;
