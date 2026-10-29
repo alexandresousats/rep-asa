@@ -290,6 +290,71 @@ test("link do cliente: bloqueio do PIN, alerta, auditoria, 401 e 429", async () 
     );
     current = admin;
 
+    // Pedido de demanda em chat pelo mesmo link.
+    const asker = newIp();
+    for (const [method, path] of [
+      ["GET", "/demand"],
+      ["POST", "/demand/chat"],
+      ["POST", "/demand"],
+    ] as const) {
+      const res = await call(method, `${base}${path}`, asker, {
+        body: method === "POST" ? { messages: [], title: "x" } : undefined,
+      });
+      assert.equal(res.status, 401, `${method} ${path}`);
+    }
+    const publicBase = `/public/share/${publicToken}`;
+    const demandInfo = await call("GET", `${publicBase}/demand`, asker);
+    assert.equal(demandInfo.status, 200);
+    assert.deepEqual(demandInfo.json, {
+      project: { name: "Projeto", color: "#0284c7" },
+      workspace: { name: "Espaço" },
+      verifiedBy: { name: "Pessoa admin" },
+    });
+    const turn = await call("POST", `${publicBase}/demand/chat`, asker, {
+      body: { messages: [{ role: "user", content: "Dicas de protetor solar" }] },
+    });
+    assert.equal(turn.status, 200);
+    assert.equal(turn.json?.updatedDemand?.subject, "Dicas de protetor solar");
+    assert.equal(turn.json?.uiAction, "formats");
+    assert.deepEqual(Object.keys(turn.json ?? {}).sort(), [
+      "reply",
+      "submitRequested",
+      "uiAction",
+      "updatedDemand",
+    ]);
+    const submitted = await call("POST", `${publicBase}/demand`, asker, {
+      body: {
+        title: "Post sobre protetor solar",
+        subject: "Post sobre protetor solar",
+        description: "Briefing do cliente",
+        demandFormat: "card",
+        dueDate: "2026-11-10",
+        requesterName: "Bruna Pulse",
+      },
+    });
+    assert.equal(submitted.status, 200);
+    assert.match(submitted.json?.demandCode, /^DEM-/);
+    const demandTask = await prisma.task.findUniqueOrThrow({ where: { id: submitted.json?.taskId } });
+    assert.equal(demandTask.projectId, projectId);
+    assert.equal(demandTask.isDemand, true);
+    assert.equal(demandTask.section, "Demandas");
+    assert.equal(demandTask.approvalStatus, "none");
+    assert.equal(demandTask.parentId, null);
+    assert.match(demandTask.description, /Bruna Pulse/);
+    const demandNote = await prisma.notification.findFirstOrThrow({
+      where: { userId, type: "demand_created" },
+    });
+    assert.match(demandNote.body, /pelo link do cliente/);
+    assert.equal(demandNote.href, `/projetos/${projectId}?task=${demandTask.id}`);
+    const november = await call(
+      "GET",
+      `${publicBase}/tasks?from=2026-11-01&to=2026-11-30`,
+      asker,
+    );
+    assert.ok(
+      (november.json?.tasks as { title: string }[]).some((item) => item.title === "Post sobre protetor solar"),
+    );
+
     // Rate limit: leitura e escrita respondem 429 quando o IP passa do limite.
     const busyIp = newIp();
     await prisma.loginAttempt.createMany({

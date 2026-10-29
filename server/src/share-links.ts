@@ -7,6 +7,14 @@ import { getCookie, setCookie } from "hono/cookie";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { workspaceIsEntitled } from "./billing";
+import {
+  demandChatBody,
+  demandSubmitBody,
+  describeDemandContext,
+  processDemandChatInContext,
+  submitDemandInContext,
+  type DemandContext,
+} from "./demand-links";
 import { sessionCookieSecure } from "./cookie";
 import { randomToken, sha256, uid } from "./crypto";
 import { prisma } from "./db";
@@ -799,6 +807,30 @@ async function recordClientFeedback(
   return publicTask(link, task.id);
 }
 
+// Pedido de demanda pelo link do cliente: entra no projeto do link e avisa quem criou o link.
+async function shareDemandContext(link: ShareLinkRow): Promise<DemandContext> {
+  const creator = await prisma.user.findUnique({
+    where: { id: link.createdById },
+    select: { name: true },
+  });
+  return {
+    workspaceId: link.workspaceId,
+    projectId: link.projectId,
+    verifiedById: link.createdById,
+    verifiedByName: creator?.name ?? "Equipe",
+    verifiedAt: link.createdAt.getTime(),
+    notifyUserIds: [link.createdById],
+    via: link.label ? `pelo link do cliente “${link.label}”` : "pelo link do cliente",
+    // Não é algo para o próprio cliente aprovar; a equipe decide quando enviar para aprovação.
+    approvalStatus: "none",
+  };
+}
+
+async function assertShareChatRate(ip: string, token: string) {
+  await assertRateLimit(`share:chat:ip:${ip}`, 60, FIFTEEN_MINUTES);
+  await assertRateLimit(`share:chat:token:${sha256(token)}`, 120, FIFTEEN_MINUTES);
+}
+
 async function assertShareWriteRate(ip: string, token: string) {
   await assertRateLimit(`share:write:ip:${ip}`, 20, FIFTEEN_MINUTES);
   await assertRateLimit(`share:write:token:${sha256(token)}`, 40, FIFTEEN_MINUTES);
@@ -973,6 +1005,49 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
       return c.json(await recordClientFeedback(opened.link, c.req.param("taskId"), kind, input));
     });
   }
+
+  app.get("/public/share/:token/demand", async (c) => {
+    const opened = await openPublic(c, c.req.param("token"));
+    if (opened.state === "unavailable") return unavailable(c);
+    if (opened.state === "locked") return lockedResponse();
+    const info = await describeDemandContext(await shareDemandContext(opened.link));
+    return c.json({
+      project: { name: info.project.name, color: info.project.color },
+      workspace: { name: info.workspace.name },
+      verifiedBy: { name: info.verifiedBy.name },
+    });
+  });
+
+  app.post("/public/share/:token/demand/chat", async (c) => {
+    const token = c.req.param("token");
+    const opened = await openPublic(c, token);
+    if (opened.state === "unavailable") return unavailable(c);
+    if (opened.state === "locked") return lockedResponse();
+    await assertShareChatRate(clientIp(c), token);
+    const body = parse(demandChatBody, await readBody(c));
+    const turn = await processDemandChatInContext(
+      await shareDemandContext(opened.link),
+      body.messages,
+      body.currentDemand,
+    );
+    return c.json({
+      reply: turn.reply,
+      updatedDemand: turn.updatedDemand,
+      uiAction: turn.uiAction,
+      submitRequested: turn.submitRequested,
+    });
+  });
+
+  app.post("/public/share/:token/demand", async (c) => {
+    const token = c.req.param("token");
+    const opened = await openPublic(c, token);
+    if (opened.state === "unavailable") return unavailable(c);
+    if (opened.state === "locked") return lockedResponse();
+    await assertShareWriteRate(clientIp(c), token);
+    const input = parse(demandSubmitBody, await readBody(c));
+    const created = await submitDemandInContext(await shareDemandContext(opened.link), input);
+    return c.json({ ok: true, demandCode: created.demandCode, taskId: created.task.id });
+  });
 
   app.get("/public/share/:token/summary", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));

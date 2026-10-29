@@ -10,6 +10,8 @@ import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
 import {
   assertDemandLinkSecret,
+  demandChatBody,
+  demandSubmitBody,
   generateDemandLinkToken,
   processDemandChatTurn,
   submitDemandViaVerifiedLink,
@@ -881,64 +883,14 @@ app.get("/demands/link-info", async (c) => {
 
 app.post("/demands/agent-chat", async (c) => {
   await assertDemandRate(clientIp(c), "chat");
-  const body = parse(
-    z.object({
-      token: z.string(),
-      messages: z.array(
-        z.object({
-          role: z.enum(["user", "assistant"]),
-          content: z.string(),
-          images: z.array(z.string()).optional(),
-          videos: z.array(z.string()).optional(),
-          documents: z.array(z.any()).optional(),
-        }),
-      ),
-      currentDemand: z
-        .object({
-          subject: z.string().optional(),
-          format: z.string().optional(),
-          tagIds: z.array(z.string()).optional(),
-          dueDate: z.string().optional(),
-          referenceUrls: z.string().optional(),
-          notes: z.string().optional(),
-          requesterName: z.string().optional(),
-          isReadyToConfirm: z.boolean().optional(),
-        })
-        .optional(),
-    }),
-    await c.req.json(),
-  );
+  const body = parse(demandChatBody.extend({ token: z.string() }), await c.req.json());
   return c.json(await processDemandChatTurn(body.token, body.messages, body.currentDemand));
 });
 
 app.post("/demands/submit-via-link", async (c) => {
   await assertDemandRate(clientIp(c), "submit");
   const body = parse(
-    z.object({
-      token: z.string(),
-      demand: z.object({
-        title: z.string().optional().default(""),
-        subject: z.string().optional(),
-        description: z.string().optional().default(""),
-        demandFormat: z.string().optional(),
-        tagIds: z.array(z.string()).optional(),
-        dueDate: z.string().optional(),
-        referenceUrls: z.string().optional(),
-        requesterName: z.string().optional(),
-        requesterEmail: z.string().optional(),
-        attachments: z
-          .array(
-            z.object({
-              name: z.string(),
-              type: z.string(),
-              size: z.number(),
-              base64: z.string().optional(),
-              url: z.string().optional(),
-            }),
-          )
-          .optional(),
-      }),
-    }),
+    z.object({ token: z.string(), demand: demandSubmitBody }),
     await c.req.json(),
   );
   return c.json(await submitDemandViaVerifiedLink(body.token, body.demand));
