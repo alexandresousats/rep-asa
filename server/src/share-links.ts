@@ -479,6 +479,63 @@ async function publicTasks(link: ShareLinkRow, from?: string, to?: string, inclu
     .map(toPublicTask);
 }
 
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function addDays(day: string, amount: number) {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function monthBounds(month: string) {
+  const [year, number] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(year, number, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
+}
+
+function percent(part: number, total: number) {
+  return total === 0 ? 0 : Math.round((part / total) * 100);
+}
+
+// Os números saem da mesma seleção que /tasks usa para o mês, para baterem com a aba Calendário.
+export async function publicSummary(link: ShareLinkRow, month: string, today: string) {
+  const { from, to } = monthBounds(month);
+  const tasks = await publicTasks(link, from, to);
+  const done = tasks.filter((task) => task.status === "done").length;
+  const pending = tasks.filter((task) => task.approvalStatus === "pending");
+  const approved = tasks.filter((task) => task.approvalStatus === "approved").length;
+  const changes = tasks.filter((task) => task.approvalStatus === "changes_requested").length;
+  const weekEnd = addDays(today, 6);
+  const upcoming = (await publicTasks(link, today, weekEnd))
+    .filter((task) => {
+      const due = task.dueDate ?? task.startDate;
+      return Boolean(due) && due! >= today && due! <= weekEnd;
+    })
+    .slice(0, 8);
+  const formats = new Map<string, number>();
+  for (const task of tasks) {
+    const name = task.demandFormat?.trim() || "Outros";
+    formats.set(name, (formats.get(name) ?? 0) + 1);
+  }
+  return {
+    month,
+    totals: {
+      total: tasks.length,
+      done,
+      pending: pending.length,
+      approved,
+      changes,
+      donePercent: percent(done, tasks.length),
+      approvedPercent: percent(approved, tasks.length),
+    },
+    upcoming,
+    attention: pending,
+    formats: [...formats.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "pt")),
+  };
+}
+
 async function publicTask(link: ShareLinkRow, taskId: string) {
   const task = await prisma.task.findFirst({
     where: { id: taskId, projectId: link.projectId, parentId: null },
@@ -733,6 +790,16 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
       return c.json(await recordClientFeedback(opened.link, c.req.param("taskId"), kind, input));
     });
   }
+
+  app.get("/public/share/:token/summary", async (c) => {
+    const opened = await openPublic(c, c.req.param("token"));
+    if (opened.state === "unavailable") return unavailable(c);
+    if (opened.state === "locked") return lockedResponse();
+    const month = c.req.query("month")?.trim() ?? "";
+    const today = c.req.query("today")?.trim() || new Date().toISOString().slice(0, 10);
+    if (!MONTH.test(month) || !DAY.test(today)) throw new ApiError(400, "Período inválido.");
+    return c.json(await publicSummary(opened.link, month, today));
+  });
 
   app.get("/public/share/:token/tasks/:taskId", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));

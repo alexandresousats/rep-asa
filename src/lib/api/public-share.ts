@@ -126,3 +126,24 @@ export async function requestShareChanges(
     body: JSON.stringify({ ...who, message }),
   });
 }
+
+export interface PublicSummary {
+  month: string;
+  totals: {
+    total: number;
+    done: number;
+    pending: number;
+    approved: number;
+    changes: number;
+    donePercent: number;
+    approvedPercent: number;
+  };
+  upcoming: PublicTask[];
+  attention: PublicTask[];
+  formats: { name: string; count: number }[];
+}
+
+export async function getShareSummary(token: string, month: string, today: string) {
+  const query = new URLSearchParams({ month, today });
+  return call<PublicSummary>(sharePath(token, `/summary?${query.toString()}`));
+}

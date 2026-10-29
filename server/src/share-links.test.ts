@@ -519,6 +519,40 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
       ["Entrega visível", "Sem data definida"],
     );
 
+    const summary = await call(
+      "GET",
+      `/public/share/${token}/summary?month=2026-10&today=2026-10-12`,
+      { cookie },
+    );
+    assert.equal(summary.status, 200);
+    assertNoSecrets(summary.json, summary.text);
+    const totals = summary.json?.totals as Record<string, number>;
+    // Bate com /tasks do mesmo mês: só "Entrega visível"; subtarefa e "Sem data" ficam fora.
+    assert.equal(totals.total, titles.length);
+    assert.deepEqual(totals, {
+      total: 1,
+      done: 0,
+      pending: 1,
+      approved: 0,
+      changes: 0,
+      donePercent: 0,
+      approvedPercent: 0,
+    });
+    assert.deepEqual(
+      (summary.json?.upcoming as { id: string }[]).map((item) => item.id),
+      [taskId],
+    );
+    assert.deepEqual(
+      (summary.json?.attention as { id: string }[]).map((item) => item.id),
+      [taskId],
+    );
+    assert.deepEqual(summary.json?.formats, [{ name: "Reels", count: 1 }]);
+    assert.equal(
+      (await call("GET", `/public/share/${token}/summary?month=2026-13`, { cookie })).status,
+      400,
+    );
+    assert.equal((await call("GET", `/public/share/${token}/summary?month=2026-10`)).status, 401);
+
     const detail = await call("GET", `/public/share/${token}/tasks/${taskId}`, { cookie });
     assert.equal(detail.status, 200);
     assertNoSecrets(detail.json, detail.text);

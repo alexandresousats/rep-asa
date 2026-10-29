@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/cn";
 import { formatMonthTitle, toISODate } from "@/lib/dates";
 import { BrandMark } from "./brand-mark";
-import { ClientCalendar } from "./client-calendar";
+import { ClientCalendar, type ApprovalFilter } from "./client-calendar";
 import { ClientHome } from "./client-home";
 import { PinScreen } from "./pin-screen";
 import { TaskSheet } from "./task-sheet";
@@ -46,6 +46,8 @@ export function ClientSharePage({ token }: { token: string }) {
   const [monthTasks, setMonthTasks] = useState<MonthTasks>(null);
   const [tasksError, setTasksError] = useState("");
   const [opened, setOpened] = useState<{ id: string; list: PublicTask[] } | null>(null);
+  const [summaryVersion, setSummaryVersion] = useState(0);
+  const [calendarFilter, setCalendarFilter] = useState<ApprovalFilter>("all");
   const monthKey = toISODate(month);
 
   const loadInfo = useCallback(
@@ -127,9 +129,11 @@ export function ClientSharePage({ token }: { token: string }) {
         : current,
     );
     setOpened((current) => (current ? { ...current, list: swap(current.list) } : current));
+    setSummaryVersion((value) => value + 1);
   }
 
-  function setTab(next: Tab) {
+  function setTab(next: Tab, filter: ApprovalFilter = "all") {
+    setCalendarFilter(filter);
     const query = new URLSearchParams(searchParams.toString());
     query.set("tab", next);
     router.replace(`?${query.toString()}`, { scroll: false });
@@ -231,14 +235,17 @@ export function ClientSharePage({ token }: { token: string }) {
               Tentar de novo
             </button>
           </div>
-        ) : current === null ? (
-          <ListSkeleton />
         ) : tab === "inicio" ? (
           <ClientHome
+            token={token}
             month={month}
-            tasks={current.tasks}
-            onSeeCalendar={() => setTab("calendario")}
+            version={summaryVersion}
+            onOpenTask={openTask}
+            onReview={() => setTab("calendario", "pending")}
+            onFailure={handleFailure}
           />
+        ) : current === null ? (
+          <ListSkeleton />
         ) : (
           <ClientCalendar
             token={token}
@@ -246,6 +253,7 @@ export function ClientSharePage({ token }: { token: string }) {
             onMonthChange={setMonth}
             tasks={current.tasks}
             undated={current.undated}
+            initialFilter={calendarFilter}
             onOpenTask={openTask}
           />
         )}

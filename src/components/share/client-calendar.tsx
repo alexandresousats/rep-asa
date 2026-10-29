@@ -37,6 +37,17 @@ function dayLabel(iso: string) {
   return format(parseDate(iso), "d 'de' MMM", { locale: ptBR });
 }
 
+// Formato e tag costumam repetir o mesmo nome ("card" e "Card").
+export function uniqueLabels(values: (string | null)[]) {
+  const seen = new Set<string>();
+  return values.filter((value): value is string => {
+    const key = value?.trim().toLocaleLowerCase("pt-BR");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function dateRange(task: Pick<PublicTask, "startDate" | "dueDate">) {
   const start = task.startDate?.slice(0, 10);
   const due = task.dueDate?.slice(0, 10);
@@ -89,12 +100,14 @@ export function ClientCalendar({
     () => [...[...byDay.values()].flat(), ...visibleUndated],
     [byDay, visibleUndated],
   );
-  const counts = useMemo(() => {
-    const all = [...tasks, ...undated];
-    return Object.fromEntries(
-      FILTERS.map((item) => [item.id, all.filter((task) => matches(task, item.id)).length]),
-    ) as Record<ApprovalFilter, number>;
-  }, [tasks, undated]);
+  // Contagens do mês, como na aba Início; a seção "Sem data" mostra a própria contagem.
+  const counts = useMemo(
+    () =>
+      Object.fromEntries(
+        FILTERS.map((item) => [item.id, tasks.filter((task) => matches(task, item.id)).length]),
+      ) as Record<ApprovalFilter, number>,
+    [tasks],
+  );
 
   const open = onOpenTask ? (task: PublicTask) => onOpenTask(task, ordered) : undefined;
   const selectedDay = pickedDay && pickedDay.startsWith(toISODate(month).slice(0, 7)) ? pickedDay : null;
@@ -393,9 +406,7 @@ export function TaskItem({
   onOpen?: (task: PublicTask) => void;
 }) {
   const image = task.attachments.find((file) => file.mime.startsWith("image/"));
-  const labels = [task.demandFormat, ...task.tags.map((tag) => tag.name)].filter(
-    (value, index, all): value is string => Boolean(value) && all.indexOf(value) === index,
-  );
+  const labels = uniqueLabels([task.demandFormat, ...task.tags.map((tag) => tag.name)]);
   return (
     <li>
       <button

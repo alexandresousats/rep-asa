@@ -24,7 +24,7 @@ import {
   type PublicTask,
 } from "@/lib/api/public-share";
 import { cn } from "@/lib/cn";
-import { dateRange } from "./client-calendar";
+import { dateRange, uniqueLabels } from "./client-calendar";
 import { StatusBadge } from "./client-status";
 
 const IDENTITY_KEY = "asa-share-client";
@@ -175,9 +175,7 @@ export function TaskSheet({
   const links = referenceLinks(task.referenceUrls);
   const images = task.attachments.filter((file) => file.mime.startsWith("image/"));
   const files = task.attachments.filter((file) => !file.mime.startsWith("image/"));
-  const labels = [task.demandFormat, ...task.tags.map((tag) => tag.name)].filter(
-    (value, position, all): value is string => Boolean(value) && all.indexOf(value) === position,
-  );
+  const labels = uniqueLabels([task.demandFormat, ...task.tags.map((tag) => tag.name)]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
