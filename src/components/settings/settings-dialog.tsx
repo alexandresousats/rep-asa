@@ -23,6 +23,8 @@ import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AgentSettingsCard } from "@/components/settings/agent-settings";
+import { AgentSharingCard } from "@/components/settings/agent-sharing";
+import { WorkspaceStorageCard } from "@/components/settings/workspace-storage";
 import { BillingSettings } from "@/components/settings/billing-card";
 import { NotificationSettings } from "@/components/settings/notification-settings";
 import { ApiKeysCard } from "@/components/settings/api-keys";
@@ -289,6 +291,7 @@ function SettingsBody({ tab }: { tab: SettingsTab }) {
 
       {tab === "workspace" && (
         <div className="space-y-10">
+          {workspace ? <WorkspaceStorageCard /> : null}
           {current?.access === "admin" && workspace ? (
             <section>
               <h2 className="text-sm font-medium text-ink">Espaço de trabalho</h2>
@@ -384,7 +387,12 @@ function SettingsBody({ tab }: { tab: SettingsTab }) {
         </div>
       )}
 
-      {tab === "agente" && <AgentSettingsCard />}
+      {tab === "agente" && (
+        <div className="space-y-10">
+          <AgentSettingsCard />
+          {current?.access === "admin" || current?.owner ? <AgentSharingCard /> : null}
+        </div>
+      )}
 
       {tab === "mcp" && (
         <div className="space-y-10">

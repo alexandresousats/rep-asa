@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useChat } from "@/lib/chat";
 import type { ChatMessage, ChatToolStep } from "@/lib/types";
+import { useWorkspace } from "@/lib/workspace";
 import { AudioPlayer } from "./audio-player";
 import { Markdown } from "./markdown";
 
@@ -116,6 +117,13 @@ function Bubble({
   const inTrash = useChat((state) =>
     Boolean(state.sessions.find((session) => session.id === state.activeSessionId)?.deletedAt),
   );
+  // Na conversa de um colega dá para continuar, mas não editar nem excluir mensagens.
+  const shared = useChat((state) =>
+    Boolean(state.sessions.find((session) => session.id === state.activeSessionId)?.shared),
+  );
+  const myId = useWorkspace((state) => state.user?.id);
+  const locked = inTrash || shared;
+  const byColleague = Boolean(message.authorName && message.authorId && message.authorId !== myId);
 
   useEffect(() => {
     if (!isEditing) {
@@ -187,6 +195,9 @@ function Bubble({
     return (
       <div className="group relative flex justify-end">
         <div className="flex max-w-[85%] flex-col items-end">
+          {byColleague ? (
+            <span className="mb-1 px-1 text-[11px] font-medium text-faint">{message.authorName}</span>
+          ) : null}
           {message.images && message.images.length > 0 && (
             <div className="mb-2 flex flex-wrap justify-end gap-2">
               {message.images.map((img, idx) => (
@@ -244,7 +255,7 @@ function Bubble({
 
           {/* Ações abaixo da mensagem enviada: editar, copiar e excluir (visíveis no hover) */}
           <div className="mt-1 flex items-center justify-end gap-1.5 px-1 text-faint opacity-0 transition-opacity group-hover:opacity-100">
-            {message.content && !inTrash ? (
+            {message.content && !locked ? (
               <button
                 type="button"
                 onClick={() => {
@@ -273,7 +284,7 @@ function Bubble({
               </button>
             ) : null}
 
-            {!inTrash && (
+            {!locked && (
               <button
                 type="button"
                 onClick={() => onDelete(message.id)}
@@ -344,7 +355,7 @@ function Bubble({
               <span>{copied ? "Copiado" : "Copiar"}</span>
             </button>
           ) : null}
-          {!inTrash && (
+          {!locked && (
             <button
               type="button"
               onClick={() => onDelete(message.id)}

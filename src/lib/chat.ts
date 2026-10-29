@@ -1,8 +1,18 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { loadSession } from "./api";
+import {
+  deleteAgentMessage,
+  getAgentSession,
+  importAgentSessions,
+  listAgentSessions,
+  loadSession,
+  patchAgentSession,
+  purgeAgentSession,
+  replaceAgentMessages,
+  saveAgentFolders,
+  saveAgentMessages,
+} from "./api";
 import { agentReady, usePrefs } from "./prefs";
 import type {
   ChatAudioAttachment,
@@ -31,6 +41,12 @@ interface ChatState {
   sessions: ChatSession[];
   activeSessionId: string | null;
   sending: boolean;
+  /** "usuário:espaço" das conversas carregadas; trocar de conta ou de espaço recarrega tudo. */
+  scope: string | null;
+  /** O admin liberou ver e continuar conversas da equipe para esta pessoa. */
+  teamSharing: boolean;
+  hydrate: (userId: string, workspaceId: string) => Promise<void>;
+  clear: () => void;
 
   // Compatibilidade com componentes que leem messages direto
   messages: ChatMessage[];
@@ -65,8 +81,12 @@ interface ChatState {
 
 let controller: AbortController | null = null;
 
+// As conversas ficavam só no navegador, sob esta chave, sem dono. Elas vão para a conta
+// de quem entrar primeiro depois da mudança e a chave é apagada.
+const LEGACY_KEY = "asa-agent-sessions";
+
 function uid(prefix: string) {
-  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
   return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
@@ -126,11 +146,74 @@ function freshSession(folderId: string | null = null): ChatSession {
     messages: [],
     createdAt: now,
     updatedAt: now,
+    loaded: true,
   };
 }
 
+// O servidor guarda autor e nome; páginas de PDF só servem para a resposta em curso.
+function forServer(message: ChatMessage): ChatMessage {
+  const { authorId: _authorId, authorName: _authorName, ...rest } = message;
+  if (!rest.documents?.some((doc) => doc.pageImages?.length)) return rest;
+  return {
+    ...rest,
+    documents: rest.documents.map(({ pageImages: _pageImages, ...doc }) => doc),
+  };
+}
+
+// Salva na ordem em que as mudanças aconteceram, uma conversa de cada vez.
+const saving = new Map<string, Promise<unknown>>();
+
+function inOrder<T>(sessionId: string, work: () => Promise<T>) {
+  const previous = saving.get(sessionId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(work);
+  saving.set(sessionId, next);
+  void next.finally(() => {
+    if (saving.get(sessionId) === next) saving.delete(sessionId);
+  });
+  return next;
+}
+
+function quietly(work: Promise<unknown>) {
+  void work.catch((error: unknown) => {
+    console.warn("Não foi possível salvar a conversa do agente.", error);
+  });
+}
+
+async function migrateLegacySessions() {
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(LEGACY_KEY);
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as {
+      state?: { folders?: ChatFolder[]; sessions?: ChatSession[] };
+    };
+    const sessions = (parsed.state?.sessions ?? []).map((session) => ({
+      id: session.id,
+      title: session.title,
+      folderId: session.folderId,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      deletedAt: session.deletedAt ?? null,
+      messages: (session.messages ?? []).map(forServer),
+    }));
+    await importAgentSessions({ folders: parsed.state?.folders ?? [], sessions });
+  } catch (error) {
+    // Sem migrar, a chave fica para a próxima tentativa.
+    console.warn("Não foi possível levar as conversas antigas para a conta.", error);
+    return;
+  }
+  try {
+    window.localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    // ignorado
+  }
+}
+
 export const useChat = create<ChatState>()(
-  persist(
     (set, get) => {
       function activeSession(): ChatSession | undefined {
         const { sessions, activeSessionId } = get();
@@ -197,6 +280,23 @@ export const useChat = create<ChatState>()(
       }
 
       const defaultSession = freshSession();
+
+      // Só o dono renomeia, move, apaga ou reescreve; a equipe só lê e continua.
+      function ownSession(id: string | null | undefined) {
+        const session = get().sessions.find((item) => item.id === id);
+        return session && !session.shared ? session : undefined;
+      }
+
+      function saveFolders() {
+        quietly(saveAgentFolders(get().folders));
+      }
+
+      function failMessage(sessionId: string, messageId: string, error: unknown) {
+        patchAssistantInSession(sessionId, messageId, (m) => ({
+          ...m,
+          error: error instanceof Error ? error.message : "Não foi possível salvar a conversa.",
+        }));
+      }
 
       async function runChatStream(
         currentSessionId: string,
@@ -305,6 +405,14 @@ export const useChat = create<ChatState>()(
             ),
           }));
           set({ sending: false });
+          const finished = get()
+            .sessions.find((session) => session.id === currentSessionId)
+            ?.messages.find((m) => m.id === replyMessageId);
+          if (finished) {
+            void inOrder(currentSessionId, () =>
+              saveAgentMessages(currentSessionId, { messages: [forServer(finished)] }),
+            ).catch((error: unknown) => failMessage(currentSessionId, replyMessageId, error));
+          }
           if (mutated) void loadSession();
         }
       }
@@ -315,6 +423,61 @@ export const useChat = create<ChatState>()(
         activeSessionId: defaultSession.id,
         messages: [],
         sending: false,
+        scope: null,
+        teamSharing: false,
+
+        hydrate: async (userId, workspaceId) => {
+          const scope = `${userId}:${workspaceId}`;
+          if (get().scope === scope) return;
+          get().clear();
+          set({ scope });
+          await migrateLegacySessions();
+          let data: Awaited<ReturnType<typeof listAgentSessions>>;
+          try {
+            data = await listAgentSessions();
+          } catch (error) {
+            console.warn("Não foi possível carregar as conversas do agente.", error);
+            return;
+          }
+          if (get().scope !== scope) return;
+          const fresh = freshSession();
+          const own: ChatSession[] = data.sessions.map((session) => ({
+            ...session,
+            messages: [],
+            loaded: false,
+          }));
+          const team: ChatSession[] = data.team.map((session) => ({
+            ...session,
+            folderId: null,
+            messages: [],
+            loaded: false,
+            shared: true,
+            ownerName: session.ownerName,
+          }));
+          set({
+            folders: data.folders,
+            sessions: [fresh, ...own, ...team],
+            activeSessionId: fresh.id,
+            messages: [],
+            sending: false,
+            teamSharing: data.sharing.enabled,
+          });
+        },
+
+        clear: () => {
+          controller?.abort();
+          controller = null;
+          const fresh = freshSession();
+          set({
+            folders: [],
+            sessions: [fresh],
+            activeSessionId: fresh.id,
+            messages: [],
+            sending: false,
+            scope: null,
+            teamSharing: false,
+          });
+        },
 
         createSession: (folderId = null) => {
           controller?.abort();
@@ -348,17 +511,35 @@ export const useChat = create<ChatState>()(
               sending: false,
             };
           });
+          const target = get().sessions.find((s) => s.id === id);
+          if (!target || target.loaded !== false) return;
+          void getAgentSession(id).then(
+            (full) => {
+              set((state) => {
+                const sessions = state.sessions.map((s) =>
+                  s.id === id ? { ...s, messages: full.messages, loaded: true } : s,
+                );
+                return { sessions, messages: syncMessages(sessions, state.activeSessionId) };
+              });
+            },
+            (error: unknown) => {
+              console.warn("Não foi possível abrir a conversa.", error);
+            },
+          );
         },
 
         renameSession: (id, title) => {
           const clean = title.trim();
-          if (!clean) return;
+          if (!clean || !ownSession(id)) return;
+          quietly(patchAgentSession(id, { title: clean }));
           set((state) => ({
             sessions: state.sessions.map((s) => (s.id === id ? { ...s, title: clean } : s)),
           }));
         },
 
         moveSessionToFolder: (sessionId, folderId) => {
+          if (!ownSession(sessionId)) return;
+          quietly(patchAgentSession(sessionId, { folderId }));
           set((state) => ({
             sessions: state.sessions.map((s) =>
               s.id === sessionId ? { ...s, folderId, updatedAt: new Date().toISOString() } : s,
@@ -367,8 +548,12 @@ export const useChat = create<ChatState>()(
         },
 
         deleteSession: (id) => {
+          if (!ownSession(id)) return;
           controller?.abort();
           controller = null;
+          if (!get().sessions.find((s) => s.id === id)?.deletedAt) {
+            quietly(patchAgentSession(id, { deletedAt: new Date().toISOString() }));
+          }
           set((state) => {
             const target = state.sessions.find((session) => session.id === id);
             if (!target || target.deletedAt) return state;
@@ -380,6 +565,8 @@ export const useChat = create<ChatState>()(
         },
 
         restoreSession: (id) => {
+          if (!ownSession(id)?.deletedAt) return;
+          quietly(patchAgentSession(id, { deletedAt: null }));
           set((state) => {
             const target = state.sessions.find((session) => session.id === id);
             if (!target?.deletedAt) return state;
@@ -397,8 +584,10 @@ export const useChat = create<ChatState>()(
         },
 
         purgeSession: (id) => {
+          if (!ownSession(id)) return;
           controller?.abort();
           controller = null;
+          quietly(purgeAgentSession(id));
           set((state) => {
             if (!state.sessions.some((session) => session.id === id)) return state;
             const sessions = state.sessions.filter((session) => session.id !== id);
@@ -409,6 +598,9 @@ export const useChat = create<ChatState>()(
         emptyTrash: () => {
           controller?.abort();
           controller = null;
+          for (const session of get().sessions) {
+            if (session.deletedAt && !session.shared) quietly(purgeAgentSession(session.id));
+          }
           set((state) => {
             const sessions = state.sessions.filter(isLiveSession);
             if (sessions.length === state.sessions.length) return state;
@@ -432,8 +624,9 @@ export const useChat = create<ChatState>()(
           controller = null;
           const targetId = sessionId || get().activeSessionId;
           if (!targetId) return;
-          const target = get().sessions.find((session) => session.id === targetId);
+          const target = ownSession(targetId);
           if (!target || target.deletedAt) return;
+          quietly(inOrder(targetId, () => replaceAgentMessages(targetId, [])));
           set((state) => {
             const sessions = state.sessions.map((s) =>
               s.id === targetId ? { ...s, messages: [], updatedAt: new Date().toISOString() } : s,
@@ -449,8 +642,9 @@ export const useChat = create<ChatState>()(
         deleteMessage: (messageId, sessionId) => {
           const targetId = sessionId || get().activeSessionId;
           if (!targetId) return;
-          const target = get().sessions.find((session) => session.id === targetId);
+          const target = ownSession(targetId);
           if (!target || target.deletedAt) return;
+          quietly(inOrder(targetId, () => deleteAgentMessage(targetId, messageId)));
           set((state) => {
             const sessions = state.sessions.map((session) => {
               if (session.id !== targetId) return session;
@@ -475,6 +669,7 @@ export const useChat = create<ChatState>()(
             createdAt: new Date().toISOString(),
           };
           set((state) => ({ folders: [...state.folders, folder] }));
+          saveFolders();
           return folder;
         },
 
@@ -484,6 +679,7 @@ export const useChat = create<ChatState>()(
           set((state) => ({
             folders: state.folders.map((f) => (f.id === id ? { ...f, name: clean } : f)),
           }));
+          saveFolders();
         },
 
         setFolderColor: (id, color) => {
@@ -492,6 +688,7 @@ export const useChat = create<ChatState>()(
           set((state) => ({
             folders: state.folders.map((f) => (f.id === id ? { ...f, color: clean } : f)),
           }));
+          saveFolders();
         },
 
         deleteFolder: (id) => {
@@ -499,6 +696,7 @@ export const useChat = create<ChatState>()(
             folders: state.folders.filter((f) => f.id !== id),
             sessions: state.sessions.map((s) => (s.folderId === id ? { ...s, folderId: null } : s)),
           }));
+          saveFolders();
         },
 
         reset: () => {
@@ -573,6 +771,14 @@ export const useChat = create<ChatState>()(
             };
           });
 
+          void inOrder(currentSessionId, () =>
+            saveAgentMessages(currentSessionId, {
+              title: newTitle,
+              folderId: session.shared ? undefined : session.folderId,
+              messages: [forServer(userMessage), forServer(replyMessage)],
+            }),
+          ).catch((error: unknown) => failMessage(currentSessionId, replyMessage.id, error));
+
           // Histórico para envio ao backend
           const fullMessages = [...session.messages, userMessage];
           const history = fullMessages
@@ -601,7 +807,7 @@ export const useChat = create<ChatState>()(
           if (!agentReady(agent)) return;
 
           const session = activeSession();
-          if (!session || session.deletedAt) return;
+          if (!session || session.deletedAt || session.shared) return;
           const currentSessionId = session.id;
 
           const msgIndex = session.messages.findIndex((m) => m.id === messageId);
@@ -653,6 +859,10 @@ export const useChat = create<ChatState>()(
             };
           });
 
+          void inOrder(currentSessionId, () =>
+            replaceAgentMessages(currentSessionId, newMessages.map(forServer)),
+          ).catch((error: unknown) => failMessage(currentSessionId, replyMessage.id, error));
+
           const fullMessages = [...priorMessages, updatedUserMessage];
           const history = fullMessages
             .filter(
@@ -672,38 +882,4 @@ export const useChat = create<ChatState>()(
         },
       };
     },
-    {
-      name: "asa-agent-sessions",
-      partialize: (state) => ({
-        folders: state.folders,
-        sessions: state.sessions.map((session) => ({
-          ...session,
-          messages: session.messages.map((message) => {
-            if (!message.documents?.some((doc) => doc.pageImages?.length)) return message;
-            return {
-              ...message,
-              documents: message.documents.map(({ pageImages: _pageImages, ...doc }) => doc),
-            };
-          }),
-        })),
-        activeSessionId: state.activeSessionId,
-      }),
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-        state.sessions = dropExpiredSessions(state.sessions || []);
-        const live = state.sessions.filter(isLiveSession);
-        if (live.length === 0) {
-          const fallback = freshSession();
-          state.sessions = [fallback, ...state.sessions];
-          state.activeSessionId = fallback.id;
-          state.messages = [];
-          return;
-        }
-        const active =
-          live.find((session) => session.id === state.activeSessionId) || live[0];
-        state.activeSessionId = active.id;
-        state.messages = active.messages || [];
-      },
-    },
-  ),
 );

@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
+import { useChat } from "@/lib/chat";
 import { enableFirebaseAnalytics } from "@/lib/firebase";
 import { agentReady, usePrefs } from "@/lib/prefs";
 import { useAccess, useWorkspace } from "@/lib/workspace";
@@ -47,9 +48,22 @@ export function Providers({ children }: { children: React.ReactNode }) {
     };
   }, [setHasHydrated, isPublicShare]);
 
+  // Conversas e chaves do agente são de cada pessoa em cada espaço; nada passa para quem entra depois.
+  useEffect(() => {
+    if (isPublicShare) return;
+    if (!userId) {
+      useChat.getState().clear();
+      return;
+    }
+    if (prefsHydrated) usePrefs.getState().claimFor(userId);
+    if (workspaceId) void useChat.getState().hydrate(userId, workspaceId);
+  }, [userId, workspaceId, prefsHydrated, isPublicShare]);
+
   useEffect(() => {
     if (!userId || !workspaceId || !prefsHydrated || !canWrite || !billingActive) return;
     if (!agentReady(agent)) return;
+    // Só sincroniza chaves que são de quem está logado.
+    if (usePrefs.getState().ownerId !== userId) return;
     void syncWorkspaceAgent({
       baseUrl: agent.baseUrl.trim(),
       apiKey: agent.apiKey.trim(),

@@ -100,6 +100,7 @@ import {
   assertVerifyResendRate,
   clientIp,
 } from "./rate-limit";
+import { registerAgentSessionRoutes } from "./agent-sessions";
 import { registerProjectExportRoutes } from "./project-export";
 import { isPublicSharePath, registerShareRoutes } from "./share-links";
 
@@ -941,6 +942,7 @@ app.delete("/mcp", (c) => c.json(rpcError(null, -32000, "Sessão stateless."), 4
 
 registerShareRoutes(app, { actorOf });
 registerProjectExportRoutes(app, { actorOf });
+registerAgentSessionRoutes(app, { actorOf });
 
 const port = Number(process.env.PORT ?? 4000);
 const hostname = process.env.HOST ?? "127.0.0.1";

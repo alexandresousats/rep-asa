@@ -11,6 +11,7 @@ import {
   RotateCcw,
   SquarePen,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -120,8 +121,12 @@ export function AgentSidebar({
     onClose?.();
   }
 
-  const liveSessions = sessions.filter((session) => !session.deletedAt);
-  const trashedSessions = sessions
+  // Conversas de colegas ficam numa seção própria, sem pastas, lixeira ou renomear.
+  const ownSessions = sessions.filter((session) => !session.shared);
+  const teamSessions = sessions.filter((session) => session.shared && !session.deletedAt);
+  const teamSharing = useChat((state) => state.teamSharing);
+  const liveSessions = ownSessions.filter((session) => !session.deletedAt);
+  const trashedSessions = ownSessions
     .filter((session): session is ChatSession & { deletedAt: string } => Boolean(session.deletedAt))
     .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
 
@@ -162,10 +167,7 @@ export function AgentSidebar({
   }
 
   useEffect(() => {
-    if (useChat.persist.hasHydrated()) purgeExpiredTrash();
-    return useChat.persist.onFinishHydration(() => {
-      useChat.getState().purgeExpiredTrash();
-    });
+    purgeExpiredTrash();
   }, [purgeExpiredTrash]);
 
   useEffect(() => {
@@ -710,6 +712,18 @@ export function AgentSidebar({
               Nenhuma conversa nesta pasta.
             </div>
           )}
+
+          {teamSharing && !selectedFolderId ? (
+            <TeamSessions
+              sessions={teamSessions}
+              activeSessionId={activeSessionId}
+              onSelect={(id) => {
+                selectSession(id);
+                setShowTrash(false);
+                onClose?.();
+              }}
+            />
+          ) : null}
         </div>
         </>
         )}
@@ -959,6 +973,50 @@ function FolderColorSwatches({
           }}
         />
       ))}
+    </div>
+  );
+}
+
+function TeamSessions({
+  sessions,
+  activeSessionId,
+  onSelect,
+}: {
+  sessions: ChatSession[];
+  activeSessionId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-0.5 border-t border-line/60 pt-3">
+      <p className="flex items-center gap-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-faint">
+        <Users className="h-3 w-3" strokeWidth={1.75} />
+        Equipe
+      </p>
+      {sessions.length === 0 ? (
+        <p className="px-2.5 py-2 text-[12px] leading-4 text-faint">
+          Ninguém da equipe compartilhou conversas ainda.
+        </p>
+      ) : (
+        sessions.map((session) => {
+          const isActive = session.id === activeSessionId;
+          return (
+            <button
+              key={session.id}
+              type="button"
+              onClick={() => onSelect(session.id)}
+              className={cn(
+                "flex w-full flex-col rounded-xl px-2.5 py-1.5 text-left text-[14px] transition-colors",
+                sidebarNavItemClass(isActive),
+              )}
+            >
+              <span className="block w-full truncate">{session.title}</span>
+              <span className={cn("block truncate text-[11px]", sidebarNavSubtextClass(isActive))}>
+                {session.ownerName}
+              </span>
+            </button>
+          );
+        })
+      )}
     </div>
   );
 }
