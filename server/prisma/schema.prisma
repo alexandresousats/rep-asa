@@ -462,9 +462,30 @@ model ClientShareLink {
   workspace      Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy      User            @relation("ShareLinkCreator", fields: [createdById], references: [id])
   feedback       ClientFeedback[]
+  events         ShareLinkEvent[]
 
   @@index([projectId])
   @@index([workspaceId])
+}
+
+enum ShareLinkEventKind {
+  view
+  unlock_ok
+  unlock_fail
+  unlock_blocked
+}
+
+// Auditoria do link e base do bloqueio do PIN. Guarda o IP só como hash e nunca o PIN.
+model ShareLinkEvent {
+  id        String             @id
+  linkId    String
+  kind      ShareLinkEventKind
+  ipHash    String
+  createdAt DateTime           @default(now())
+  link      ClientShareLink    @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([linkId, kind, createdAt])
+  @@index([linkId, ipHash, createdAt])
 }
 
 enum ClientFeedbackKind {

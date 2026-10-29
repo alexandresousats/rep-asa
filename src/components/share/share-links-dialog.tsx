@@ -2,7 +2,18 @@
 
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Copy, Dices, ExternalLink, Eye, EyeOff, Globe, Link2, Lock, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  Dices,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Globe,
+  Link2,
+  Lock,
+  RefreshCw,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -10,13 +21,14 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import {
   createShareLink,
+  listShareLinkActivity,
   listShareLinks,
   regenerateShareLink,
   revokeShareLink,
   updateShareLink,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import type { ShareLink, ShareVisibility } from "@/lib/types";
+import type { ShareLink, ShareLinkActivity, ShareVisibility } from "@/lib/types";
 import { useWorkspace } from "@/lib/workspace";
 
 const PIN = /^\d{4}$/;
@@ -85,6 +97,7 @@ export function ShareLinksDialog({
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [pinEdit, setPinEdit] = useState<PinEdit | null>(null);
+  const [activityFor, setActivityFor] = useState<ShareLink | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(
@@ -115,6 +128,7 @@ export function ShareLinksDialog({
     setReveal(null);
     setConfirm(null);
     setPinEdit(null);
+    setActivityFor(null);
     onClose();
   }
 
@@ -161,6 +175,14 @@ export function ShareLinksDialog({
           setCreating(false);
           setReveal({ label, url: shareUrl(created.token), pin: input.pin ?? null });
         }}
+      />
+    );
+  } else if (activityFor) {
+    body = (
+      <ActivityPanel
+        projectId={projectId}
+        link={activityFor}
+        onBack={() => setActivityFor(null)}
       />
     );
   } else if (pinEdit) {
@@ -219,6 +241,7 @@ export function ShareLinksDialog({
                       "Link agora é público.",
                     )
                   }
+                  onActivity={() => setActivityFor(link)}
                   onRegenerate={() => setConfirm({ kind: "regenerate", link })}
                   onRevoke={() => setConfirm({ kind: "revoke", link })}
                 />
@@ -293,6 +316,7 @@ function LinkRow({
   onChangePin,
   onMakePrivate,
   onMakePublic,
+  onActivity,
   onRegenerate,
   onRevoke,
 }: {
@@ -302,6 +326,7 @@ function LinkRow({
   onChangePin: () => void;
   onMakePrivate: () => void;
   onMakePublic: () => void;
+  onActivity: () => void;
   onRegenerate: () => void;
   onRevoke: () => void;
 }) {
@@ -337,6 +362,9 @@ function LinkRow({
             Tornar privado
           </RowButton>
         )}
+        <RowButton disabled={busy} onClick={onActivity}>
+          Atividade
+        </RowButton>
         <RowButton disabled={busy} onClick={onRegenerate}>
           <RefreshCw className="h-3.5 w-3.5" />
           Regenerar
@@ -691,5 +719,93 @@ function AccessOption({
         <span className="block text-xs leading-5 text-faint">{text}</span>
       </span>
     </button>
+  );
+}
+
+const ACTIVITY_LABEL: Record<ShareLinkActivity["kind"], string> = {
+  view: "Abriu o link",
+  unlock_ok: "Entrou com o PIN",
+  unlock_fail: "Errou o PIN",
+  unlock_blocked: "Tentativa bloqueada",
+  approved: "Aprovou",
+  changes_requested: "Pediu ajuste em",
+};
+
+function ActivityPanel({
+  projectId,
+  link,
+  onBack,
+}: {
+  projectId: string;
+  link: ShareLink;
+  onBack: () => void;
+}) {
+  const [items, setItems] = useState<ShareLinkActivity[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    listShareLinkActivity(projectId, link.id).then(
+      (rows) => {
+        if (alive) setItems(rows);
+      },
+      (reason: unknown) => {
+        if (alive) setError(reason instanceof Error ? reason.message : "Não foi possível carregar.");
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [projectId, link.id]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex w-fit items-center gap-1.5 text-sm text-muted hover:text-ink"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Voltar
+      </button>
+      <p className="text-sm text-faint">
+        Últimos acessos e respostas de {link.label ? `“${link.label}”` : "este link"}. Cada visitante
+        aparece com um código curto; o IP não é guardado.
+      </p>
+      {error ? (
+        <p className="text-sm text-red-400">{error}</p>
+      ) : items === null ? (
+        <div className="h-24 animate-pulse rounded-2xl bg-hover" />
+      ) : items.length === 0 ? (
+        <p className="text-sm text-faint">Nada registrado ainda.</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-line-subtle rounded-2xl border border-line">
+          {items.map((item) => {
+            const bad = item.kind === "unlock_fail" || item.kind === "unlock_blocked";
+            return (
+              <li key={item.id} className="flex items-start justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className={cn("min-w-0", bad ? "text-red-400" : "text-ink")}>
+                  {"clientName" in item ? (
+                    <>
+                      <span className="font-medium">{item.clientName}</span>{" "}
+                      {ACTIVITY_LABEL[item.kind].toLowerCase()}{" "}
+                      <span className="text-muted">“{item.task.title}”</span>
+                    </>
+                  ) : (
+                    <>
+                      {ACTIVITY_LABEL[item.kind]}
+                      <span className="ml-1.5 font-mono text-xs text-faint">#{item.visitor}</span>
+                    </>
+                  )}
+                </span>
+                <span className="shrink-0 text-xs text-faint">
+                  {format(new Date(item.createdAt), "d MMM, HH:mm", { locale: ptBR })}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

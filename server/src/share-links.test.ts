@@ -756,18 +756,23 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.equal(blob.includes(pin), false);
     assert.equal(blob.includes(nextPin), false);
 
+    // A visita conta uma vez por IP, mesmo com várias aberturas; acesso travado não conta.
     const started = Date.now();
     while (Date.now() - started < 2000) {
-      const fresh = await prisma.clientShareLink.findFirst({
-        where: { tokenHash: sha256(nextToken) },
-      });
+      const fresh = await prisma.clientShareLink.findUnique({ where: { id: linkId } });
       if ((fresh?.accessCount ?? 0) >= 1) break;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    const counted = await prisma.clientShareLink.findFirstOrThrow({
+    const counted = await prisma.clientShareLink.findUniqueOrThrow({ where: { id: linkId } });
+    assert.equal(counted.accessCount, 1);
+    assert.equal(
+      await prisma.shareLinkEvent.count({ where: { linkId, kind: "view" } }),
+      1,
+    );
+    const lockedLink = await prisma.clientShareLink.findFirstOrThrow({
       where: { tokenHash: sha256(nextToken) },
     });
-    assert.ok(counted.accessCount >= 1);
+    assert.equal(lockedLink.accessCount, 0);
   } finally {
     for (const method of methods) console[method] = original[method];
   }

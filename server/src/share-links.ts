@@ -180,6 +180,169 @@ function adminLink(row: ShareLinkRow) {
   };
 }
 
+// Bloqueio do PIN: 5 erros seguidos do mesmo IP, ou 15 no link vindos de qualquer IP,
+// travam o unlock com espera crescente. O acerto zera os dois contadores.
+const IP_FAILURES = 5;
+const LINK_FAILURES = 15;
+const LOCK_STEPS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+const ALERT_FAILURES = 20;
+const ONE_HOUR = 60 * 60 * 1000;
+const LOOKBACK = 24 * ONE_HOUR;
+const VIEW_GAP = 30 * 60 * 1000;
+
+export function shareIpHash(ip: string) {
+  return createHmac("sha256", shareSecret()).update(`ip:${ip}`).digest("hex").slice(0, 24);
+}
+
+export function lockDelay(failures: number, threshold: number) {
+  if (failures < threshold) return 0;
+  return LOCK_STEPS_MS[Math.min(failures - threshold, LOCK_STEPS_MS.length - 1)];
+}
+
+async function failureStreak(linkId: string, ipHash?: string) {
+  const scope = { linkId, ...(ipHash ? { ipHash } : {}) };
+  const since = new Date(Date.now() - LOOKBACK);
+  const lastOk = await prisma.shareLinkEvent.findFirst({
+    where: { ...scope, kind: "unlock_ok", createdAt: { gt: since } },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  const where = {
+    ...scope,
+    kind: "unlock_fail" as const,
+    createdAt: { gt: lastOk?.createdAt ?? since },
+  };
+  const [count, last] = await Promise.all([
+    prisma.shareLinkEvent.count({ where }),
+    prisma.shareLinkEvent.findFirst({
+      where,
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+  ]);
+  return { count, last: last?.createdAt ?? null };
+}
+
+// Devolve quantos ms faltam para liberar o unlock; 0 quando não há bloqueio.
+async function unlockWait(linkId: string, ipHash: string) {
+  const [byIp, byLink] = await Promise.all([
+    failureStreak(linkId, ipHash),
+    failureStreak(linkId),
+  ]);
+  const now = Date.now();
+  const wait = (streak: { count: number; last: Date | null }, threshold: number) =>
+    streak.last ? Math.max(0, streak.last.getTime() + lockDelay(streak.count, threshold) - now) : 0;
+  return Math.max(wait(byIp, IP_FAILURES), wait(byLink, LINK_FAILURES));
+}
+
+function lockedOut(waitMs: number): never {
+  const minutes = Math.max(1, Math.ceil(waitMs / 60_000));
+  throw new ApiError(
+    429,
+    `Muitas tentativas. Tente de novo em ${minutes} ${minutes === 1 ? "minuto" : "minutos"}.`,
+  );
+}
+
+async function alertAdminsAboutPin(link: ShareLinkRow) {
+  const since = new Date(Date.now() - ONE_HOUR);
+  // Tentativas barradas pelo bloqueio também contam: o ataque continua mesmo travado.
+  const failures = await prisma.shareLinkEvent.count({
+    where: {
+      linkId: link.id,
+      kind: { in: ["unlock_fail", "unlock_blocked"] },
+      createdAt: { gt: since },
+    },
+  });
+  if (failures < ALERT_FAILURES) return;
+  const href = `/projetos/${link.projectId}?compartilhar=${link.id}`;
+  const recent = await prisma.notification.findFirst({
+    where: { type: "share_pin_alert", href, createdAt: { gt: since } },
+    select: { id: true },
+  });
+  if (recent) return;
+  const admins = await prisma.workspaceMember.findMany({
+    where: {
+      workspaceId: link.workspaceId,
+      status: "active",
+      OR: [{ access: "admin" }, { owner: true }],
+    },
+    select: { userId: true },
+  });
+  const name = link.label ? `“${link.label}”` : "do cliente";
+  await Promise.all(
+    admins.map((admin) =>
+      notify({
+        userId: admin.userId,
+        workspaceId: link.workspaceId,
+        type: "share_pin_alert",
+        title: "Muitas tentativas de PIN",
+        body: `O link ${name} recebeu ${failures} PINs errados na última hora. Considere trocar o PIN.`,
+        href,
+      }),
+    ),
+  );
+}
+
+function recordEvent(
+  linkId: string,
+  kind: "view" | "unlock_ok" | "unlock_fail" | "unlock_blocked",
+  ipHash: string,
+) {
+  return prisma.shareLinkEvent.create({ data: { id: uid("sev"), linkId, kind, ipHash } });
+}
+
+// Uma visita conta uma vez a cada 30 minutos por IP, não a cada chamada da API.
+async function noteVisit(linkId: string, ipHash: string) {
+  const recent = await prisma.shareLinkEvent.findFirst({
+    where: { linkId, ipHash, kind: "view", createdAt: { gt: new Date(Date.now() - VIEW_GAP) } },
+    select: { id: true },
+  });
+  if (recent) return;
+  await recordEvent(linkId, "view", ipHash);
+  noteAccess(linkId);
+}
+
+export async function shareLinkActivity(actor: Actor, projectId: string, linkId: string) {
+  const link = await adminLinkRow(actor, projectId, linkId);
+  const [events, feedback] = await Promise.all([
+    prisma.shareLinkEvent.findMany({
+      where: { linkId: link.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { id: true, kind: true, ipHash: true, createdAt: true },
+    }),
+    prisma.clientFeedback.findMany({
+      where: { shareLinkId: link.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        kind: true,
+        clientName: true,
+        createdAt: true,
+        task: { select: { id: true, title: true } },
+      },
+    }),
+  ]);
+  return [
+    ...events.map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      visitor: event.ipHash.slice(0, 6),
+      createdAt: event.createdAt.toISOString(),
+    })),
+    ...feedback.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      clientName: item.clientName,
+      task: item.task,
+      createdAt: item.createdAt.toISOString(),
+    })),
+  ]
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, 100);
+}
+
 function noteAccess(id: string) {
   void prisma.clientShareLink
     .update({
@@ -323,7 +486,6 @@ async function openPublic(c: Context, token: string): Promise<Opened> {
   await assertSharePublicRate(clientIp(c), token);
   const link = await resolveShareLink(token);
   if (!link) throw new ApiError(404, LINK_MISSING);
-  noteAccess(link.id);
   if (!(await workspaceIsEntitled(link.workspaceId))) return { state: "unavailable" };
   if (
     link.visibility === "private" &&
@@ -719,6 +881,12 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     );
   });
 
+  app.get("/projects/:projectId/share-links/:linkId/activity", async (c) => {
+    return c.json(
+      await shareLinkActivity(await deps.actorOf(c), c.req.param("projectId"), c.req.param("linkId")),
+    );
+  });
+
   app.post("/projects/:projectId/share-links/:linkId/revoke", async (c) => {
     return c.json(
       await revokeShareLink(await deps.actorOf(c), c.req.param("projectId"), c.req.param("linkId")),
@@ -740,9 +908,17 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     await assertSharePublicRate(clientIp(c), token);
     const link = await resolveShareLink(token);
     if (!link) throw new ApiError(404, LINK_MISSING);
-    noteAccess(link.id);
     if (!(await workspaceIsEntitled(link.workspaceId))) return unavailable(c);
     if (link.visibility !== "private") throw new ApiError(400, "Este link não usa PIN.");
+    const ipHash = shareIpHash(clientIp(c));
+    const wait = await unlockWait(link.id, ipHash);
+    if (wait > 0) {
+      await recordEvent(link.id, "unlock_blocked", ipHash);
+      await alertAdminsAboutPin(link).catch(() => {
+        console.error("Não foi possível avisar os admins sobre as tentativas de PIN.");
+      });
+      lockedOut(wait);
+    }
     const body = await readBody(c);
     const submitted =
       body && typeof body === "object" && "pin" in body ? (body as { pin: unknown }).pin : undefined;
@@ -755,7 +931,14 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
         matches = false;
       }
     }
-    if (!matches) throw new ApiError(401, PIN_REJECTED);
+    if (!matches) {
+      await recordEvent(link.id, "unlock_fail", ipHash);
+      await alertAdminsAboutPin(link).catch(() => {
+        console.error("Não foi possível avisar os admins sobre as tentativas de PIN.");
+      });
+      throw new ApiError(401, PIN_REJECTED);
+    }
+    await recordEvent(link.id, "unlock_ok", ipHash);
     setCookie(c, SHARE_COOKIE, signShareSession(link.id, link.sessionVersion), shareCookieOptions(token));
     return c.json({ ok: true });
   });
@@ -822,6 +1005,9 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
     if (opened.state === "locked") return lockedOverview(c, opened.workspaceId);
+    void noteVisit(opened.link.id, shareIpHash(clientIp(c))).catch(() => {
+      console.error("Não foi possível registrar a visita ao link.");
+    });
     return c.json(await publicOverview(opened.link));
   });
 }

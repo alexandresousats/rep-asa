@@ -329,3 +329,18 @@ export interface ShareLinkInput {
   visibility?: ShareVisibility;
   pin?: string;
 }
+
+export type ShareLinkActivity =
+  | {
+      id: string;
+      kind: "view" | "unlock_ok" | "unlock_fail" | "unlock_blocked";
+      visitor: string;
+      createdAt: string;
+    }
+  | {
+      id: string;
+      kind: "approved" | "changes_requested";
+      clientName: string;
+      task: { id: string; title: string };
+      createdAt: string;
+    };

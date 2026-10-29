@@ -1,4 +1,12 @@
-import type { Priority, ShareLink, ShareLinkInput, Task, TaskStatus, User } from "../types";
+import type {
+  Priority,
+  ShareLink,
+  ShareLinkActivity,
+  ShareLinkInput,
+  Task,
+  TaskStatus,
+  User,
+} from "../types";
 import { usePrefs } from "../prefs";
 import { useWorkspace } from "../workspace";
 import { ApiError, request } from "./client";
@@ -986,4 +994,8 @@ export async function regenerateShareLink(projectId: string, linkId: string) {
   return request<ShareLink & { token: string }>(`${shareLinksPath(projectId, linkId)}/regenerate`, {
     method: "POST",
   });
+}
+
+export async function listShareLinkActivity(projectId: string, linkId: string) {
+  return request<ShareLinkActivity[]>(`${shareLinksPath(projectId, linkId)}/activity`);
 }
