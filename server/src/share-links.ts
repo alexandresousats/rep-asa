@@ -59,11 +59,16 @@ type ShareLinkRow = {
 
 type Opened =
   | { state: "unavailable" }
-  | { state: "locked" }
+  | { state: "locked"; workspaceId: string }
   | { state: "open"; link: ShareLinkRow };
 
 export function isPublicSharePath(pathName: string) {
   return pathName === "/public/share" || pathName.startsWith("/public/share/");
+}
+
+// O navegador chega na API pelo proxy do Next em /api, então o cookie precisa desse prefixo.
+function shareCookiePrefix() {
+  return (process.env.SHARE_COOKIE_PATH_PREFIX ?? "/api").replace(/\/$/, "");
 }
 
 export function shareCookieOptions(token: string) {
@@ -71,7 +76,7 @@ export function shareCookieOptions(token: string) {
     httpOnly: true,
     sameSite: "Lax" as const,
     secure: sessionCookieSecure(),
-    path: `/public/share/${token}`,
+    path: `${shareCookiePrefix()}/public/share/${token}`,
     maxAge: SHARE_TTL_SECONDS,
   };
 }
@@ -314,7 +319,7 @@ async function openPublic(c: Context, token: string): Promise<Opened> {
     link.visibility === "private" &&
     !sessionMatches(getCookie(c, SHARE_COOKIE), link.id, link.sessionVersion)
   ) {
-    return { state: "locked" };
+    return { state: "locked", workspaceId: link.workspaceId };
   }
   return { state: "open", link };
 }
@@ -323,8 +328,19 @@ function unavailable(c: Context) {
   return c.json({ unavailable: true });
 }
 
-function lockedResponse(c: Context, revealPin: boolean) {
-  if (revealPin) return c.json({ requiresPin: true });
+// A tela de PIN mostra só a marca do workspace; nada do projeto antes do PIN.
+async function lockedOverview(c: Context, workspaceId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { name: true, logo: true },
+  });
+  return c.json({
+    requiresPin: true,
+    workspace: { name: workspace?.name ?? "", logo: workspace?.logo ?? null },
+  });
+}
+
+function lockedResponse(): never {
   throw new ApiError(401, PIN_REQUIRED);
 }
 
@@ -485,6 +501,13 @@ async function readBody(c: Context) {
 }
 
 export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => Promise<Actor> }) {
+  app.use("/public/share/*", async (c, next) => {
+    await next();
+    c.header("X-Robots-Tag", "noindex, nofollow");
+    c.header("Referrer-Policy", "no-referrer");
+    if (!c.res.headers.has("Cache-Control")) c.header("Cache-Control", "no-store");
+  });
+
   app.post("/projects/:projectId/share-links", async (c) => {
     const input = parse(linkInput, await readBody(c));
     return c.json(
@@ -553,7 +576,7 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
   app.get("/public/share/:token/tasks/:taskId/attachments/:attachmentId/preview", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     const file = await publicAttachment(opened.link, c.req.param("taskId"), c.req.param("attachmentId"));
     return sendFile(c, file, "inline");
   });
@@ -561,7 +584,7 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
   app.get("/public/share/:token/tasks/:taskId/attachments/:attachmentId", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     const file = await publicAttachment(opened.link, c.req.param("taskId"), c.req.param("attachmentId"));
     return sendFile(c, file, "attachment");
   });
@@ -569,14 +592,14 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
   app.get("/public/share/:token/tasks/:taskId", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     return c.json(await publicTask(opened.link, c.req.param("taskId")));
   });
 
   app.get("/public/share/:token/tasks", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, false);
+    if (opened.state === "locked") return lockedResponse();
     const range = readRange(c);
     return c.json({ tasks: await publicTasks(opened.link, range.from, range.to) });
   });
@@ -584,7 +607,7 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
   app.get("/public/share/:token", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));
     if (opened.state === "unavailable") return unavailable(c);
-    if (opened.state === "locked") return lockedResponse(c, true);
+    if (opened.state === "locked") return lockedOverview(c, opened.workspaceId);
     return c.json(await publicOverview(opened.link));
   });
 }

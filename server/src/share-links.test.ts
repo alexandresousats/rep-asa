@@ -55,6 +55,11 @@ const FORBIDDEN_KEYS = new Set([
   "createdById",
 ]);
 
+const LOCKED = {
+  requiresPin: true,
+  workspace: { name: "Espaço do cliente", logo: "https://example.com/logo.png" },
+};
+
 const created = {
   userId: "",
   workspaceId: "",
@@ -92,7 +97,7 @@ test("o cookie do PIN é httpOnly, Secure em produção e restrito ao link", () 
     assert.equal(options.httpOnly, true);
     assert.equal(options.sameSite, "Lax");
     assert.equal(options.secure, true);
-    assert.equal(options.path, "/public/share/tok_abc");
+    assert.equal(options.path, "/api/public/share/tok_abc");
     assert.equal(options.maxAge, 12 * 60 * 60);
   } finally {
     if (previous === undefined) delete process.env.COOKIE_SECURE;
@@ -430,7 +435,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
 
     const locked = await call("GET", `/public/share/${token}`);
     assert.equal(locked.status, 200);
-    assert.deepEqual(locked.json, { requiresPin: true });
+    assert.deepEqual(locked.json, LOCKED);
     assertNoSecrets(locked.json, locked.text);
 
     const lockedTasks = await call("GET", `/public/share/${token}/tasks`);
@@ -460,7 +465,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.match(setCookie, /Secure/);
     assert.match(setCookie, /SameSite=Lax/);
     assert.match(setCookie, /Max-Age=43200/);
-    assert.match(setCookie, new RegExp(`Path=/public/share/${token}`));
+    assert.match(setCookie, new RegExp(`Path=/api/public/share/${token}`));
     assert.equal(setCookie.includes(pin), false);
     const cookie = setCookie.split(";")[0];
     const payload = JSON.parse(
@@ -475,6 +480,8 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
 
     const overview = await call("GET", `/public/share/${token}`, { cookie });
     assert.equal(overview.status, 200);
+    assert.equal(overview.headers.get("x-robots-tag"), "noindex, nofollow");
+    assert.equal(overview.headers.get("referrer-policy"), "no-referrer");
     assert.deepEqual(overview.json, {
       project: { name: "Projeto visível", color: "#0284c7" },
       workspace: { name: "Espaço do cliente", logo: "https://example.com/logo.png" },
@@ -542,7 +549,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     const stale = await call("GET", `/public/share/${token}/tasks`, { cookie });
     assert.equal(stale.status, 401);
     const askPin = await call("GET", `/public/share/${token}`, { cookie });
-    assert.deepEqual(askPin.json, { requiresPin: true });
+    assert.deepEqual(askPin.json, LOCKED);
 
     const changed = await call("PATCH", `/projects/${projectId}/share-links/${linkId}`, {
       body: { pin: nextPin },
@@ -592,7 +599,7 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
     assert.deepEqual(revoked.json, missing.json);
 
     const revived = await call("GET", `/public/share/${nextToken}`);
-    assert.deepEqual(revived.json, { requiresPin: true });
+    assert.deepEqual(revived.json, LOCKED);
 
     await prisma.workspaceSubscription.update({
       where: { workspaceId },

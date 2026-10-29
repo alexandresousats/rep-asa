@@ -1,13 +1,20 @@
 "use client";
 
 import { ThemeProvider } from "next-themes";
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
 import { enableFirebaseAnalytics } from "@/lib/firebase";
 import { agentReady, usePrefs } from "@/lib/prefs";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
+// A página do link do cliente não tem sessão do app e segue o tema do sistema.
+export function isClientSharePath(pathname: string | null) {
+  return pathname?.startsWith("/c/") ?? false;
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
+  const isPublicShare = isClientSharePath(usePathname());
   const setHasHydrated = usePrefs((state) => state.setHasHydrated);
   const userId = useWorkspace((state) => state.user?.id);
   const workspaceId = useWorkspace((state) => state.workspace?.id);
@@ -23,6 +30,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     const unsub = usePrefs.persist.onFinishHydration(() => {
       setHasHydrated(true);
     });
+    if (isPublicShare) return unsub;
     void loadSession();
     void enableFirebaseAnalytics().catch(() => undefined);
     const timer = window.setInterval(() => {
@@ -37,7 +45,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [setHasHydrated]);
+  }, [setHasHydrated, isPublicShare]);
 
   useEffect(() => {
     if (!userId || !workspaceId || !prefsHydrated || !canWrite || !billingActive) return;
@@ -93,7 +101,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [userId, workspaceId, billingActive]);
 
   return (
-    <ThemeProvider attribute={["class", "data-theme"]} defaultTheme="dark" enableSystem={false}>
+    <ThemeProvider
+      attribute={["class", "data-theme"]}
+      defaultTheme={isPublicShare ? "system" : "dark"}
+      enableSystem={isPublicShare}
+      storageKey={isPublicShare ? "asa-share-theme" : "theme"}
+    >
       {children}
     </ThemeProvider>
   );
