@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, PanelRight, X } from "lucide-react";
+import { AppWindow, Check, PanelRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { RichText } from "@/components/ui/rich-text";
@@ -235,6 +235,21 @@ export function TaskPanel({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {canWrite ? (
+            <button
+              type="button"
+              onClick={() => setTaskStatus(task.id, task.status === "done" ? "todo" : "done")}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium",
+                task.status === "done"
+                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                  : "bg-ink text-base hover:opacity-90",
+              )}
+            >
+              <Check className="h-3 w-3" strokeWidth={3} />
+              {task.status === "done" ? "Reabrir" : "Concluir"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void setTaskFollow(task.id, !following)}

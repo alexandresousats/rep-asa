@@ -1135,7 +1135,7 @@ function CalendarTaskCard({
         }
       }}
       className={cn(
-        "group relative flex w-full items-start gap-1.5 rounded-lg border px-2.5 py-1.5 sm:py-2 text-left text-xs transition-all duration-150 min-h-[40px]",
+        "group/task relative flex w-full items-start gap-1.5 rounded-lg border px-2.5 py-0.5 sm:py-1 text-left text-xs transition-all duration-150 min-h-[30px]",
         "border-black/10 dark:border-white/10 shadow-2xs hover:shadow-xs hover:brightness-95 dark:hover:brightness-110",
         canDrag && "cursor-grab active:cursor-grabbing",
         selectedId === task.id && "ring-2 ring-ink ring-offset-1 ring-offset-elevated",
@@ -1147,19 +1147,6 @@ function CalendarTaskCard({
         borderLeftColor: color,
       }}
     >
-      {/* Assignee Avatar */}
-      {assignee ? (
-        <span className="shrink-0 mt-0.5">
-          <Avatar
-            initials={assignee.initials}
-            src={assignee.avatar}
-            name={assignee.name}
-            size="xs"
-          />
-        </span>
-      ) : null}
-
-      {/* Completion Checkmark */}
       <button
         type="button"
         aria-label={isDone ? "Marcar como a fazer" : "Marcar como concluída"}
@@ -1169,19 +1156,33 @@ function CalendarTaskCard({
           setTaskStatus(task.id, isDone ? "todo" : "done");
         }}
         className={cn(
-          "shrink-0 h-3.5 w-3.5 rounded-full flex items-center justify-center transition-all mt-0.5",
+          "peer absolute left-2.5 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full transition-opacity",
+          "pointer-events-none opacity-0",
+          "group-hover/task:pointer-events-auto group-hover/task:opacity-100",
+          "focus-visible:pointer-events-auto focus-visible:opacity-100",
           isDone
-            ? "bg-emerald-600 text-white shadow-2xs"
-            : "border border-ink/40 hover:border-ink hover:bg-ink/10",
+            ? "bg-emerald-600 text-white"
+            : "border border-ink/40 bg-elevated hover:border-ink",
         )}
       >
-        {isDone ? <Check className="h-2.5 w-2.5 stroke-[3]" /> : null}
+        {isDone ? <Check className="h-3 w-3 stroke-[3]" /> : null}
       </button>
 
-      {/* Title */}
+      {assignee ? (
+        <span className="shrink-0 self-center transition-opacity group-hover/task:opacity-0 peer-focus-visible:opacity-0 [&_img]:h-5 [&_img]:w-5 [&_span]:h-5 [&_span]:w-5 [&_span]:text-[9px]">
+          <Avatar
+            initials={assignee.initials}
+            src={assignee.avatar}
+            name={assignee.name}
+            size="xs"
+          />
+        </span>
+      ) : null}
+
       <span
         className={cn(
-          "min-w-0 flex-1 line-clamp-2 font-medium text-ink leading-snug break-words",
+          "min-w-0 flex-1 line-clamp-2 font-medium text-ink leading-tight break-words",
+          !assignee && "transition-[padding] duration-150 group-hover/task:pl-6 peer-focus-visible:pl-6",
           isDone && "line-through text-faint",
         )}
         title={task.title}
