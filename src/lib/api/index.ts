@@ -909,6 +909,20 @@ function csvQuery(projectId?: string) {
 
 export async function downloadWorkspaceCsv(projectId?: string) {
   const res = await fetch(`/api/workspace/csv${csvQuery(projectId)}`, { credentials: "include" });
+  await saveCsvResponse(res);
+}
+
+export async function exportProjectCsv(projectId: string, taskIds?: string[]) {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/export.csv`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(taskIds ? { taskIds } : {}),
+  });
+  await saveCsvResponse(res);
+}
+
+async function saveCsvResponse(res: Response) {
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new ApiError(res.status, data?.error ?? "Não foi possível exportar o CSV.");

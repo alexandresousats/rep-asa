@@ -49,6 +49,7 @@ export function MonthCalendar({
   projectId,
   selectedId,
   onSelect,
+  onFilteredChange,
 }: {
   month: Date;
   onMonthChange: (date: Date) => void;
@@ -59,6 +60,7 @@ export function MonthCalendar({
   projectId?: string;
   selectedId?: string | null;
   onSelect: (id: string) => void;
+  onFilteredChange?: (ids: string[] | null) => void;
 }) {
   const storeUsers = useWorkspace((state) => state.users);
   const storeProjects = useWorkspace((state) => state.projects);
@@ -345,6 +347,18 @@ export function MonthCalendar({
     projectFilter,
     currentUserId,
   ]);
+
+  const filtering =
+    search.trim() !== "" ||
+    statusFilter !== "all" ||
+    assigneeFilter !== "all" ||
+    tagFilter !== "all" ||
+    priorityFilter !== "all" ||
+    projectFilter !== "all";
+
+  useEffect(() => {
+    onFilteredChange?.(filtering ? filteredTasks.map((task) => task.id) : null);
+  }, [filtering, filteredTasks, onFilteredChange]);
 
   const undatedTasks = useMemo(() => {
     return filteredTasks.filter((task) => !task.dueDate);

@@ -9,7 +9,8 @@
     "db:seed": "tsx server/prisma/seed.ts",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test server/src/*.test.ts"
   },
   "prisma": {
     "schema": "server/prisma/schema.prisma"

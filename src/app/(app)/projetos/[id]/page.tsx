@@ -1,8 +1,8 @@
 "use client";
 
-import { Pencil, Plus, Trash2, Download } from "lucide-react";
+import { FileDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
 import { AddProjectMemberDialog } from "@/components/projects/add-project-member-dialog";
 import { EditProjectDialog } from "@/components/projects/edit-project-dialog";
@@ -11,13 +11,15 @@ import { GroupedTaskList } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { ProjectPanel } from "@/components/projects/project-panel";
 import { ProjectTimeline } from "@/components/timeline/project-timeline";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SECTION_FILTER_ALL } from "@/components/projects/section-bar";
 import { CreateDemandDialog } from "@/components/demands/create-demand-dialog";
 import { ProjectDemandsView } from "@/components/demands/project-demands-view";
 import { MaintenanceGate } from "@/components/layout/maintenance-gate";
-import { createTask, deleteProject, downloadWorkspaceCsv, reorderTasks } from "@/lib/api";
+import { ExportCsvDialog } from "@/components/projects/export-csv-dialog";
+import { createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
 import type { ProjectView } from "@/lib/types";
@@ -58,7 +60,9 @@ function ProjectWorkspace() {
   const [editingInfo, setEditingInfo] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [exportError, setExportError] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [listFiltered, setListFiltered] = useState<string[] | null>(null);
+  const [calendarFiltered, setCalendarFiltered] = useState<string[] | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
   const projects = useWorkspace((state) => state.projects);
@@ -67,7 +71,7 @@ function ProjectWorkspace() {
   const tags = useWorkspace((state) => state.tags);
   const taskView = usePrefs((state) => state.taskView);
   const setTaskView = usePrefs((state) => state.setTaskView);
-  const { isAdmin, canWrite } = useAccess();
+  const { isAdmin, canWrite, isClient } = useAccess();
   const project = projects.find((item) => item.id === params.id);
   const tasks = useMemo(
     () =>
@@ -77,6 +81,11 @@ function ProjectWorkspace() {
     [allTasks, params.id],
   );
   const view = (searchParams.get("view") as ProjectView) || "lista";
+  // Só a lista e o calendário têm filtros; nas outras visões a tela mostra o projeto todo.
+  const filteredIds =
+    view === "lista" ? listFiltered : view === "calendario" ? calendarFiltered : null;
+  const onListFiltered = useCallback((ids: string[] | null) => setListFiltered(ids), []);
+  const onCalendarFiltered = useCallback((ids: string[] | null) => setCalendarFiltered(ids), []);
   const selectedId = localTask ?? searchParams.get("task");
   const selected = useMemo(
     () => tasks.find((task) => task.id === selectedId) ?? null,
@@ -180,23 +189,20 @@ function ProjectWorkspace() {
                 </button>
               ))}
             </div>
-            {exportError ? <p className="mt-2 text-xs text-red-400">{exportError}</p> : null}
           </div>
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              aria-label="Exportar CSV"
-              title="Exportar CSV"
-              onClick={() => {
-                setExportError("");
-                void downloadWorkspaceCsv(project.id).catch((reason: Error) =>
-                  setExportError(reason.message),
-                );
-              }}
-              className="rounded-full p-2 text-faint transition-colors hover:bg-hover hover:text-ink"
-            >
-              <Download className="h-4 w-4" strokeWidth={1.75} />
-            </button>
+            <ActionMenu
+              label="Mais opções do projeto"
+              items={[
+                {
+                  id: "export-csv",
+                  label: "Exportar CSV",
+                  icon: FileDown,
+                  hidden: isClient,
+                  onSelect: () => setExportOpen(true),
+                },
+              ]}
+            />
             {canWrite ? (
               <>
                 <div ref={addMenuRef} className="relative">
@@ -294,6 +300,7 @@ function ProjectWorkspace() {
               onDraftSection={setListDraft}
               sectionDraft={pendingSection}
               onSectionDraftOpened={() => setPendingSection(false)}
+              onFilteredChange={onListFiltered}
             />
           </div>
         ) : null}
@@ -324,6 +331,7 @@ function ProjectWorkspace() {
               projectId={project.id}
               selectedId={selectedId}
               onSelect={(id) => setQuery({ task: id })}
+              onFilteredChange={onCalendarFiltered}
             />
           </div>
         ) : null}
@@ -400,6 +408,13 @@ function ProjectWorkspace() {
         memberIds={project.memberIds}
         users={users}
         onClose={() => setMemberOpen(false)}
+      />
+      <ExportCsvDialog
+        open={exportOpen}
+        projectId={project.id}
+        total={tasks.length}
+        filteredIds={filteredIds}
+        onClose={() => setExportOpen(false)}
       />
       <CreateDemandDialog
         open={demandDialogOpen}
