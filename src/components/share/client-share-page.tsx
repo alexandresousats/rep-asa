@@ -19,6 +19,7 @@ import { BrandMark } from "./brand-mark";
 import { ClientCalendar } from "./client-calendar";
 import { ClientHome } from "./client-home";
 import { PinScreen } from "./pin-screen";
+import { TaskSheet } from "./task-sheet";
 
 type Tab = "inicio" | "calendario";
 
@@ -44,6 +45,7 @@ export function ClientSharePage({ token }: { token: string }) {
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [monthTasks, setMonthTasks] = useState<MonthTasks>(null);
   const [tasksError, setTasksError] = useState("");
+  const [opened, setOpened] = useState<{ id: string; list: PublicTask[] } | null>(null);
   const monthKey = toISODate(month);
 
   const loadInfo = useCallback(
@@ -110,6 +112,22 @@ export function ClientSharePage({ token }: { token: string }) {
   useEffect(() => {
     if (isOpen) void reloadTasks();
   }, [isOpen, reloadTasks]);
+
+  const openTask = useCallback(
+    (task: PublicTask, list: PublicTask[]) => setOpened({ id: task.id, list }),
+    [],
+  );
+
+  function replaceTask(updated: PublicTask) {
+    const swap = (items: PublicTask[]) =>
+      items.map((item) => (item.id === updated.id ? updated : item));
+    setMonthTasks((current) =>
+      current
+        ? { ...current, tasks: swap(current.tasks), undated: swap(current.undated) }
+        : current,
+    );
+    setOpened((current) => (current ? { ...current, list: swap(current.list) } : current));
+  }
 
   function setTab(next: Tab) {
     const query = new URLSearchParams(searchParams.toString());
@@ -228,9 +246,27 @@ export function ClientSharePage({ token }: { token: string }) {
             onMonthChange={setMonth}
             tasks={current.tasks}
             undated={current.undated}
+            onOpenTask={openTask}
           />
         )}
       </main>
+
+      {opened
+        ? (() => {
+            const task = opened.list.find((item) => item.id === opened.id);
+            return task ? (
+              <TaskSheet
+                key={task.id}
+                token={token}
+                task={task}
+                list={opened.list}
+                onNavigate={(next) => setOpened({ ...opened, id: next.id })}
+                onClose={() => setOpened(null)}
+                onUpdated={replaceTask}
+              />
+            ) : null;
+          })()
+        : null}
 
       <footer className="mx-auto max-w-5xl px-4 pb-6 text-center text-xs text-faint sm:px-6">
         Feito com OpenAsa

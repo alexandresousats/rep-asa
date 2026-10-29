@@ -23,7 +23,15 @@ export interface PublicTask {
   referenceUrls: string | null;
   tags: { name: string; color: string }[];
   attachments: { id: string; name: string; mime: string; size: number }[];
+  clientFeedback: {
+    kind: "approved" | "changes_requested";
+    clientName: string;
+    message: string | null;
+    createdAt: string;
+  }[];
 }
+
+export type ClientIdentity = { clientName: string; clientEmail?: string };
 
 // Respostas que a página trata como estado, não como erro genérico.
 export class ShareLockedError extends ApiError {}
@@ -98,4 +106,23 @@ export async function listShareTasks(
 
 export async function getShareTask(token: string, taskId: string) {
   return call<PublicTask>(sharePath(token, `/tasks/${encodeURIComponent(taskId)}`));
+}
+
+export async function approveShareTask(token: string, taskId: string, who: ClientIdentity) {
+  return call<PublicTask>(sharePath(token, `/tasks/${encodeURIComponent(taskId)}/approve`), {
+    method: "POST",
+    body: JSON.stringify(who),
+  });
+}
+
+export async function requestShareChanges(
+  token: string,
+  taskId: string,
+  who: ClientIdentity,
+  message: string,
+) {
+  return call<PublicTask>(sharePath(token, `/tasks/${encodeURIComponent(taskId)}/request-changes`), {
+    method: "POST",
+    body: JSON.stringify({ ...who, message }),
+  });
 }

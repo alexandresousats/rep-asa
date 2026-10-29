@@ -175,6 +175,17 @@ export interface Task {
   approvalFeedback?: string | null;
   approvedAt?: string | null;
   approvedById?: string | null;
+  approvedByClientName?: string | null;
+  clientFeedback?: ClientFeedbackEntry[];
+}
+
+export interface ClientFeedbackEntry {
+  id: string;
+  kind: "approved" | "changes_requested";
+  clientName: string;
+  clientEmail: string | null;
+  message: string | null;
+  createdAt: string;
 }
 
 export interface Message {

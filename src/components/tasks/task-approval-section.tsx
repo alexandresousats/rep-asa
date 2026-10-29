@@ -24,7 +24,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { updateTaskApproval } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
-import type { Task, User } from "@/lib/types";
+import type { ClientFeedbackEntry, Task, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 function getFormatBadge(format?: string | null) {
@@ -77,9 +77,14 @@ export function TaskApprovalSection({ task }: { task: Task }) {
   const [approveNote, setApproveNote] = useState("");
 
   const status = task.approvalStatus ?? "none";
-  const approver = task.approvedById
-    ? users.find((u) => u.id === task.approvedById)?.name ?? "Cliente"
-    : "Cliente";
+  const approver = task.approvedByClientName
+    ? `${task.approvedByClientName} (cliente, via link)`
+    : task.approvedById
+      ? users.find((u) => u.id === task.approvedById)?.name ?? "Cliente"
+      : "Cliente";
+  const clientHistory = task.clientFeedback ?? [];
+  // A aprovação pelo app ainda está "em breve"; a que chega pelo link do cliente já aparece.
+  const fromLink = Boolean(task.approvedByClientName) || clientHistory.length > 0;
 
   const formatBadge = getFormatBadge(task.demandFormat);
 
@@ -183,7 +188,11 @@ export function TaskApprovalSection({ task }: { task: Task }) {
       {/* Approval Status Card */}
       {status !== "none" || canWrite ? (
       <div className="relative overflow-hidden rounded-2xl">
-        <div aria-hidden inert className="pointer-events-none select-none blur-[6px] saturate-50">
+        <div
+          aria-hidden={!fromLink}
+          inert={!fromLink}
+          className={cn(!fromLink && "pointer-events-none select-none blur-[6px] saturate-50")}
+        >
       {status === "pending" ? (
         <div className="rounded-2xl border border-amber-500/35 bg-elevated p-3.5">
           <div className="flex items-start gap-2.5">
@@ -285,7 +294,9 @@ export function TaskApprovalSection({ task }: { task: Task }) {
               {task.approvalFeedback ? (
                 <div className="mt-2 rounded-xl border border-line bg-base p-2.5 text-xs text-ink">
                   <span className="mb-0.5 block text-[10px] font-semibold uppercase text-faint">
-                    Ajustes indicados pelo cliente:
+                    {task.approvedByClientName
+                      ? `Ajustes indicados por ${approver}:`
+                      : "Ajustes indicados pelo cliente:"}
                   </span>
                   &ldquo;{task.approvalFeedback}&rdquo;
                 </div>
@@ -333,12 +344,15 @@ export function TaskApprovalSection({ task }: { task: Task }) {
           </div>
         )
       )}
+        {clientHistory.length > 0 ? <ClientHistory entries={clientHistory} /> : null}
         </div>
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-base/40">
-          <span className="rounded-full border border-line bg-elevated px-3 py-1 text-xs font-medium text-ink">
-            Em breve
-          </span>
-        </div>
+        {fromLink ? null : (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-base/40">
+            <span className="rounded-full border border-line bg-elevated px-3 py-1 text-xs font-medium text-ink">
+              Em breve
+            </span>
+          </div>
+        )}
       </div>
       ) : null}
 
@@ -428,6 +442,36 @@ export function TaskApprovalSection({ task }: { task: Task }) {
           </div>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+function ClientHistory({ entries }: { entries: ClientFeedbackEntry[] }) {
+  return (
+    <div className="mt-2 rounded-2xl border border-line bg-elevated p-3.5">
+      <p className="text-[10px] font-semibold uppercase text-faint">Histórico do cliente (via link)</p>
+      <ol className="mt-2 space-y-2.5">
+        {[...entries].reverse().map((entry) => (
+          <li key={entry.id} className="flex items-start gap-2 text-xs">
+            {entry.kind === "approved" ? (
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-muted">
+                <span className="font-medium text-ink">{entry.clientName}</span>
+                {entry.clientEmail ? <span className="text-faint"> · {entry.clientEmail}</span> : null}
+                {" · "}
+                {entry.kind === "approved" ? "aprovou" : "pediu ajuste"} em {formatDay(entry.createdAt)}
+              </p>
+              {entry.message ? (
+                <p className="mt-1 whitespace-pre-wrap break-words text-ink">{entry.message}</p>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

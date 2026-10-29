@@ -124,6 +124,7 @@ test("o DTO público não carrega campos internos", () => {
   assert.deepEqual(Object.keys(dto).sort(), [
     "approvalStatus",
     "attachments",
+    "clientFeedback",
     "demandFormat",
     "description",
     "dueDate",
@@ -553,6 +554,67 @@ test("link de calendário: token, PIN, DTO filtrado e sessões", async () => {
       { cookie },
     );
     assert.equal(wrongFile.status, 404);
+
+    created.rateKeys.push("share:write:ip:203.0.113.44", `share:write:token:${sha256(token)}`);
+    const approvePath = `/public/share/${token}/tasks/${taskId}/approve`;
+    const changesPath = `/public/share/${token}/tasks/${taskId}/request-changes`;
+    const client = { clientName: "Bruna Cliente", clientEmail: `bruna.${SECRET}@example.com` };
+    assert.equal((await call("POST", approvePath, { body: client })).status, 401);
+    assert.equal(
+      (await call("POST", changesPath, { body: { ...client, message: "   " }, cookie })).status,
+      400,
+    );
+    assert.equal(
+      (await call("POST", approvePath, { body: { clientName: "" }, cookie })).status,
+      400,
+    );
+    for (const id of [subtaskId, otherTaskId]) {
+      const blocked = await call("POST", `/public/share/${token}/tasks/${id}/approve`, {
+        body: client,
+        cookie,
+      });
+      assert.equal(blocked.status, 404);
+    }
+    const untouched = await prisma.task.findUniqueOrThrow({ where: { id: subtaskId } });
+    assert.equal(untouched.approvalStatus, "none");
+
+    const approved = await call("POST", approvePath, { body: client, cookie });
+    assert.equal(approved.status, 200);
+    assertNoSecrets(approved.json, approved.text);
+    assert.equal(approved.json?.approvalStatus, "approved");
+    const afterApprove = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    assert.equal(afterApprove.approvalStatus, "approved");
+    assert.equal(afterApprove.approvedByClientName, "Bruna Cliente");
+    assert.equal(afterApprove.approvedById, null);
+
+    const xss = '<img src=x onerror="alert(1)"> trocar a capa';
+    const askedChanges = await call("POST", changesPath, { body: { ...client, message: xss }, cookie });
+    assert.equal(askedChanges.status, 200);
+    assert.equal(askedChanges.json?.approvalStatus, "changes_requested");
+    const history = askedChanges.json?.clientFeedback as { kind: string; clientName: string; message: string | null }[];
+    assert.deepEqual(
+      history.map((item) => [item.kind, item.clientName, item.message]),
+      [
+        ["approved", "Bruna Cliente", null],
+        ["changes_requested", "Bruna Cliente", xss],
+      ],
+    );
+    const feedbackRows = await prisma.clientFeedback.findMany({
+      where: { taskId },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.equal(feedbackRows.length, 2);
+    assert.equal(feedbackRows[1].message, xss);
+    assert.equal(feedbackRows[1].shareLinkId, linkId);
+    assert.equal(feedbackRows[1].clientEmail, client.clientEmail);
+    const notes = await prisma.notification.findMany({
+      where: { userId, type: "task_approval" },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.equal(notes.length, 2);
+    assert.match(notes[0].title, /Aprovado pelo cliente/);
+    assert.match(notes[1].body, /Bruna Cliente pediu ajuste/);
+    assert.equal(notes[1].href, `/projetos/${projectId}?task=${taskId}`);
 
     const madePublic = await call("PATCH", `/projects/${projectId}/share-links/${linkId}`, {
       body: { visibility: "public" },

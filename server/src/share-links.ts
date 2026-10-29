@@ -10,9 +10,11 @@ import { workspaceIsEntitled } from "./billing";
 import { sessionCookieSecure } from "./cookie";
 import { randomToken, sha256, uid } from "./crypto";
 import { prisma } from "./db";
-import type { Actor } from "./domain";
+import { notify, type Actor } from "./domain";
 import { ApiError } from "./errors";
+import { publish } from "./events";
 import { sanitizeRichText } from "./html";
+import { publicTask as internalTask } from "./serialize";
 import { assertRateLimit, clientIp } from "./rate-limit";
 
 const LINK_MISSING = "Link não encontrado.";
@@ -40,6 +42,14 @@ const linkInput = z.object({
 });
 
 type LinkInput = z.infer<typeof linkInput>;
+
+const feedbackInput = z.object({
+  clientName: z.string().trim().min(1).max(80),
+  clientEmail: z.union([z.literal(""), z.string().trim().email().max(200)]).optional(),
+  message: z.string().max(2000).optional(),
+});
+
+type FeedbackInput = z.infer<typeof feedbackInput>;
 
 type ShareLinkRow = {
   id: string;
@@ -358,6 +368,10 @@ const taskSelect = {
   referenceUrls: true,
   tags: { select: { tag: { select: { name: true, color: true } } } },
   attachments: { select: { id: true, name: true, mime: true, size: true } },
+  clientFeedback: {
+    select: { kind: true, clientName: true, message: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  },
 } as const;
 
 type PublicTaskRow = {
@@ -374,6 +388,12 @@ type PublicTaskRow = {
   referenceUrls: string | null;
   tags: { tag: { name: string; color: string } }[];
   attachments: { id: string; name: string; mime: string; size: number }[];
+  clientFeedback?: {
+    kind: "approved" | "changes_requested";
+    clientName: string;
+    message: string | null;
+    createdAt: Date;
+  }[];
 };
 
 export function toPublicTask(task: PublicTaskRow) {
@@ -395,6 +415,13 @@ export function toPublicTask(task: PublicTaskRow) {
       name: file.name,
       mime: file.mime,
       size: file.size,
+    })),
+    // Só o histórico do próprio cliente, sem e-mail.
+    clientFeedback: (task.clientFeedback ?? []).map((item) => ({
+      kind: item.kind,
+      clientName: item.clientName,
+      message: item.message,
+      createdAt: item.createdAt.toISOString(),
     })),
   };
 }
@@ -459,6 +486,103 @@ async function publicTask(link: ShareLinkRow, taskId: string) {
   });
   if (!task) throw new ApiError(404, "Tarefa não encontrada.");
   return toPublicTask(task);
+}
+
+// Texto puro: sem caracteres de controle, que poderiam bagunçar a exibição.
+function plainText(value: string | undefined) {
+  return (value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
+}
+
+async function recordClientFeedback(
+  link: ShareLinkRow,
+  taskId: string,
+  kind: "approved" | "changes_requested",
+  input: FeedbackInput,
+) {
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, projectId: link.projectId, parentId: null },
+    select: {
+      id: true,
+      title: true,
+      projectId: true,
+      assigneeId: true,
+      followers: { select: { userId: true } },
+    },
+  });
+  if (!task) throw new ApiError(404, "Tarefa não encontrada.");
+  const message = plainText(input.message);
+  if (kind === "changes_requested" && !message) {
+    throw new ApiError(400, "Descreva o ajuste que você precisa.");
+  }
+  const clientName = plainText(input.clientName).slice(0, 80);
+  if (!clientName) throw new ApiError(400, "Informe seu nome.");
+  const clientEmail = input.clientEmail?.trim() || null;
+  const now = new Date();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.clientFeedback.create({
+      data: {
+        id: uid("cfb"),
+        taskId: task.id,
+        shareLinkId: link.id,
+        kind,
+        clientName,
+        clientEmail,
+        message: message || null,
+        createdAt: now,
+      },
+    });
+    return tx.task.update({
+      where: { id: task.id },
+      data: {
+        approvalStatus: kind,
+        approvalFeedback: message || null,
+        approvedAt: now.toISOString(),
+        approvedById: null,
+        approvedByClientName: clientName,
+        updatedAt: now.toISOString(),
+      },
+      include: {
+        tags: { select: { tagId: true } },
+        comments: { orderBy: { createdAt: "asc" } },
+        followers: { select: { userId: true } },
+        attachments: { orderBy: { createdAt: "asc" } },
+        clientFeedback: { orderBy: { createdAt: "asc" } },
+      },
+    });
+  });
+
+  publish({ workspaceId: link.workspaceId, kind: "task", task: internalTask(updated) });
+  const recipients = new Set(
+    [task.assigneeId, ...task.followers.map((item) => item.userId)].filter(
+      (id): id is string => Boolean(id),
+    ),
+  );
+  if (recipients.size === 0) recipients.add(link.createdById);
+  const approved = kind === "approved";
+  await Promise.all(
+    [...recipients].map((userId) =>
+      notify({
+        userId,
+        workspaceId: link.workspaceId,
+        type: "task_approval",
+        title: approved ? "Aprovado pelo cliente" : "Ajuste solicitado pelo cliente",
+        body: approved
+          ? `${clientName} aprovou “${task.title}” pelo link do cliente.`
+          : `${clientName} pediu ajuste em “${task.title}”: ${message.slice(0, 280)}`,
+        href: `/projetos/${task.projectId}?task=${task.id}`,
+      }).catch(() => {
+        console.error("Não foi possível notificar sobre a resposta do cliente.");
+      }),
+    ),
+  );
+
+  return publicTask(link, task.id);
+}
+
+async function assertShareWriteRate(ip: string, token: string) {
+  await assertRateLimit(`share:write:ip:${ip}`, 20, FIFTEEN_MINUTES);
+  await assertRateLimit(`share:write:token:${sha256(token)}`, 40, FIFTEEN_MINUTES);
 }
 
 async function publicAttachment(link: ShareLinkRow, taskId: string, attachmentId: string) {
@@ -594,6 +718,21 @@ export function registerShareRoutes(app: Hono, deps: { actorOf: (c: Context) => 
     const file = await publicAttachment(opened.link, c.req.param("taskId"), c.req.param("attachmentId"));
     return sendFile(c, file, "attachment");
   });
+
+  for (const [action, kind] of [
+    ["approve", "approved"],
+    ["request-changes", "changes_requested"],
+  ] as const) {
+    app.post(`/public/share/:token/tasks/:taskId/${action}`, async (c) => {
+      const token = c.req.param("token");
+      const opened = await openPublic(c, token);
+      if (opened.state === "unavailable") return unavailable(c);
+      if (opened.state === "locked") return lockedResponse();
+      await assertShareWriteRate(clientIp(c), token);
+      const input = parse(feedbackInput, await readBody(c));
+      return c.json(await recordClientFeedback(opened.link, c.req.param("taskId"), kind, input));
+    });
+  }
 
   app.get("/public/share/:token/tasks/:taskId", async (c) => {
     const opened = await openPublic(c, c.req.param("token"));

@@ -287,3 +287,28 @@ body {
     animation: none;
   }
 }
+
+.client-rich-text > * + * {
+  margin-top: 0.75em;
+}
+.client-rich-text ul {
+  list-style: disc;
+  padding-left: 1.25em;
+}
+.client-rich-text ol {
+  list-style: decimal;
+  padding-left: 1.25em;
+}
+.client-rich-text a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.client-rich-text h2,
+.client-rich-text h3 {
+  font-weight: 600;
+}
+.client-rich-text blockquote {
+  border-left: 3px solid var(--border-default);
+  padding-left: 0.75em;
+  opacity: 0.85;
+}
