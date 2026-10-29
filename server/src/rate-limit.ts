@@ -7,8 +7,8 @@ const FIFTEEN_MINUTES = 15 * 60 * 1000;
 const ONE_HOUR = 60 * 60 * 1000;
 
 function remoteAddress(c: Context) {
-  const env = c.env as { incoming?: { socket?: { remoteAddress?: string | null } } };
-  return env.incoming?.socket?.remoteAddress ?? "";
+  const env = c.env as { incoming?: { socket?: { remoteAddress?: string | null } } } | undefined;
+  return env?.incoming?.socket?.remoteAddress ?? "";
 }
 
 export function clientIp(c: Context) {
