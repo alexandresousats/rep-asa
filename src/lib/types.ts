@@ -279,6 +279,9 @@ export interface ChatMessage {
   audio?: ChatAudioAttachment;
   documents?: ChatDocumentAttachment[];
   createdAt: string;
+  /** Quem escreveu, quando a conversa é compartilhada com a equipe. Vem do servidor. */
+  authorId?: string | null;
+  authorName?: string | null;
 }
 
 export interface ChatFolder {
@@ -297,6 +300,30 @@ export interface ChatSession {
   updatedAt: string;
   /** Preenchido quando a conversa está na lixeira. A exclusão permanente ocorre 30 dias depois. */
   deletedAt?: string | null;
+  /** Conversa de outra pessoa da equipe: dá para ler e continuar, não para apagar ou editar. */
+  shared?: boolean;
+  ownerName?: string;
+  /** false enquanto as mensagens ainda não vieram do servidor. */
+  loaded?: boolean;
+}
+
+export interface AgentSharing {
+  enabled: boolean;
+  members: {
+    userId: string;
+    name: string;
+    email: string;
+    access: "admin" | "editor" | "leitura" | "cliente";
+    owner: boolean;
+    shared: boolean;
+  }[];
+}
+
+export interface WorkspaceStorage {
+  files: number;
+  agent: number;
+  total: number;
+  limit: number;
 }
 
 export interface AssistantReply {

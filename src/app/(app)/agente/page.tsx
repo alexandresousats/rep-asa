@@ -51,12 +51,13 @@ export default function AgentPage() {
     sessions.find((s) => !s.deletedAt) ||
     sessions[0];
   const inTrash = Boolean(activeSession?.deletedAt);
+  const shared = Boolean(activeSession?.shared);
   const activeFolder = folders.find((f) => f.id === activeSession?.folderId);
   const messages = activeSession?.messages || [];
   const firstName = user?.name.split(" ")[0] ?? "equipe";
 
   function handleStartRename() {
-    if (!activeSession) return;
+    if (!activeSession || shared) return;
     setTitleValue(activeSession.title);
     setIsEditingTitle(true);
   }
@@ -136,10 +137,12 @@ export default function AgentPage() {
                   type="button"
                   onClick={handleStartRename}
                   className="group flex h-9 items-center gap-1.5 truncate text-left text-sm font-medium text-ink hover:opacity-80"
-                  title="Clique para renomear"
+                  title={shared ? undefined : "Clique para renomear"}
                 >
                   <span className="truncate">{activeSession?.title || "Nova conversa"}</span>
-                  <Pencil className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100 shrink-0" strokeWidth={1.5} />
+                  {shared ? null : (
+                    <Pencil className="h-3 w-3 text-faint opacity-0 transition-opacity group-hover:opacity-100 shrink-0" strokeWidth={1.5} />
+                  )}
                 </button>
 
                 {activeFolder && (
@@ -163,7 +166,7 @@ export default function AgentPage() {
               <span>Novo chat</span>
             </button>
 
-            {messages.length > 0 && !inTrash && (
+            {messages.length > 0 && !inTrash && !shared && (
               <button
                 type="button"
                 onClick={() => {
@@ -187,6 +190,13 @@ export default function AgentPage() {
             </Link>
           </div>
         </header>
+
+        {shared ? (
+          <div className="mx-4 mt-3 rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-700 dark:text-sky-300 sm:mx-6">
+            Conversa de <span className="font-medium">{activeSession?.ownerName}</span>, compartilhada
+            com a equipe. Você pode continuar a conversa, mas só quem a criou pode renomear ou apagar.
+          </div>
+        ) : null}
 
         {inTrash && activeSession?.deletedAt && (
           <div className="mx-4 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-500 sm:mx-6">

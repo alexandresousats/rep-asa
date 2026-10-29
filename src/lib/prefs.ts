@@ -44,6 +44,9 @@ interface PrefsState {
   projectsLayout: ProjectsLayout;
   mcpServers: McpServer[];
   agent: AgentSettings;
+  /** Dono das chaves de IA e MCP guardadas neste navegador. */
+  ownerId: string | null;
+  claimFor: (userId: string) => void;
   setAgent: (patch: Partial<AgentSettings>) => void;
   setHasHydrated: (value: boolean) => void;
   setTaskView: (view: TaskViewMode) => void;
@@ -66,6 +69,17 @@ export const usePrefs = create<PrefsState>()(
       projectsLayout: "grid",
       mcpServers: [],
       agent: EMPTY_AGENT,
+      ownerId: null,
+      // Outra pessoa entrou neste navegador: as chaves de quem estava antes não passam para ela.
+      claimFor: (userId) => {
+        const { ownerId } = get();
+        if (ownerId === userId) return;
+        set(
+          ownerId
+            ? { ownerId: userId, agent: EMPTY_AGENT, mcpServers: [] }
+            : { ownerId: userId },
+        );
+      },
       setAgent: (patch) => set({ agent: { ...get().agent, ...patch } }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
       setTaskView: (view) => set({ taskView: view }),
@@ -100,6 +114,7 @@ export const usePrefs = create<PrefsState>()(
         projectsLayout: state.projectsLayout,
         mcpServers: state.mcpServers,
         agent: state.agent,
+        ownerId: state.ownerId,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

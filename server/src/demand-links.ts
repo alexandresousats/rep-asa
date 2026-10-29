@@ -9,6 +9,7 @@ import { publicTask } from "./serialize";
 import { ApiError } from "./errors";
 import { todayISO, uid } from "./crypto";
 import { sanitizeRichText } from "./html";
+import { assertStorageAvailable } from "./storage";
 import { z } from "zod";
 
 const LEAKED_DEMAND_LINK_SECRET = "asa-demand-link-verified-secret-key-2026-secure-salt";
@@ -493,6 +494,11 @@ export async function submitDemandInContext(ctx: DemandContext, input: SubmitDem
       buffer,
     };
   });
+
+  await assertStorageAvailable(
+    ctx.workspaceId,
+    preparedAttachments.reduce((total, item) => total + item.buffer.length, 0),
+  );
 
   const taskId = uid("task");
 

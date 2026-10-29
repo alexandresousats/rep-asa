@@ -90,6 +90,8 @@ model User {
   paidSubscriptions WorkspaceSubscription[]
   supportRequests  SupportRequest[]
   shareLinksCreated ClientShareLink[] @relation("ShareLinkCreator")
+  agentSessions     AgentSession[]    @relation("AgentSessions")
+  agentFolders      AgentFolder[]     @relation("AgentFolders")
 }
 
 model Workspace {
@@ -99,6 +101,8 @@ model Workspace {
   agentBaseUrl String?
   agentModel   String?
   agentApiKey  String?  @db.Text
+  // Liga o compartilhamento das conversas do Agente IA entre os membros do espaço.
+  agentChatSharing Boolean @default(false)
   createdAt    DateTime @default(now())
 
   members       WorkspaceMember[]
@@ -110,6 +114,8 @@ model Workspace {
   subscription  WorkspaceSubscription?
   supportRequests SupportRequest[]
   shareLinks    ClientShareLink[]
+  agentSessions AgentSession[]
+  agentFolders  AgentFolder[]
 }
 
 model WorkspaceMember {
@@ -122,6 +128,8 @@ model WorkspaceMember {
   invitedById String?
   createdAt   DateTime     @default(now())
   acceptedAt  DateTime?
+  // null segue o padrão: participa do compartilhamento, menos quem tem acesso de cliente.
+  agentChatShared Boolean?
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User         @relation("WorkspaceMembers", fields: [userId], references: [id], onDelete: Cascade)
   invitedBy   User?        @relation("InvitedBy", fields: [invitedById], references: [id])
@@ -508,6 +516,51 @@ model ClientFeedback {
 
   @@index([taskId, createdAt])
   @@index([shareLinkId])
+}
+
+// Conversas do Agente IA, de cada pessoa em cada espaço. Antes ficavam só no navegador.
+model AgentSession {
+  id          String         @id
+  workspaceId String
+  userId      String
+  title       String         @default("Nova conversa")
+  folderId    String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @default(now())
+  deletedAt   DateTime?
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User           @relation("AgentSessions", fields: [userId], references: [id], onDelete: Cascade)
+  messages    AgentMessage[]
+
+  @@index([workspaceId, userId])
+}
+
+model AgentMessage {
+  sessionId String
+  id        String
+  seq       Int          @default(autoincrement())
+  authorId  String?
+  data      Json
+  // Bytes do conteúdo, para somar o armazenamento do espaço sem ler as mensagens.
+  size      Int          @default(0)
+  createdAt DateTime     @default(now())
+  session   AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, id])
+  @@index([sessionId, seq])
+}
+
+model AgentFolder {
+  id          String    @id
+  workspaceId String
+  userId      String
+  name        String
+  color       String    @default("#6366f1")
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation("AgentFolders", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, userId])
 }
 
 model ApiKey {

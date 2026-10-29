@@ -19,6 +19,7 @@ import { publish } from "./events";
 import { createFirebasePasswordAccount } from "./firebase-auth";
 import { appOrigin, sendMail } from "./mail";
 import { sanitizeRichText } from "./html";
+import { assertStorageAvailable } from "./storage";
 import {
   publicNotification,
   publicProject,
@@ -1715,6 +1716,7 @@ export async function addAttachment(
   const task = await visibleTask(actor, taskId);
   if (file.size <= 0) throw new ApiError(400, "Envie um arquivo.");
   if (file.size > 10 * 1024 * 1024) throw new ApiError(400, "O arquivo passa de 10 MB.");
+  await assertStorageAvailable(actor.workspaceId!, file.bytes.byteLength);
   const id = uid("file");
   await mkdir(attachmentDir, { recursive: true });
   await writeFile(path.join(attachmentDir, id), file.bytes);
