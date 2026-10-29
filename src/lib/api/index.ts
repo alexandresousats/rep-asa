@@ -1,4 +1,7 @@
 import type {
+  AgentSharing,
+  ChatFolder,
+  ChatMessage,
   Priority,
   ShareLink,
   ShareLinkActivity,
@@ -6,6 +9,7 @@ import type {
   Task,
   TaskStatus,
   User,
+  WorkspaceStorage,
 } from "../types";
 import { usePrefs } from "../prefs";
 import { useWorkspace } from "../workspace";
@@ -998,4 +1002,102 @@ export async function regenerateShareLink(projectId: string, linkId: string) {
 
 export async function listShareLinkActivity(projectId: string, linkId: string) {
   return request<ShareLinkActivity[]>(`${shareLinksPath(projectId, linkId)}/activity`);
+}
+
+type AgentSessionSummary = {
+  id: string;
+  title: string;
+  folderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+function agentSessionPath(sessionId: string) {
+  return `/agent/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+export async function listAgentSessions() {
+  return request<{
+    sharing: { enabled: boolean };
+    folders: ChatFolder[];
+    sessions: AgentSessionSummary[];
+    team: (AgentSessionSummary & { ownerId: string; ownerName: string })[];
+  }>("/agent/sessions");
+}
+
+export async function getAgentSession(sessionId: string) {
+  return request<AgentSessionSummary & { owner: boolean; ownerName: string; messages: ChatMessage[] }>(
+    agentSessionPath(sessionId),
+  );
+}
+
+export async function saveAgentMessages(
+  sessionId: string,
+  input: { title?: string; folderId?: string | null; messages: ChatMessage[] },
+) {
+  return request<{ ok: true }>(`${agentSessionPath(sessionId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function replaceAgentMessages(sessionId: string, messages: ChatMessage[]) {
+  return request<{ ok: true }>(`${agentSessionPath(sessionId)}/messages`, {
+    method: "PUT",
+    body: JSON.stringify({ messages }),
+  });
+}
+
+export async function deleteAgentMessage(sessionId: string, messageId: string) {
+  return request<{ ok: true }>(
+    `${agentSessionPath(sessionId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function patchAgentSession(
+  sessionId: string,
+  input: { title?: string; folderId?: string | null; deletedAt?: string | null },
+) {
+  return request<{ ok: true }>(agentSessionPath(sessionId), {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function purgeAgentSession(sessionId: string) {
+  return request<{ ok: true }>(agentSessionPath(sessionId), { method: "DELETE" });
+}
+
+export async function saveAgentFolders(folders: ChatFolder[]) {
+  return request<{ ok: true }>("/agent/folders", {
+    method: "PUT",
+    body: JSON.stringify({ folders }),
+  });
+}
+
+export async function importAgentSessions(input: { folders: unknown[]; sessions: unknown[] }) {
+  return request<{ ok: true; imported: number }>("/agent/import", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAgentSharing() {
+  return request<AgentSharing>("/workspace/agent-sharing");
+}
+
+export async function saveAgentSharing(input: {
+  enabled?: boolean;
+  members?: { userId: string; shared: boolean }[];
+}) {
+  return request<AgentSharing>("/workspace/agent-sharing", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getWorkspaceStorage() {
+  return request<WorkspaceStorage>("/workspace/storage");
 }

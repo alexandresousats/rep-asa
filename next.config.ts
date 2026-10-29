@@ -25,6 +25,8 @@ function shareCsp() {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
+    // Pré-visualização de vídeo e áudio anexados no chat de demanda.
+    "media-src 'self' blob: data:",
     `connect-src 'self'${dev ? " ws: wss:" : ""}`,
     "frame-src 'self'",
     "object-src 'none'",

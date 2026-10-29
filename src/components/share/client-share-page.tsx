@@ -1,15 +1,26 @@
 "use client";
 
 import { addMonths, endOfMonth, startOfMonth, subMonths } from "date-fns";
-import { CalendarDays, ChevronLeft, ChevronRight, House, LinkIcon } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  House,
+  LinkIcon,
+  MessageSquarePlus,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { DemandChat, type DemandChatApi } from "@/components/demands/demand-chat";
 import { ApiError } from "@/lib/api/client";
 import {
+  chatShareDemand,
+  getShareDemandInfo,
   getShareInfo,
   listShareTasks,
   ShareLockedError,
   ShareUnavailableError,
+  submitShareDemand,
   type PublicBrand,
   type PublicTask,
 } from "@/lib/api/public-share";
@@ -19,9 +30,9 @@ import { BrandMark } from "./brand-mark";
 import { ClientCalendar, type ApprovalFilter } from "./client-calendar";
 import { ClientHome } from "./client-home";
 import { PinScreen } from "./pin-screen";
-import { TaskSheet } from "./task-sheet";
+import { readIdentity, TaskSheet } from "./task-sheet";
 
-type Tab = "inicio" | "calendario";
+type Tab = "inicio" | "calendario" | "solicitar";
 
 type View =
   | { kind: "loading" }
@@ -35,12 +46,17 @@ type MonthTasks = { key: string; tasks: PublicTask[]; undated: PublicTask[] } | 
 const TABS: { id: Tab; label: string; icon: typeof House }[] = [
   { id: "inicio", label: "Início", icon: House },
   { id: "calendario", label: "Calendário", icon: CalendarDays },
+  { id: "solicitar", label: "Solicitar", icon: MessageSquarePlus },
 ];
+
+function readTab(value: string | null): Tab {
+  return value === "calendario" || value === "solicitar" ? value : "inicio";
+}
 
 export function ClientSharePage({ token }: { token: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tab: Tab = searchParams.get("tab") === "calendario" ? "calendario" : "inicio";
+  const tab = readTab(searchParams.get("tab"));
   const [view, setView] = useState<View>({ kind: "loading" });
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [monthTasks, setMonthTasks] = useState<MonthTasks>(null);
@@ -110,6 +126,20 @@ export function ClientSharePage({ token }: { token: string }) {
     );
   }, [token, month, handleFailure]);
 
+  const demandApi = useMemo<DemandChatApi>(() => {
+    // Sessão expirada no meio do chat volta para a tela de PIN, como nas outras abas.
+    const guard = <T,>(work: Promise<T>) =>
+      work.catch((reason: unknown) => {
+        handleFailure(reason);
+        throw reason;
+      });
+    return {
+      info: () => guard(getShareDemandInfo(token)),
+      chat: (messages, state) => guard(chatShareDemand(token, messages, { ...state })),
+      submit: (demand) => guard(submitShareDemand(token, { ...demand })),
+    };
+  }, [token, handleFailure]);
+
   const isOpen = view.kind === "open";
   useEffect(() => {
     if (isOpen) void reloadTasks();
@@ -134,6 +164,7 @@ export function ClientSharePage({ token }: { token: string }) {
 
   function setTab(next: Tab, filter: ApprovalFilter = "all") {
     setCalendarFilter(filter);
+    if (next === "solicitar") setOpened(null);
     const query = new URLSearchParams(searchParams.toString());
     query.set("tab", next);
     router.replace(`?${query.toString()}`, { scroll: false });
@@ -164,6 +195,23 @@ export function ClientSharePage({ token }: { token: string }) {
         onUnlocked={() => {
           setView({ kind: "loading" });
           void loadInfo();
+        }}
+      />
+    );
+  }
+
+  // O chat ocupa a tela toda; nada do calendário fica montado por baixo.
+  if (tab === "solicitar") {
+    const who = readIdentity();
+    return (
+      <DemandChat
+        api={demandApi}
+        variant="client"
+        requester={who ? { name: who.clientName, email: who.clientEmail } : undefined}
+        onBack={() => setTab("inicio")}
+        onSubmitted={() => {
+          void reloadTasks();
+          setSummaryVersion((value) => value + 1);
         }}
       />
     );
@@ -284,7 +332,7 @@ export function ClientSharePage({ token }: { token: string }) {
         aria-label="Seções"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-base/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
       >
-        <div className="grid grid-cols-2">
+        <div className="grid grid-cols-3">
           {TABS.map((item) => (
             <button
               key={item.id}

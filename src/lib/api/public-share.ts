@@ -147,3 +147,34 @@ export async function getShareSummary(token: string, month: string, today: strin
   const query = new URLSearchParams({ month, today });
   return call<PublicSummary>(sharePath(token, `/summary?${query.toString()}`));
 }
+
+export async function getShareDemandInfo(token: string) {
+  return call<{
+    project: { name: string; color: string };
+    workspace: { name: string };
+    verifiedBy: { name: string };
+  }>(sharePath(token, "/demand"));
+}
+
+export async function chatShareDemand(
+  token: string,
+  messages: unknown[],
+  currentDemand: Record<string, unknown>,
+) {
+  return call<{
+    reply: string;
+    updatedDemand?: Record<string, unknown>;
+    uiAction?: "formats" | "review";
+    submitRequested?: boolean;
+  }>(sharePath(token, "/demand/chat"), {
+    method: "POST",
+    body: JSON.stringify({ messages, currentDemand }),
+  });
+}
+
+export async function submitShareDemand(token: string, demand: Record<string, unknown>) {
+  return call<{ ok: true; demandCode: string; taskId: string }>(sharePath(token, "/demand"), {
+    method: "POST",
+    body: JSON.stringify(demand),
+  });
+}

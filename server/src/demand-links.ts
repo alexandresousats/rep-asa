@@ -9,6 +9,8 @@ import { publicTask } from "./serialize";
 import { ApiError } from "./errors";
 import { todayISO, uid } from "./crypto";
 import { sanitizeRichText } from "./html";
+import { assertStorageAvailable } from "./storage";
+import { z } from "zod";
 
 const LEAKED_DEMAND_LINK_SECRET = "asa-demand-link-verified-secret-key-2026-secure-salt";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -111,6 +113,33 @@ export function parseAndVerifyDemandLink(token: string): DemandLinkPayload | nul
   }
 }
 
+// De onde a demanda chega: o link verificado de demanda ou o link do cliente do calendário.
+export interface DemandContext {
+  workspaceId: string;
+  projectId: string;
+  verifiedById: string;
+  verifiedByName: string;
+  verifiedAt: number;
+  notifyUserIds: string[];
+  via: string;
+  approvalStatus: "none" | "pending";
+}
+
+function demandContextFromToken(token: string, invalidMessage: string): DemandContext {
+  const payload = parseAndVerifyDemandLink(token);
+  if (!payload) throw new ApiError(400, invalidMessage);
+  return {
+    workspaceId: payload.wId,
+    projectId: payload.pId,
+    verifiedById: payload.adminId,
+    verifiedByName: payload.adminName,
+    verifiedAt: payload.iat,
+    notifyUserIds: [payload.adminId],
+    via: "via Link Verificado",
+    approvalStatus: "pending",
+  };
+}
+
 export async function generateDemandLinkToken(
   actor: Actor,
   projectId: string,
@@ -177,16 +206,18 @@ export async function generateDemandLinkToken(
 }
 
 export async function verifyDemandLinkToken(token: string) {
-  const payload = parseAndVerifyDemandLink(token);
-  if (!payload) {
-    throw new ApiError(400, "Link de demanda inválido ou assinatura não reconhecida.");
-  }
-  if (!(await workspaceIsEntitled(payload.wId))) {
+  return describeDemandContext(
+    demandContextFromToken(token, "Link de demanda inválido ou assinatura não reconhecida."),
+  );
+}
+
+export async function describeDemandContext(ctx: DemandContext) {
+  if (!(await workspaceIsEntitled(ctx.workspaceId))) {
     throw new ApiError(402, "Este espaço ainda não tem uma assinatura ativa.");
   }
 
   const project = await prisma.project.findFirst({
-    where: { id: payload.pId, workspaceId: payload.wId },
+    where: { id: ctx.projectId, workspaceId: ctx.workspaceId },
     include: {
       workspace: true,
     },
@@ -197,12 +228,12 @@ export async function verifyDemandLinkToken(token: string) {
   }
 
   const tags = await prisma.tag.findMany({
-    where: { workspaceId: payload.wId },
+    where: { workspaceId: ctx.workspaceId },
     orderBy: { name: "asc" },
   });
 
   const admin = await prisma.user.findUnique({
-    where: { id: payload.adminId },
+    where: { id: ctx.verifiedById },
     select: { id: true, name: true, role: true, avatar: true },
   });
 
@@ -219,11 +250,11 @@ export async function verifyDemandLinkToken(token: string) {
       name: project.workspace.name,
     },
     verifiedBy: {
-      id: admin?.id ?? payload.adminId,
-      name: admin?.name ?? payload.adminName,
+      id: admin?.id ?? ctx.verifiedById,
+      name: admin?.name ?? ctx.verifiedByName,
       role: admin?.role ?? "Administrador",
       verified: true,
-      verifiedAt: new Date(payload.iat).toISOString(),
+      verifiedAt: new Date(ctx.verifiedAt).toISOString(),
     },
     tags: tags.map((t) => ({ id: t.id, name: t.name, color: t.color })),
     formats: [
@@ -267,6 +298,54 @@ export async function verifyDemandLinkToken(token: string) {
   };
 }
 
+// Corpos das rotas públicas de demanda, usados pelo link verificado e pelo link do cliente.
+export const demandChatBody = z.object({
+  messages: z.array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string(),
+      images: z.array(z.string()).optional(),
+      videos: z.array(z.string()).optional(),
+      documents: z.array(z.any()).optional(),
+    }),
+  ),
+  currentDemand: z
+    .object({
+      subject: z.string().optional(),
+      format: z.string().optional(),
+      tagIds: z.array(z.string()).optional(),
+      dueDate: z.string().optional(),
+      referenceUrls: z.string().optional(),
+      notes: z.string().optional(),
+      requesterName: z.string().optional(),
+      isReadyToConfirm: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export const demandSubmitBody = z.object({
+  title: z.string().optional().default(""),
+  subject: z.string().optional(),
+  description: z.string().optional().default(""),
+  demandFormat: z.string().optional(),
+  tagIds: z.array(z.string()).optional(),
+  dueDate: z.string().optional(),
+  referenceUrls: z.string().optional(),
+  requesterName: z.string().optional(),
+  requesterEmail: z.string().optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.string(),
+        size: z.number(),
+        base64: z.string().optional(),
+        url: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
 export interface SubmitDemandLinkInput {
   title: string;
   subject?: string;
@@ -290,16 +369,19 @@ export async function submitDemandViaVerifiedLink(
   token: string,
   input: SubmitDemandLinkInput,
 ) {
-  const payload = parseAndVerifyDemandLink(token);
-  if (!payload) {
-    throw new ApiError(400, "Link de demanda inválido ou expirado.");
-  }
-  if (!(await workspaceIsEntitled(payload.wId))) {
+  return submitDemandInContext(
+    demandContextFromToken(token, "Link de demanda inválido ou expirado."),
+    input,
+  );
+}
+
+export async function submitDemandInContext(ctx: DemandContext, input: SubmitDemandLinkInput) {
+  if (!(await workspaceIsEntitled(ctx.workspaceId))) {
     throw new ApiError(402, "Este espaço ainda não tem uma assinatura ativa.");
   }
 
   const project = await prisma.project.findFirst({
-    where: { id: payload.pId, workspaceId: payload.wId },
+    where: { id: ctx.projectId, workspaceId: ctx.workspaceId },
     include: {
       workspace: true,
       members: true,
@@ -413,6 +495,11 @@ export async function submitDemandViaVerifiedLink(
     };
   });
 
+  await assertStorageAvailable(
+    ctx.workspaceId,
+    preparedAttachments.reduce((total, item) => total + item.buffer.length, 0),
+  );
+
   const taskId = uid("task");
 
   const createdTask = await prisma.task.create({
@@ -431,7 +518,7 @@ export async function submitDemandViaVerifiedLink(
       isDemand: true,
       demandFormat: input.demandFormat || null,
       referenceUrls: input.referenceUrls || null,
-      approvalStatus: "pending",
+      approvalStatus: ctx.approvalStatus,
       tags:
         tagIds.size > 0
           ? { create: Array.from(tagIds).map((tagId) => ({ tagId })) }
@@ -464,8 +551,7 @@ export async function submitDemandViaVerifiedLink(
   }
 
   // Notifica o admin que verificou o link e o dono do projeto
-  const notifyUserIds = new Set<string>();
-  if (payload.adminId) notifyUserIds.add(payload.adminId);
+  const notifyUserIds = new Set<string>(ctx.notifyUserIds.filter(Boolean));
   if (project.ownerId) notifyUserIds.add(project.ownerId);
 
   for (const userId of notifyUserIds) {
@@ -474,8 +560,9 @@ export async function submitDemandViaVerifiedLink(
         userId,
         type: "demand_created",
         title: "Nova Demanda Recebida",
-        body: `Demanda “${createdTask.title}” solicitada via Link Verificado no projeto ${project.name}.`,
-        href: `/demandas?tab=demandas`,
+        body: `Demanda “${createdTask.title}” solicitada ${ctx.via} no projeto ${project.name}.`,
+        // A central de Demandas está em manutenção; o link abre a tarefa no projeto.
+        href: `/projetos/${project.id}?task=${createdTask.id}`,
         workspaceId: project.workspaceId,
       });
     } catch {
@@ -679,7 +766,7 @@ function demandIsComplete(state: DemandExtractionState) {
 
 function submitDemandResult(
   state: DemandExtractionState,
-  verified: Awaited<ReturnType<typeof verifyDemandLinkToken>>,
+  verified: Awaited<ReturnType<typeof describeDemandContext>>,
 ) {
   syncFormatTag(state, verified.tags);
   return {
@@ -712,7 +799,19 @@ export async function processDemandChatTurn(
   messages: DemandChatMessage[],
   currentState: DemandExtractionState = {},
 ) {
-  const verified = await verifyDemandLinkToken(token);
+  return processDemandChatInContext(
+    demandContextFromToken(token, "Link de demanda inválido ou assinatura não reconhecida."),
+    messages,
+    currentState,
+  );
+}
+
+export async function processDemandChatInContext(
+  ctx: DemandContext,
+  messages: DemandChatMessage[],
+  currentState: DemandExtractionState = {},
+) {
+  const verified = await describeDemandContext(ctx);
   const project = verified.project;
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
 
