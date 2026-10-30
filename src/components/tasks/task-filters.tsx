@@ -70,45 +70,45 @@ export function TaskColumnFilters({
 
   return (
     <div ref={rootRef} className="contents">
-      <Column
+      <TaskFilterColumn
         label="Responsável"
         active={filters.assignees.length > 0}
         open={open === "assignee"}
         onToggle={() => setOpen((current) => (current === "assignee" ? null : "assignee"))}
       >
-        <Option selected={filters.assignees.includes(NONE)} onClick={() => toggleAssignee(NONE)}>
+        <TaskFilterOption selected={filters.assignees.includes(NONE)} onClick={() => toggleAssignee(NONE)}>
           <span className="text-muted">Sem responsável</span>
-        </Option>
+        </TaskFilterOption>
         {users
           .filter((user) => user.membershipStatus !== "pending")
           .map((user) => (
-          <Option
+          <TaskFilterOption
             key={user.id}
             selected={filters.assignees.includes(user.id)}
             onClick={() => toggleAssignee(user.id)}
           >
             <Avatar initials={user.initials} src={user.avatar} name={user.name} size="sm" />
             <span className="truncate">{user.name.split(" ")[0]}</span>
-          </Option>
+          </TaskFilterOption>
         ))}
         {filters.assignees.length > 0 ? (
-          <Clear
+          <TaskFilterClear
             onClick={() => {
               onChange({ ...filters, assignees: [] });
               setOpen(null);
             }}
           />
         ) : null}
-      </Column>
+      </TaskFilterColumn>
 
-      <Column
+      <TaskFilterColumn
         label="Data"
         active={filters.date !== "all"}
         open={open === "date"}
         onToggle={() => setOpen((current) => (current === "date" ? null : "date"))}
       >
         {DATE_FILTERS.map((item) => (
-          <Option
+          <TaskFilterOption
             key={item.id}
             selected={filters.date === item.id}
             onClick={() => {
@@ -117,49 +117,49 @@ export function TaskColumnFilters({
             }}
           >
             {item.label}
-          </Option>
+          </TaskFilterOption>
         ))}
-      </Column>
+      </TaskFilterColumn>
 
-      <Column
+      <TaskFilterColumn
         label="Prioridade"
         active={filters.priorities.length > 0}
         open={open === "priority"}
         onToggle={() => setOpen((current) => (current === "priority" ? null : "priority"))}
       >
         {PRIORITY_ORDER.map((priority) => (
-          <Option
+          <TaskFilterOption
             key={priority}
             selected={filters.priorities.includes(priority)}
             onClick={() => togglePriority(priority)}
           >
             <PriorityLabel priority={priority} />
-          </Option>
+          </TaskFilterOption>
         ))}
         {filters.priorities.length > 0 ? (
-          <Clear
+          <TaskFilterClear
             onClick={() => {
               onChange({ ...filters, priorities: [] });
               setOpen(null);
             }}
           />
         ) : null}
-      </Column>
+      </TaskFilterColumn>
 
-      <Column
+      <TaskFilterColumn
         label="Tags"
         active={Boolean(filters.tags && filters.tags.length > 0)}
         open={open === "tag"}
         onToggle={() => setOpen((current) => (current === "tag" ? null : "tag"))}
       >
-        <Option
+        <TaskFilterOption
           selected={Boolean(filters.tags?.includes("none"))}
           onClick={() => toggleTag("none")}
         >
           <span className="text-muted">Sem tags</span>
-        </Option>
+        </TaskFilterOption>
         {tags.map((tag) => (
-          <Option
+          <TaskFilterOption
             key={tag.id}
             selected={Boolean(filters.tags?.includes(tag.id))}
             onClick={() => toggleTag(tag.id)}
@@ -169,38 +169,40 @@ export function TaskColumnFilters({
               style={{ backgroundColor: tag.color }}
             />
             <span className="truncate">{tag.name}</span>
-          </Option>
+          </TaskFilterOption>
         ))}
         {filters.tags && filters.tags.length > 0 ? (
-          <Clear
+          <TaskFilterClear
             onClick={() => {
               onChange({ ...filters, tags: [] });
               setOpen(null);
             }}
           />
         ) : null}
-      </Column>
+      </TaskFilterColumn>
     </div>
   );
 }
 
-function Column({
+export function TaskFilterColumn({
   label,
   active,
   open,
   onToggle,
   children,
+  className,
 }: {
   label: string;
   active: boolean;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  className?: string;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <span className="flex items-center justify-between gap-2 pr-1">
+    <span className={cn("flex items-center justify-between gap-2 pr-1", className)}>
       <span>{label}</span>
       <button
         ref={buttonRef}
@@ -252,7 +254,7 @@ function AnchoredMenu({
   return createPortal(
     <div
       data-filter-menu
-      className="fixed z-50 min-w-52 rounded-2xl border border-line bg-elevated p-1"
+      className="fixed z-[80] min-w-52 rounded-2xl border border-line bg-elevated p-1"
       style={{ top: pos.top, left: pos.left }}
     >
       {children}
@@ -261,7 +263,7 @@ function AnchoredMenu({
   );
 }
 
-function Option({
+export function TaskFilterOption({
   selected,
   onClick,
   children,
@@ -289,7 +291,7 @@ function Option({
   );
 }
 
-function Clear({ onClick }: { onClick: () => void }) {
+export function TaskFilterClear({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"

@@ -1,13 +1,21 @@
 "use client";
 
 import { endOfWeek, startOfDay } from "date-fns";
-import { AppWindow, Check, ChevronDown, PanelRight, Plus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { TaskAssigneePicker } from "@/components/tasks/task-assignee-picker";
 import { TaskDatePicker } from "@/components/tasks/task-date-picker";
+import {
+  TaskFilterClear,
+  TaskFilterColumn,
+  TaskFilterOption,
+} from "@/components/tasks/task-filters";
+import { PriorityLabel } from "@/components/tasks/priority-label";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { TaskProjectPicker } from "@/components/tasks/task-project-picker";
+import { Avatar } from "@/components/ui/avatar";
+import { TagChip } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createTask, setTaskStatus, updateTask } from "@/lib/api";
@@ -16,11 +24,19 @@ import { cn } from "@/lib/cn";
 import { parseDate } from "@/lib/dates";
 import { PRIORITY_ORDER } from "@/lib/priority";
 import { usePrefs } from "@/lib/prefs";
-import type { Project, Task, TaskViewMode, User } from "@/lib/types";
+import {
+  DATE_FILTERS,
+  EMPTY_FILTERS,
+  filterTasks,
+  isFiltering,
+  type DateFilter,
+  type TaskFilterState,
+} from "@/lib/task-filters";
+import type { Priority, Project, Task, TaskViewMode, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_7.5rem_9.5rem_11rem_4.75rem] items-center gap-2";
+  "grid grid-cols-[minmax(0,1fr)_7.5rem_9.5rem_10rem_7.5rem_8.5rem_2.5rem] items-center gap-2";
 
 type Scope = "open" | "done";
 
@@ -34,6 +50,10 @@ export default function MyTasksPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [createOpen, setCreateOpen] = useState(false);
+  const [filters, setFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
+  const [filterMenu, setFilterMenu] = useState<
+    "date" | "assignee" | "project" | "priority" | "tag" | null
+  >(null);
   const user = useWorkspace((state) => state.user);
   const allTasks = useWorkspace((state) => state.tasks);
   const projects = useWorkspace((state) => state.projects);
@@ -59,16 +79,25 @@ export default function MyTasksPage() {
     () => mine.filter((task) => task.status === "done"),
     [mine],
   );
+  const filtering = isFiltering(filters);
+  const visibleOpen = useMemo(
+    () => filterTasks(openTasks, filters),
+    [openTasks, filters],
+  );
+  const visibleDone = useMemo(
+    () => filterTasks(doneTasks, filters),
+    [doneTasks, filters],
+  );
   const today = startOfDay(new Date());
-  const overdue = openTasks.filter((task) => {
+  const overdue = visibleOpen.filter((task) => {
     if (!task.dueDate) return false;
     return startOfDay(parseDate(task.dueDate)) < today;
   }).length;
 
   const groups = useMemo(() => {
     if (scope === "done") {
-      return doneTasks.length
-        ? [{ id: "done", name: "Concluídas", href: null as string | null, rows: nestAssigned(doneTasks, scope) }]
+      return visibleDone.length
+        ? [{ id: "done", name: "Concluídas", href: null as string | null, rows: nestAssigned(visibleDone, scope) }]
         : [];
     }
     const buckets = [
@@ -81,7 +110,7 @@ export default function MyTasksPage() {
     const todayKey = startOfDay(new Date());
     const weekEnd = startOfDay(endOfWeek(todayKey, { weekStartsOn: 1 }));
     const placed = new Map<string, Task[]>();
-    for (const task of openTasks) {
+    for (const task of visibleOpen) {
       const id = dueBucket(task, todayKey, weekEnd);
       const list = placed.get(id) ?? [];
       list.push(task);
@@ -92,7 +121,7 @@ export default function MyTasksPage() {
       if (!items?.length) return [];
       return [{ id: bucket.id, name: bucket.name, href: null as string | null, rows: nestAssigned(items, scope) }];
     });
-  }, [doneTasks, openTasks, scope]);
+  }, [scope, visibleDone, visibleOpen]);
 
   const selected = useMemo(
     () => tasks.find((task) => task.id === selectedId) ?? null,
@@ -103,6 +132,33 @@ export default function MyTasksPage() {
     if (mode) setTaskView(mode);
     setSelectedId(id);
   }
+
+  function toggleFilter(menu: NonNullable<typeof filterMenu>) {
+    setFilterMenu((current) => (current === menu ? null : menu));
+  }
+
+  function toggleId(key: "assignees" | "projects" | "tags", id: string) {
+    const current = filters[key];
+    const next = current.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id];
+    setFilters({ ...filters, [key]: next });
+  }
+
+  function togglePriority(priority: Priority) {
+    const priorities = filters.priorities.includes(priority)
+      ? filters.priorities.filter((item) => item !== priority)
+      : [...filters.priorities, priority];
+    setFilters({ ...filters, priorities });
+  }
+
+  const people = users
+    .filter((person) => person.membershipStatus !== "pending")
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const projectOptions = projects
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
@@ -116,9 +172,11 @@ export default function MyTasksPage() {
               <p className="mt-1 text-sm text-faint">
                 {mine.length === 0
                   ? "Nada atribuído a você nos projetos deste espaço."
-                  : openTasks.length === 0
-                    ? "Nenhuma tarefa aberta atribuída a você."
-                    : `${openTasks.length} ${openTasks.length === 1 ? "aberta" : "abertas"}${
+                  : visibleOpen.length === 0
+                    ? filtering
+                      ? "Nenhuma tarefa aberta com esses filtros."
+                      : "Nenhuma tarefa aberta atribuída a você."
+                    : `${visibleOpen.length} ${visibleOpen.length === 1 ? "aberta" : "abertas"}${
                         overdue > 0
                           ? ` · ${overdue} ${overdue === 1 ? "atrasada" : "atrasadas"}`
                           : ""
@@ -128,7 +186,7 @@ export default function MyTasksPage() {
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-1">
                 {SCOPES.map((item) => {
-                  const count = item.id === "done" ? doneTasks.length : openTasks.length;
+                  const count = item.id === "done" ? visibleDone.length : visibleOpen.length;
                   return (
                     <button
                       key={item.id}
@@ -165,7 +223,7 @@ export default function MyTasksPage() {
             </div>
           </div>
 
-          {groups.length === 0 ? (
+          {groups.length === 0 && !filtering ? (
             <p className="text-sm text-faint">
               {scope === "done"
                 ? "Você ainda não concluiu tarefas atribuídas a você."
@@ -173,14 +231,160 @@ export default function MyTasksPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <div className="min-w-[760px] space-y-8">
-              <div className={cn(COLUMNS, "px-2 text-xs text-faint")}>
+              <div className="min-w-[1080px] space-y-8">
+              <div className={cn(COLUMNS, "items-center px-2 text-xs text-faint")}>
                 <span>Nome</span>
-                <span>Data</span>
-                <span>Responsável</span>
-                <span>Projeto</span>
-                <span className="text-right">Abrir</span>
+                <TaskFilterColumn
+                  label="Data"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.date !== "all"}
+                  open={filterMenu === "date"}
+                  onToggle={() => toggleFilter("date")}
+                >
+                  {DATE_FILTERS.map((item) => (
+                    <TaskFilterOption
+                      key={item.id}
+                      selected={filters.date === item.id}
+                      onClick={() => {
+                        setFilters({ ...filters, date: item.id as DateFilter });
+                        setFilterMenu(null);
+                      }}
+                    >
+                      {item.label}
+                    </TaskFilterOption>
+                  ))}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Responsável"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.assignees.length > 0}
+                  open={filterMenu === "assignee"}
+                  onToggle={() => toggleFilter("assignee")}
+                >
+                  <TaskFilterOption
+                    selected={filters.assignees.includes("none")}
+                    onClick={() => toggleId("assignees", "none")}
+                  >
+                    <span className="text-muted">Sem responsável</span>
+                  </TaskFilterOption>
+                  {people.map((person) => (
+                    <TaskFilterOption
+                      key={person.id}
+                      selected={filters.assignees.includes(person.id)}
+                      onClick={() => toggleId("assignees", person.id)}
+                    >
+                      <Avatar
+                        initials={person.initials}
+                        src={person.avatar}
+                        name={person.name}
+                        size="sm"
+                      />
+                      <span className="truncate">{person.name.split(" ")[0]}</span>
+                    </TaskFilterOption>
+                  ))}
+                  {filters.assignees.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, assignees: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Projeto"
+                  className="justify-start gap-1 pl-2 pr-0"
+                  active={filters.projects.length > 0}
+                  open={filterMenu === "project"}
+                  onToggle={() => toggleFilter("project")}
+                >
+                  {projectOptions.map((project) => (
+                    <TaskFilterOption
+                      key={project.id}
+                      selected={filters.projects.includes(project.id)}
+                      onClick={() => toggleId("projects", project.id)}
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-[3px]"
+                        style={{ backgroundColor: project.color }}
+                      />
+                      <span className="truncate">{project.name}</span>
+                    </TaskFilterOption>
+                  ))}
+                  {filters.projects.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, projects: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Prioridade"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.priorities.length > 0}
+                  open={filterMenu === "priority"}
+                  onToggle={() => toggleFilter("priority")}
+                >
+                  {PRIORITY_ORDER.map((priority) => (
+                    <TaskFilterOption
+                      key={priority}
+                      selected={filters.priorities.includes(priority)}
+                      onClick={() => togglePriority(priority)}
+                    >
+                      <PriorityLabel priority={priority} />
+                    </TaskFilterOption>
+                  ))}
+                  {filters.priorities.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, priorities: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Tags"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.tags.length > 0}
+                  open={filterMenu === "tag"}
+                  onToggle={() => toggleFilter("tag")}
+                >
+                  <TaskFilterOption
+                    selected={filters.tags.includes("none")}
+                    onClick={() => toggleId("tags", "none")}
+                  >
+                    <span className="text-muted">Sem tags</span>
+                  </TaskFilterOption>
+                  {tags.map((tag) => (
+                    <TaskFilterOption
+                      key={tag.id}
+                      selected={filters.tags.includes(tag.id)}
+                      onClick={() => toggleId("tags", tag.id)}
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span className="truncate">{tag.name}</span>
+                    </TaskFilterOption>
+                  ))}
+                  {filters.tags.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, tags: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <span className="sr-only">Abrir</span>
               </div>
+              {groups.length === 0 ? (
+                <p className="px-2 text-sm text-faint">Nenhuma tarefa com esses filtros.</p>
+              ) : null}
               {groups.map((group) => {
                 const open = !collapsed[group.id];
                 return (
@@ -218,6 +422,7 @@ export default function MyTasksPage() {
                       if (parent) metaExtras.push(`Subtarefa de ${parent.title}`);
                       if (task.status === "doing") metaExtras.push("Em andamento");
                       if (task.section) metaExtras.push(task.section);
+                      const taskTags = tags.filter((tag) => task.tagIds.includes(tag.id));
                       return (
                         <div
                           key={task.id}
@@ -311,38 +516,36 @@ export default function MyTasksPage() {
                               onChangeSection={(section) => updateTask(task.id, { section })}
                             />
                           </span>
+                          <span className="px-1.5 text-xs">
+                            <PriorityLabel priority={task.priority} />
+                          </span>
+                          <span className="flex min-w-0 items-center gap-1 overflow-hidden px-1.5">
+                            {taskTags.length > 0 ? (
+                              taskTags.map((tag) => (
+                                <TagChip key={tag.id} name={tag.name} color={tag.color} />
+                              ))
+                            ) : (
+                              <span className="text-xs text-faint">—</span>
+                            )}
+                          </span>
                           <span
-                            className="flex justify-end gap-0.5"
+                            className="flex justify-end"
                             onClick={stopRowClick}
                             onKeyDown={stopRowClick}
                           >
                             <button
                               type="button"
-                              aria-label="Abrir no painel lateral"
-                              title="Abrir no painel lateral"
-                              onClick={() => openTask(task.id, "sidebar")}
+                              aria-label="Abrir tarefa"
+                              title="Abrir tarefa"
+                              onClick={() => openTask(task.id)}
                               className={cn(
                                 "rounded-lg p-1.5",
-                                selectedId === task.id && taskView === "sidebar"
-                                  ? "bg-hover text-ink"
+                                selectedId === task.id
+                                  ? "text-ink"
                                   : "text-faint hover:bg-hover hover:text-ink",
                               )}
                             >
-                              <PanelRight className="h-4 w-4" strokeWidth={1.5} />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Abrir em popup"
-                              title="Abrir em popup"
-                              onClick={() => openTask(task.id, "modal")}
-                              className={cn(
-                                "rounded-lg p-1.5",
-                                selectedId === task.id && taskView === "modal"
-                                  ? "bg-hover text-ink"
-                                  : "text-faint hover:bg-hover hover:text-ink",
-                              )}
-                            >
-                              <AppWindow className="h-4 w-4" strokeWidth={1.5} />
+                              <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
                             </button>
                           </span>
                         </div>
