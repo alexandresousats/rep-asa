@@ -12,18 +12,32 @@ export function TaskAssigneePicker({
   users,
   canWrite,
   onSelect,
+  variant = "field",
 }: {
   assigneeId: string | null;
   users: User[];
   canWrite: boolean;
   onSelect: (assigneeId: string | null) => void;
+  variant?: "field" | "cell";
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const isCell = variant === "cell";
 
   const assignee = users.find((user) => user.id === assigneeId);
+  const shortName = assignee ? assignee.name.split(" ")[0] : null;
 
   if (!canWrite) {
+    if (isCell) {
+      return assignee ? (
+        <span className="inline-flex min-w-0 items-center gap-2 px-1.5 text-xs text-ink">
+          <Avatar initials={assignee.initials} src={assignee.avatar} name={assignee.name} size="sm" />
+          <span className="truncate">{shortName}</span>
+        </span>
+      ) : (
+        <span className="px-1.5 text-xs text-faint">—</span>
+      );
+    }
     if (assignee) {
       return (
         <span className="inline-flex items-center gap-2 rounded-xl border border-line/50 bg-base/40 px-2.5 py-1 text-xs text-ink">
@@ -44,32 +58,41 @@ export function TaskAssigneePicker({
         aria-expanded={isOpen}
         aria-label="Alterar responsável da tarefa"
         className={cn(
-          "group inline-flex items-center gap-2 rounded-xl text-xs transition-all duration-150",
-          assignee
-            ? "border border-line/70 bg-base/60 px-2.5 py-1 text-ink hover:border-line hover:bg-hover"
-            : "border border-dashed border-line/70 bg-base/30 px-2.5 py-1 text-faint hover:border-line-subtle hover:bg-hover hover:text-ink",
-          isOpen && "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10",
+          isCell
+            ? "group inline-flex max-w-full items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-hover"
+            : "group inline-flex items-center gap-2 rounded-xl text-xs transition-all duration-150",
+          !isCell &&
+            (assignee
+              ? "border border-line/70 bg-base/60 px-2.5 py-1 text-ink hover:border-line hover:bg-hover"
+              : "border border-dashed border-line/70 bg-base/30 px-2.5 py-1 text-faint hover:border-line-subtle hover:bg-hover hover:text-ink"),
+          isOpen && (isCell ? "bg-hover" : "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10"),
         )}
       >
         {assignee ? (
           <>
             <Avatar initials={assignee.initials} src={assignee.avatar} name={assignee.name} size="sm" />
-            <span className="max-w-[130px] truncate font-medium text-ink">{assignee.name}</span>
+            <span className={cn("truncate font-medium text-ink", isCell ? "max-w-[7rem]" : "max-w-[130px]")}>
+              {isCell ? shortName : assignee.name}
+            </span>
           </>
         ) : (
           <>
             <span className="flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-line text-faint transition-colors group-hover:border-line-subtle group-hover:text-ink">
               <UserIcon className="h-3 w-3" />
             </span>
-            <span className="text-faint transition-colors group-hover:text-ink">Sem responsável</span>
+            <span className="text-faint transition-colors group-hover:text-ink">
+              {isCell ? "Atribuir" : "Sem responsável"}
+            </span>
           </>
         )}
+        {isCell ? null : (
         <ChevronDown
           className={cn(
             "h-3.5 w-3.5 text-faint transition-transform duration-150 group-hover:text-ink",
             isOpen && "rotate-180",
           )}
         />
+        )}
       </button>
 
       {isOpen ? (
@@ -184,7 +207,7 @@ function AssigneeMenu({
         left: coords.left,
         width: 260,
       }}
-      className="fixed z-50 rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in"
+      className="fixed z-[80] rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in"
     >
       {/* Search Input */}
       <div className="relative mb-1 flex items-center px-1 pt-0.5">

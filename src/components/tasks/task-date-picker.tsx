@@ -78,30 +78,46 @@ export function TaskDatePicker({
   dueDate,
   canWrite,
   onChange,
+  variant = "field",
 }: {
   dueDate: string | null;
   canWrite: boolean;
   onChange: (dueDate: string | null) => void;
+  variant?: "field" | "cell";
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const isCell = variant === "cell";
 
   const selectedDate = dueDate ? parseDate(dueDate) : null;
   const today = startOfToday();
   const isOverdue = selectedDate ? isBefore(selectedDate, today) : false;
 
-  let labelText = "Sem data de conclusão";
+  let labelText = isCell ? "Sem data" : "Sem data de conclusão";
   if (selectedDate) {
     if (isToday(selectedDate)) {
       labelText = "Hoje";
     } else if (isTomorrow(selectedDate)) {
       labelText = "Amanhã";
     } else {
-      labelText = format(selectedDate, "d 'de' MMM", { locale: ptBR });
+      labelText = format(selectedDate, isCell ? "d MMM" : "d 'de' MMM", { locale: ptBR });
     }
   }
 
   if (!canWrite) {
+    if (isCell) {
+      return (
+        <span
+          className={cn(
+            "px-1.5 text-xs",
+            isOverdue && dueDate ? "font-medium text-red-400" : "text-ink",
+            !dueDate && "text-faint",
+          )}
+        >
+          {dueDate ? labelText : "—"}
+        </span>
+      );
+    }
     return (
       <span
         className={cn(
@@ -125,27 +141,44 @@ export function TaskDatePicker({
         aria-expanded={isOpen}
         aria-label="Alterar data de conclusão"
         className={cn(
-          "group inline-flex items-center gap-2 rounded-xl text-xs transition-all duration-150",
-          dueDate
-            ? "border border-line/70 bg-base/60 px-2.5 py-1 hover:border-line hover:bg-hover"
-            : "border border-dashed border-line/70 bg-base/30 px-2.5 py-1 text-faint hover:border-line-subtle hover:bg-hover hover:text-ink",
-          isOverdue && dueDate ? "border-amber-500/50 text-amber-500 hover:border-amber-500" : "text-ink",
-          isOpen && "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10",
+          isCell
+            ? "inline-flex max-w-full items-center rounded-lg px-1.5 py-1 text-xs hover:bg-hover"
+            : "group inline-flex items-center gap-2 rounded-xl text-xs transition-all duration-150",
+          !isCell &&
+            (dueDate
+              ? "border border-line/70 bg-base/60 px-2.5 py-1 hover:border-line hover:bg-hover"
+              : "border border-dashed border-line/70 bg-base/30 px-2.5 py-1 text-faint hover:border-line-subtle hover:bg-hover hover:text-ink"),
+          isCell
+            ? isOverdue && dueDate
+              ? "font-medium text-red-400"
+              : dueDate
+                ? "text-ink"
+                : "text-faint"
+            : isOverdue && dueDate
+              ? "border-amber-500/50 text-amber-500 hover:border-amber-500"
+              : "text-ink",
+          isOpen && (isCell ? "bg-hover" : "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10"),
         )}
       >
-        <CalendarIcon
-          className={cn(
-            "h-3.5 w-3.5 transition-colors",
-            isOverdue ? "text-amber-500" : "text-faint group-hover:text-ink",
-          )}
-        />
-        <span className="font-medium">{labelText}</span>
-        <ChevronDown
-          className={cn(
-            "h-3.5 w-3.5 text-faint transition-transform duration-150 group-hover:text-ink",
-            isOpen && "rotate-180",
-          )}
-        />
+        {isCell ? (
+          <span className="truncate">{labelText}</span>
+        ) : (
+          <>
+            <CalendarIcon
+              className={cn(
+                "h-3.5 w-3.5 transition-colors",
+                isOverdue ? "text-amber-500" : "text-faint group-hover:text-ink",
+              )}
+            />
+            <span className="font-medium">{labelText}</span>
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 text-faint transition-transform duration-150 group-hover:text-ink",
+                isOpen && "rotate-180",
+              )}
+            />
+          </>
+        )}
       </button>
 
       {isOpen ? (
@@ -244,7 +277,7 @@ function DatePickerMenu({
         left: coords.left,
         width: 280,
       }}
-      className="fixed z-50 rounded-2xl border border-line bg-elevated p-3 shadow-2xl menu-in"
+      className="fixed z-[80] rounded-2xl border border-line bg-elevated p-3 shadow-2xl menu-in"
     >
       {/* Quick presets */}
       <div className="grid grid-cols-3 gap-1 pb-2">

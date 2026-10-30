@@ -13,6 +13,7 @@ export function TaskProjectPicker({
   canWrite,
   onChangeProject,
   onChangeSection,
+  variant = "field",
 }: {
   projectId: string;
   section: string;
@@ -20,6 +21,7 @@ export function TaskProjectPicker({
   canWrite: boolean;
   onChangeProject: (projectId: string, section: string) => void;
   onChangeSection: (section: string) => void;
+  variant?: "field" | "cell";
 }) {
   const [projectOpen, setProjectOpen] = useState(false);
   const [sectionOpen, setSectionOpen] = useState(false);
@@ -28,6 +30,56 @@ export function TaskProjectPicker({
 
   const currentProject = projects.find((p) => p.id === projectId);
   const hasSections = (currentProject?.sections ?? []).length > 0;
+
+  if (variant === "cell") {
+    const mark = (
+      <span
+        className="h-2 w-2 shrink-0 rounded-[3px]"
+        style={{ backgroundColor: currentProject?.color ?? "#737373" }}
+      />
+    );
+    const name = (
+      <span className="truncate font-medium">{currentProject?.name ?? "Sem projeto"}</span>
+    );
+    return (
+      <>
+        {canWrite ? (
+          <button
+            ref={projectButtonRef}
+            type="button"
+            onClick={() => setProjectOpen((prev) => !prev)}
+            aria-expanded={projectOpen}
+            aria-label="Alterar projeto"
+            className={cn(
+              "inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink hover:bg-hover",
+              projectOpen && "bg-hover",
+            )}
+          >
+            {mark}
+            {name}
+          </button>
+        ) : (
+          <span className="inline-flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-ink">
+            {mark}
+            {name}
+          </span>
+        )}
+        {projectOpen && canWrite ? (
+          <ProjectMenu
+            anchorRef={projectButtonRef}
+            currentProjectId={projectId}
+            currentSection={section}
+            projects={projects}
+            onClose={() => setProjectOpen(false)}
+            onSelect={(nextProjectId, nextSection) => {
+              onChangeProject(nextProjectId, nextSection);
+              setProjectOpen(false);
+            }}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   if (!canWrite) {
     return (
@@ -227,7 +279,7 @@ function ProjectMenu({
         left: coords.left,
         width: 260,
       }}
-      className="fixed z-50 rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in"
+      className="fixed z-[80] rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in"
     >
       {/* Search Input */}
       <div className="relative mb-1 flex items-center px-1 pt-0.5">
@@ -386,7 +438,7 @@ function SectionMenu({
         left: coords.left,
         width: 200,
       }}
-      className="fixed z-50 rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in"
+      className="fixed z-[80] rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in"
     >
       <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
         Seções ({projectName})
