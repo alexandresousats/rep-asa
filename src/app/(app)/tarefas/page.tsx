@@ -13,9 +13,10 @@ import {
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
+import { TaskPriorityPicker } from "@/components/tasks/task-priority-picker";
 import { TaskProjectPicker } from "@/components/tasks/task-project-picker";
+import { TaskTagPicker } from "@/components/tasks/task-tag-picker";
 import { Avatar } from "@/components/ui/avatar";
-import { TagChip } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { createTask, setTaskStatus, updateTask } from "@/lib/api";
@@ -422,7 +423,6 @@ export default function MyTasksPage() {
                       if (parent) metaExtras.push(`Subtarefa de ${parent.title}`);
                       if (task.status === "doing") metaExtras.push("Em andamento");
                       if (task.section) metaExtras.push(task.section);
-                      const taskTags = tags.filter((tag) => task.tagIds.includes(tag.id));
                       return (
                         <div
                           key={task.id}
@@ -516,17 +516,22 @@ export default function MyTasksPage() {
                               onChangeSection={(section) => updateTask(task.id, { section })}
                             />
                           </span>
-                          <span className="px-1.5 text-xs">
-                            <PriorityLabel priority={task.priority} />
+                          <span onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskPriorityPicker
+                              priority={task.priority}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onChange={(priority) => updateTask(task.id, { priority })}
+                            />
                           </span>
-                          <span className="flex min-w-0 items-center gap-1 overflow-hidden px-1.5">
-                            {taskTags.length > 0 ? (
-                              taskTags.map((tag) => (
-                                <TagChip key={tag.id} name={tag.name} color={tag.color} />
-                              ))
-                            ) : (
-                              <span className="text-xs text-faint">—</span>
-                            )}
+                          <span className="min-w-0" onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskTagPicker
+                              tagIds={task.tagIds}
+                              tags={tags}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onUpdateTagIds={(tagIds) => updateTask(task.id, { tagIds })}
+                            />
                           </span>
                           <span
                             className="flex justify-end"
@@ -539,10 +544,8 @@ export default function MyTasksPage() {
                               title="Abrir tarefa"
                               onClick={() => openTask(task.id)}
                               className={cn(
-                                "rounded-lg p-1.5",
-                                selectedId === task.id
-                                  ? "text-ink"
-                                  : "text-faint hover:bg-hover hover:text-ink",
+                                "cursor-pointer rounded-lg border border-transparent p-1.5 transition-colors hover:border-line hover:bg-elevated hover:text-ink hover:shadow-sm",
+                                selectedId === task.id ? "text-ink" : "text-faint",
                               )}
                             >
                               <ChevronRight className="h-4 w-4" strokeWidth={1.75} />

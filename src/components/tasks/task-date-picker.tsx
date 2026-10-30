@@ -142,7 +142,7 @@ export function TaskDatePicker({
         aria-label="Alterar data de conclusão"
         className={cn(
           isCell
-            ? "inline-flex max-w-full items-center rounded-lg px-1.5 py-1 text-xs hover:bg-hover"
+            ? "inline-flex max-w-full cursor-pointer items-center rounded-lg border border-transparent px-1.5 py-1 text-xs transition-colors hover:border-line hover:bg-elevated hover:shadow-sm"
             : "group inline-flex items-center gap-2 rounded-xl text-xs transition-all duration-150",
           !isCell &&
             (dueDate
@@ -157,7 +157,10 @@ export function TaskDatePicker({
             : isOverdue && dueDate
               ? "border-amber-500/50 text-amber-500 hover:border-amber-500"
               : "text-ink",
-          isOpen && (isCell ? "bg-hover" : "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10"),
+          isOpen &&
+            (isCell
+              ? "border-line bg-elevated shadow-sm"
+              : "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10"),
         )}
       >
         {isCell ? (

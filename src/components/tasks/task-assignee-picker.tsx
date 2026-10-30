@@ -59,13 +59,16 @@ export function TaskAssigneePicker({
         aria-label="Alterar responsável da tarefa"
         className={cn(
           isCell
-            ? "group inline-flex max-w-full items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-hover"
+            ? "group inline-flex max-w-full cursor-pointer items-center gap-2 rounded-lg border border-transparent px-1.5 py-1 text-xs transition-colors hover:border-line hover:bg-elevated hover:shadow-sm"
             : "group inline-flex items-center gap-2 rounded-xl text-xs transition-all duration-150",
           !isCell &&
             (assignee
               ? "border border-line/70 bg-base/60 px-2.5 py-1 text-ink hover:border-line hover:bg-hover"
               : "border border-dashed border-line/70 bg-base/30 px-2.5 py-1 text-faint hover:border-line-subtle hover:bg-hover hover:text-ink"),
-          isOpen && (isCell ? "bg-hover" : "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10"),
+          isOpen &&
+            (isCell
+              ? "border-line bg-elevated shadow-sm"
+              : "border-ink/50 bg-hover shadow-sm ring-1 ring-ink/10"),
         )}
       >
         {assignee ? (

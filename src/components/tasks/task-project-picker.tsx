@@ -51,8 +51,8 @@ export function TaskProjectPicker({
             aria-expanded={projectOpen}
             aria-label="Alterar projeto"
             className={cn(
-              "inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink hover:bg-hover",
-              projectOpen && "bg-hover",
+              "inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-lg border border-transparent px-2 py-1 text-xs text-ink transition-colors hover:border-line hover:bg-elevated hover:shadow-sm",
+              projectOpen && "border-line bg-elevated shadow-sm",
             )}
           >
             {mark}
