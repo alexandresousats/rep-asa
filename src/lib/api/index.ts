@@ -1,5 +1,7 @@
 import type {
   AgentSharing,
+  Channel,
+  ChannelMessage,
   ChatFolder,
   ChatMessage,
   Priority,
@@ -690,6 +692,67 @@ export async function sendMessage(threadId: string, body: string) {
   );
   useWorkspace.getState().upsertMessage(message);
   return message;
+}
+
+export function listChannels() {
+  return request<Channel[]>("/channels");
+}
+
+export function createChannel(input: { name: string; topic?: string }) {
+  return request<Channel>("/channels", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateChannel(id: string, patch: { name?: string; topic?: string }) {
+  return request<Channel>(`/channels/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteChannel(id: string) {
+  return request<{ ok: true }>(`/channels/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function reorderChannels(ids: string[]) {
+  return request<Channel[]>("/channels/reorder", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export function listChannelMessages(
+  channelId: string,
+  query?: { before?: string; q?: string; limit?: number },
+) {
+  const params = new URLSearchParams();
+  if (query?.before) params.set("before", query.before);
+  if (query?.q) params.set("q", query.q);
+  if (query?.limit) params.set("limit", String(query.limit));
+  const suffix = params.size ? `?${params.toString()}` : "";
+  return request<{ messages: ChannelMessage[]; nextCursor: string | null }>(
+    `/channels/${encodeURIComponent(channelId)}/messages${suffix}`,
+  );
+}
+
+export function postChannelMessage(channelId: string, body: string) {
+  return request<ChannelMessage>(`/channels/${encodeURIComponent(channelId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function editChannelMessage(channelId: string, messageId: string, body: string) {
+  return request<ChannelMessage>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "PATCH", body: JSON.stringify({ body }) },
+  );
+}
+
+export function deleteChannelMessage(channelId: string, messageId: string) {
+  return request<{ ok: true }>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function createThread(

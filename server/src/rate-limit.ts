@@ -63,6 +63,14 @@ export async function assertGoogleRate(ip: string) {
   await assertRateLimit(`google:ip:${ip}`, 20, FIFTEEN_MINUTES);
 }
 
+export async function assertChannelPostRate(userId: string) {
+  await assertRateLimit(`channel-post:${userId}`, 20, 60 * 1000);
+}
+
+export async function assertChannelManageRate(userId: string) {
+  await assertRateLimit(`channel-manage:${userId}`, 20, ONE_HOUR);
+}
+
 export async function assertDemandRate(ip: string, action: "info" | "chat" | "submit") {
   const limit = action === "submit" ? 10 : 30;
   await assertRateLimit(`demand:${action}:ip:${ip}`, limit, FIFTEEN_MINUTES);

@@ -149,14 +149,14 @@ function assertWorkspace(actor: Actor) {
   }
 }
 
-function assertWritable(actor: Actor) {
+export function assertWritable(actor: Actor) {
   assertWorkspace(actor);
   if (actor.access === "leitura") {
     throw new ApiError(403, "Sua conta está em modo leitura.");
   }
 }
 
-function assertAdmin(actor: Actor) {
+export function assertAdmin(actor: Actor) {
   assertWorkspace(actor);
   if (actor.access !== "admin") {
     throw new ApiError(403, "Só um administrador pode fazer isso.");

@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { stream, streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { subscribe } from "./events";
+import { isChannelLive, subscribe } from "./events";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
 import {
@@ -101,6 +101,7 @@ import {
   clientIp,
 } from "./rate-limit";
 import { registerAgentSessionRoutes } from "./agent-sessions";
+import { registerChannelRoutes } from "./channels";
 import { registerProjectExportRoutes } from "./project-export";
 import { isPublicSharePath, registerShareRoutes } from "./share-links";
 
@@ -713,6 +714,8 @@ app.get("/events", async (c) => {
         if (event.userId !== actor.id) return;
       } else if (!actor.workspaceId || event.workspaceId !== actor.workspaceId) {
         return;
+      } else if (isChannelLive(event) && actor.access === "cliente") {
+        return;
       }
       void stream.writeSSE({ data: JSON.stringify(event) });
     });
@@ -940,6 +943,7 @@ app.post("/mcp", async (c) => {
 app.get("/mcp", (c) => c.json(rpcError(null, -32000, "Use POST."), 405));
 app.delete("/mcp", (c) => c.json(rpcError(null, -32000, "Sessão stateless."), 405));
 
+registerChannelRoutes(app, { actorOf });
 registerShareRoutes(app, { actorOf });
 registerProjectExportRoutes(app, { actorOf });
 registerAgentSessionRoutes(app, { actorOf });

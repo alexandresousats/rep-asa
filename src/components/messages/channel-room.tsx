@@ -1,0 +1,1172 @@
+"use client";
+
+import { format, isToday, isYesterday, parseISO } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import {
+  ArrowDown,
+  Hash,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast";
+import {
+  createChannel,
+  deleteChannel,
+  deleteChannelMessage,
+  editChannelMessage,
+  listChannelMessages,
+  listChannels,
+  postChannelMessage,
+  reorderChannels,
+  updateChannel,
+} from "@/lib/api";
+import { ApiError } from "@/lib/api/client";
+import { subscribeChannelLive } from "@/lib/channel-live";
+import { cn } from "@/lib/cn";
+import type { Channel, ChannelMessage, User } from "@/lib/types";
+import { useAccess, useWorkspace } from "@/lib/workspace";
+
+const MESSAGE_MAX = 2000;
+
+export function ChannelRoom({ channelId }: { channelId?: string }) {
+  const router = useRouter();
+  const workspaceId = useWorkspace((state) => state.workspace?.id);
+  const users = useWorkspace((state) => state.users);
+  const { canWrite, isAdmin } = useAccess();
+  const { show, node: toast } = useToast();
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [messages, setMessages] = useState<ChannelMessage[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [error, setError] = useState("");
+  const [showList, setShowList] = useState(!channelId);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
+
+  const active = channels.find((channel) => channel.id === channelId) ?? null;
+  const known = Boolean(active);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    setLoading(true);
+    setBlocked(false);
+    setError("");
+    listChannels()
+      .then((rows) => {
+        if (!cancelled) setChannels(rows);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        if (caught instanceof ApiError && caught.status === 403) setBlocked(true);
+        else setError(caught instanceof ApiError ? caught.message : "Não foi possível abrir os canais.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (loading || blocked || channels.length === 0) return;
+    if (!channelId || !channels.some((channel) => channel.id === channelId)) {
+      router.replace(`/mensagens/${channels[0].id}`);
+    }
+  }, [blocked, channelId, channels, loading, router]);
+
+  useEffect(() => {
+    if (channelId) setShowList(false);
+  }, [channelId]);
+
+  useEffect(() => {
+    if (!channelId || !known) return;
+    let cancelled = false;
+    setMessagesLoading(true);
+    listChannelMessages(channelId)
+      .then((page) => {
+        if (cancelled || !channelId) return;
+        setMessages((current) => {
+          const ids = new Set(page.messages.map((item) => item.id));
+          const newest = page.messages[page.messages.length - 1]?.createdAt ?? "";
+          const extra = current.filter(
+            (item) => item.channelId === channelId && !ids.has(item.id) && item.createdAt >= newest,
+          );
+          return [...page.messages, ...extra];
+        });
+        setNextCursor(page.nextCursor);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) {
+          show(caught instanceof ApiError ? caught.message : "Não foi possível carregar as mensagens.", "error");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMessagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, known, show]);
+
+  useEffect(() => {
+    return subscribeChannelLive((event) => {
+      if (event.kind === "channels") {
+        setChannels(event.channels);
+        return;
+      }
+      if (event.kind === "channel") {
+        setChannels((current) =>
+          current.some((item) => item.id === event.channel.id)
+            ? current.map((item) => (item.id === event.channel.id ? event.channel : item))
+            : [...current, event.channel].sort((a, b) => a.position - b.position),
+        );
+        return;
+      }
+      if (event.kind === "channel-removed") {
+        setChannels((current) => current.filter((item) => item.id !== event.channelId));
+        return;
+      }
+      if (!channelId) return;
+      if (event.kind === "channel-message" && event.message.channelId === channelId) {
+        setMessages((current) =>
+          current.some((item) => item.id === event.message.id)
+            ? current.map((item) => (item.id === event.message.id ? event.message : item))
+            : [...current, event.message],
+        );
+      }
+      if (event.kind === "channel-message-removed" && event.channelId === channelId) {
+        setMessages((current) => current.filter((item) => item.id !== event.messageId));
+      }
+    });
+  }, [channelId]);
+
+  function openChannel(id: string) {
+    setShowList(false);
+    setMembersOpen(false);
+    router.push(`/mensagens/${id}`);
+  }
+
+  if (blocked) {
+    return (
+      <div className="flex h-full items-center justify-center px-6">
+        <p className="max-w-sm text-center text-sm leading-6 text-faint">
+          Os canais são da equipe deste espaço.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 bg-base text-ink">
+      <aside
+        className={cn(
+          "min-h-0 w-full shrink-0 flex-col bg-sidebar md:flex md:w-[232px]",
+          showList ? "flex" : "hidden",
+        )}
+      >
+        <div className="flex h-12 items-center justify-between gap-2 border-b border-line px-3">
+          <p className="px-1 text-sm font-medium">Canais</p>
+          {isAdmin ? (
+            <button
+              type="button"
+              aria-label="Novo canal"
+              onClick={() => setDialog("create")}
+              className="rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink"
+            >
+              <Plus className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+          {loading ? <p className="px-2 text-sm text-faint">Carregando canais…</p> : null}
+          {error ? <p className="px-2 text-sm text-red-400">{error}</p> : null}
+          <ul className="space-y-0.5">
+            {channels.map((channel) => (
+              <li key={channel.id}>
+                <button
+                  type="button"
+                  onClick={() => openChannel(channel.id)}
+                  aria-current={channel.id === channelId ? "page" : undefined}
+                  className={cn(
+                    "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm",
+                    channel.id === channelId
+                      ? "bg-active text-ink"
+                      : "text-muted hover:bg-hover hover:text-ink",
+                  )}
+                >
+                  <Hash className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+                  <span className="truncate">{channel.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
+
+      <section
+        className={cn(
+          "relative min-h-0 min-w-0 flex-1 flex-col border-l border-line",
+          showList ? "hidden md:flex" : "flex",
+        )}
+      >
+        {active ? (
+          <Transcript
+            channel={active}
+            channels={channels}
+            messages={messages}
+            users={users}
+            loading={messagesLoading}
+            nextCursor={nextCursor}
+            canWrite={canWrite}
+            isAdmin={isAdmin}
+            membersOpen={membersOpen}
+            onToggleMembers={() => setMembersOpen((open) => !open)}
+            onBack={() => setShowList(true)}
+            onEditChannel={() => setDialog("edit")}
+            onMessages={setMessages}
+            onCursor={setNextCursor}
+            onError={(text) => show(text, "error")}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center px-6 text-sm text-faint">
+            {loading ? "Abrindo o canal…" : "Escolha um canal."}
+          </div>
+        )}
+        {membersOpen ? (
+          <div className="absolute inset-y-0 right-0 z-20 w-[240px] border-l border-line bg-sidebar xl:hidden">
+            <MemberList users={users} onClose={() => setMembersOpen(false)} />
+          </div>
+        ) : null}
+      </section>
+
+      <aside className="hidden w-[220px] shrink-0 border-l border-line bg-sidebar xl:block">
+        <MemberList users={users} />
+      </aside>
+
+      {dialog === "create" || (dialog === "edit" && active) ? (
+        <ChannelDialog
+          mode={dialog}
+          channel={dialog === "edit" ? active : null}
+          channels={channels}
+          onClose={() => setDialog(null)}
+          onReordered={setChannels}
+          onSaved={(next) => {
+            const created = next.find((item) => !channels.some((current) => current.id === item.id));
+            setChannels(next);
+            setDialog(null);
+            if (dialog === "create" && created) router.push(`/mensagens/${created.id}`);
+          }}
+          onDeleted={(nextId) => {
+            setDialog(null);
+            if (nextId) router.replace(`/mensagens/${nextId}`);
+          }}
+          onError={(text) => show(text, "error")}
+        />
+      ) : null}
+      {toast}
+    </div>
+  );
+}
+
+function Transcript({
+  channel,
+  channels,
+  messages,
+  users,
+  loading,
+  nextCursor,
+  canWrite,
+  isAdmin,
+  membersOpen,
+  onToggleMembers,
+  onBack,
+  onEditChannel,
+  onMessages,
+  onCursor,
+  onError,
+}: {
+  channel: Channel;
+  channels: Channel[];
+  messages: ChannelMessage[];
+  users: User[];
+  loading: boolean;
+  nextCursor: string | null;
+  canWrite: boolean;
+  isAdmin: boolean;
+  membersOpen: boolean;
+  onToggleMembers: () => void;
+  onBack: () => void;
+  onEditChannel: () => void;
+  onMessages: (messages: ChannelMessage[]) => void;
+  onCursor: (cursor: string | null) => void;
+  onError: (text: string) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const [away, setAway] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [hits, setHits] = useState<ChannelMessage[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const names = useMemo(
+    () => team(users).map((user) => user.name),
+    [users],
+  );
+  const shown = hits ?? messages;
+
+  useEffect(() => {
+    setSearch("");
+    setHits(null);
+    setSearchOpen(false);
+    stick.current = true;
+    setAway(false);
+  }, [channel.id]);
+
+  useEffect(() => {
+    if (!stick.current || hits) return;
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [hits, messages, channel.id]);
+
+  useEffect(() => {
+    const term = search.trim();
+    if (term.length < 2) {
+      setHits(null);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      void listChannelMessages(channel.id, { q: term })
+        .then((page) => {
+          if (!cancelled) setHits(page.messages);
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled) {
+            onErrorRef.current(caught instanceof ApiError ? caught.message : "A busca falhou.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [channel.id, search]);
+
+  async function loadOlder() {
+    if (!nextCursor || loadingOlder || hits) return;
+    const el = scroller.current;
+    const height = el?.scrollHeight ?? 0;
+    setLoadingOlder(true);
+    try {
+      const page = await listChannelMessages(channel.id, { before: nextCursor });
+      stick.current = false;
+      const ids = new Set(messages.map((message) => message.id));
+      onMessages([...page.messages.filter((message) => !ids.has(message.id)), ...messages]);
+      onCursor(page.nextCursor);
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - height;
+      });
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível carregar o histórico.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
+  return (
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3 md:px-4">
+        <button
+          type="button"
+          className="rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink md:hidden"
+          aria-label="Ver canais"
+          onClick={onBack}
+        >
+          <Hash className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+        <Hash className="hidden h-4 w-4 text-faint md:block" strokeWidth={1.75} />
+        <h1 className="truncate text-sm font-medium">{channel.name}</h1>
+        {channel.topic ? (
+          <>
+            <span className="hidden h-4 w-px bg-line sm:block" />
+            <p className="hidden min-w-0 flex-1 truncate text-xs text-faint sm:block">{channel.topic}</p>
+          </>
+        ) : (
+          <span className="flex-1" />
+        )}
+        <button
+          type="button"
+          aria-label="Buscar neste canal"
+          aria-pressed={searchOpen}
+          onClick={() => {
+            setSearchOpen((open) => !open);
+            if (searchOpen) {
+              setSearch("");
+              setHits(null);
+            }
+          }}
+          className="rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink"
+        >
+          <Search className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          aria-label="Ver equipe"
+          aria-pressed={membersOpen}
+          onClick={onToggleMembers}
+          className="rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink xl:hidden"
+        >
+          <Users className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            aria-label="Editar canal"
+            onClick={onEditChannel}
+            className="rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink"
+          >
+            <Pencil className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        ) : null}
+      </header>
+
+      {searchOpen ? (
+        <div className="border-b border-line px-4 py-2">
+          <input
+            autoFocus
+            value={search}
+            onChange={(event) => setSearch(event.target.value.slice(0, 80))}
+            placeholder={`Buscar em #${channel.name}`}
+            className="h-9 w-full rounded-lg bg-elevated px-3 text-sm text-ink outline-none placeholder:text-faint"
+          />
+        </div>
+      ) : null}
+
+      <div
+        ref={scroller}
+        onScroll={() => {
+          const el = scroller.current;
+          if (!el) return;
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          stick.current = near;
+          setAway(!near);
+        }}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+      >
+        {nextCursor && !hits ? (
+          <div className="mb-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="rounded-full px-3 py-1 text-xs text-faint hover:bg-hover hover:text-ink disabled:opacity-50"
+            >
+              {loadingOlder ? "Carregando…" : "Mensagens anteriores"}
+            </button>
+          </div>
+        ) : null}
+        {loading && messages.length === 0 ? (
+          <p className="text-sm text-faint">Carregando mensagens…</p>
+        ) : null}
+        {hits && search.trim().length >= 2 ? (
+          <p className="mb-4 text-xs text-faint">
+            {searching ? "Buscando…" : `${hits.length} ${hits.length === 1 ? "resultado" : "resultados"}`}
+          </p>
+        ) : null}
+        {!loading && shown.length === 0 ? (
+          <div className="flex h-full min-h-48 flex-col items-start justify-center">
+            <Hash className="mb-3 h-8 w-8 text-faint" strokeWidth={1.5} />
+            <p className="text-lg font-medium">#{channel.name}</p>
+            <p className="mt-1 max-w-md text-sm leading-6 text-faint">
+              {hits
+                ? "Nada com esse texto neste canal."
+                : channel.topic || "Este canal ainda não tem mensagens. Escreva a primeira."}
+            </p>
+          </div>
+        ) : (
+          <ol className="space-y-1">
+            {shown.map((message, index) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                previous={shown[index - 1]}
+                users={users}
+                names={names}
+                canWrite={canWrite}
+                isAdmin={isAdmin}
+                channelId={channel.id}
+                onChanged={(saved) => {
+                  onMessages(messages.map((item) => (item.id === saved.id ? saved : item)));
+                  setHits((current) => current?.map((item) => (item.id === saved.id ? saved : item)) ?? null);
+                }}
+                onRemoved={(id) => {
+                  onMessages(messages.filter((item) => item.id !== id));
+                  setHits((current) => current?.filter((item) => item.id !== id) ?? null);
+                }}
+                onError={onError}
+              />
+            ))}
+          </ol>
+        )}
+        <div ref={bottom} />
+      </div>
+
+      {away && !hits ? (
+        <button
+          type="button"
+          onClick={() => {
+            stick.current = true;
+            setAway(false);
+            bottom.current?.scrollIntoView({ block: "end" });
+          }}
+          className="absolute bottom-24 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-elevated px-3 py-1.5 text-xs text-ink"
+        >
+          <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Ir para o fim
+        </button>
+      ) : null}
+
+      <Composer
+        channel={channel}
+        users={users}
+        enabled={canWrite}
+        onSent={(message) => {
+          stick.current = true;
+          setAway(false);
+          setHits(null);
+          setSearch("");
+          onMessages(messages.some((item) => item.id === message.id) ? messages : [...messages, message]);
+        }}
+        onError={onError}
+      />
+      <span className="sr-only">{channels.length} canais</span>
+    </>
+  );
+}
+
+function MessageRow({
+  message,
+  previous,
+  users,
+  names,
+  canWrite,
+  isAdmin,
+  channelId,
+  onChanged,
+  onRemoved,
+  onError,
+}: {
+  message: ChannelMessage;
+  previous?: ChannelMessage;
+  users: User[];
+  names: string[];
+  canWrite: boolean;
+  isAdmin: boolean;
+  channelId: string;
+  onChanged: (message: ChannelMessage) => void;
+  onRemoved: (id: string) => void;
+  onError: (text: string) => void;
+}) {
+  const currentUser = useWorkspace((state) => state.user);
+  const author = users.find((user) => user.id === message.authorId);
+  const mine = currentUser?.id === message.authorId;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.body);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const dayChanged = !previous || dayKey(previous.createdAt) !== dayKey(message.createdAt);
+  const grouped =
+    !dayChanged &&
+    previous?.authorId === message.authorId &&
+    new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() < 5 * 60 * 1000;
+
+  async function save() {
+    const text = draft.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try {
+      const saved = await editChannelMessage(channelId, message.id, draft);
+      onChanged(saved);
+      setEditing(false);
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível editar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await deleteChannelMessage(channelId, message.id);
+      onRemoved(message.id);
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível apagar.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li>
+      {dayChanged ? (
+        <div className="my-3 flex items-center gap-3">
+          <span className="h-px flex-1 bg-line" />
+          <span className="text-[11px] text-faint">{dayLabel(message.createdAt)}</span>
+          <span className="h-px flex-1 bg-line" />
+        </div>
+      ) : null}
+      <div className="group relative flex gap-3 rounded-md px-1 py-0.5 hover:bg-hover/60">
+        {grouped ? (
+          <span className="w-8 shrink-0" />
+        ) : (
+          <Avatar initials={author?.initials ?? "?"} src={author?.avatar} name={author?.name} />
+        )}
+        <div className="min-w-0 flex-1">
+          {grouped ? null : (
+            <p className="text-sm">
+              <span className="font-medium">{author?.name ?? "Alguém da equipe"}</span>
+              <time className="ml-2 text-[11px] text-faint" dateTime={message.createdAt}>
+                {format(parseISO(message.createdAt), "HH:mm")}
+              </time>
+            </p>
+          )}
+          {editing ? (
+            <form
+              className="mt-1"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void save();
+              }}
+            >
+              <textarea
+                value={draft}
+                maxLength={MESSAGE_MAX}
+                onChange={(event) => setDraft(event.target.value)}
+                className="min-h-16 w-full resize-none rounded-lg bg-elevated px-3 py-2 text-sm leading-6 text-ink outline-none"
+              />
+              <div className="mt-2 flex gap-2">
+                <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+                  Salvar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setDraft(message.body);
+                    setEditing(false);
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <MessageText body={message.body} names={names} />
+              {message.editedAt ? <p className="text-[11px] text-faint">editada</p> : null}
+            </>
+          )}
+        </div>
+        {!editing && (mine || isAdmin) ? (
+          <div className="absolute top-0 right-1 flex items-center gap-0.5 rounded-md border border-line bg-elevated opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-100">
+            {mine && canWrite ? (
+              <button
+                type="button"
+                aria-label="Editar mensagem"
+                onClick={() => {
+                  setDraft(message.body);
+                  setEditing(true);
+                  setConfirming(false);
+                }}
+                className="p-1.5 text-faint hover:text-ink"
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {mine || isAdmin ? (
+              confirming ? (
+                <button
+                  type="button"
+                  onClick={() => void remove()}
+                  disabled={busy}
+                  className="px-2 py-1 text-[11px] text-red-400"
+                >
+                  Apagar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Apagar mensagem"
+                  onClick={() => setConfirming(true)}
+                  className="p-1.5 text-faint hover:text-ink"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </button>
+              )
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+function Composer({
+  channel,
+  users,
+  enabled,
+  onSent,
+  onError,
+}: {
+  channel: Channel;
+  users: User[];
+  enabled: boolean;
+  onSent: (message: ChannelMessage) => void;
+  onError: (text: string) => void;
+}) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState("");
+  const [caret, setCaret] = useState(0);
+  const [highlight, setHighlight] = useState(0);
+  const [mentionOff, setMentionOff] = useState(false);
+  const [sending, setSending] = useState(false);
+  const people = team(users);
+  const mention = mentionAt(draft, caret);
+  const matches = mention
+    ? people
+        .filter((user) => user.name.toLocaleLowerCase("pt-BR").includes(mention.query.toLocaleLowerCase("pt-BR")))
+        .slice(0, 6)
+    : [];
+  const menuOpen = Boolean(mention && matches.length > 0 && !mentionOff);
+
+  useEffect(() => {
+    setHighlight(0);
+  }, [mention?.query]);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [draft]);
+
+  function insertMention(name: string) {
+    if (!mention) return;
+    const next = `${draft.slice(0, mention.start)}@${name} ${draft.slice(caret)}`;
+    const nextCaret = mention.start + name.length + 2;
+    setDraft(next.slice(0, MESSAGE_MAX));
+    setCaret(nextCaret);
+    requestAnimationFrame(() => {
+      box.current?.focus();
+      box.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
+  async function send() {
+    if (!enabled || sending || !draft.trim() || menuOpen) return;
+    setSending(true);
+    try {
+      const message = await postChannelMessage(channel.id, draft);
+      setDraft("");
+      setCaret(0);
+      onSent(message);
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível enviar.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!enabled) {
+    return (
+      <div className="px-4 pb-4">
+        <p className="rounded-lg bg-elevated px-3 py-3 text-sm text-faint">
+          Sua conta pode ler este canal, sem enviar mensagens.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="relative px-4 pb-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send();
+      }}
+    >
+      {menuOpen ? (
+        <ul className="absolute right-4 bottom-full left-4 mb-2 overflow-hidden rounded-xl border border-line bg-elevated">
+          {matches.map((user, index) => (
+            <li key={user.id}>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => insertMention(user.name)}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
+                  index === highlight ? "bg-hover" : "hover:bg-hover",
+                )}
+              >
+                <Avatar initials={user.initials} src={user.avatar} name={user.name} size="sm" />
+                <span className="truncate">{user.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="flex items-end gap-2 rounded-lg bg-elevated px-3 py-1.5">
+        <label className="sr-only" htmlFor={`composer-${channel.id}`}>
+          Mensagem em {channel.name}
+        </label>
+        <textarea
+          id={`composer-${channel.id}`}
+          ref={box}
+          rows={1}
+          value={draft}
+          maxLength={MESSAGE_MAX}
+          placeholder={`Conversar em #${channel.name}`}
+          onChange={(event) => {
+            setMentionOff(false);
+            setDraft(event.target.value);
+            setCaret(event.target.selectionStart ?? event.target.value.length);
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (menuOpen && event.key === "ArrowDown") {
+              event.preventDefault();
+              setHighlight((index) => (index + 1) % matches.length);
+              return;
+            }
+            if (menuOpen && event.key === "ArrowUp") {
+              event.preventDefault();
+              setHighlight((index) => (index - 1 + matches.length) % matches.length);
+              return;
+            }
+            if (menuOpen && event.key === "Escape") {
+              event.preventDefault();
+              setMentionOff(true);
+              return;
+            }
+            if (menuOpen && event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              const chosen = matches[highlight];
+              if (chosen) insertMention(chosen.name);
+              return;
+            }
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+          className="max-h-40 min-h-10 flex-1 resize-none bg-transparent py-2 text-sm leading-6 text-ink outline-none placeholder:text-faint"
+        />
+        <button
+          type="submit"
+          disabled={sending || !draft.trim()}
+          className="mb-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-base disabled:opacity-40"
+        >
+          Enviar
+        </button>
+      </div>
+      {draft.length >= 1800 ? (
+        <p className="mt-1 text-right text-[11px] text-faint">
+          {draft.length}/{MESSAGE_MAX}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+function ChannelDialog({
+  mode,
+  channel,
+  channels,
+  onClose,
+  onReordered,
+  onSaved,
+  onDeleted,
+  onError,
+}: {
+  mode: "create" | "edit";
+  channel: Channel | null;
+  channels: Channel[];
+  onClose: () => void;
+  onReordered: (channels: Channel[]) => void;
+  onSaved: (channels: Channel[]) => void;
+  onDeleted: (nextId: string | null) => void;
+  onError: (text: string) => void;
+}) {
+  const [name, setName] = useState(mode === "edit" ? (channel?.name ?? "") : "");
+  const [topic, setTopic] = useState(mode === "edit" ? (channel?.topic ?? "") : "");
+  const [busy, setBusy] = useState(false);
+  const index = channel ? channels.findIndex((item) => item.id === channel.id) : -1;
+
+  async function save() {
+    setBusy(true);
+    try {
+      if (mode === "create") {
+        const created = await createChannel({ name, topic });
+        onSaved([...channels, created].sort((a, b) => a.position - b.position));
+        return;
+      }
+      if (!channel) return;
+      const saved = await updateChannel(channel.id, { name, topic });
+      onSaved(channels.map((item) => (item.id === saved.id ? saved : item)));
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível salvar o canal.");
+      setBusy(false);
+    }
+  }
+
+  async function move(direction: -1 | 1) {
+    if (!channel || index < 0) return;
+    const next = index + direction;
+    if (next < 0 || next >= channels.length) return;
+    const ids = channels.map((item) => item.id);
+    const [id] = ids.splice(index, 1);
+    ids.splice(next, 0, id);
+    setBusy(true);
+    try {
+      onReordered(await reorderChannels(ids));
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível reordenar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!channel) return;
+    setBusy(true);
+    try {
+      await deleteChannel(channel.id);
+      const remaining = channels.filter((item) => item.id !== channel.id);
+      onSaved(remaining);
+      onDeleted(remaining[0]?.id ?? null);
+    } catch (caught) {
+      onError(caught instanceof ApiError ? caught.message : "Não foi possível excluir o canal.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open title={mode === "create" ? "Novo canal" : "Editar canal"} onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <Input label="Nome" value={name} onChange={(event) => setName(event.target.value)} required autoFocus />
+        <Input
+          label="Assunto"
+          value={topic}
+          onChange={(event) => setTopic(event.target.value)}
+          placeholder="O que se conversa aqui"
+        />
+        {mode === "edit" && channels.length > 1 ? (
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={busy || index <= 0} onClick={() => void move(-1)}>
+              Subir
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || index < 0 || index >= channels.length - 1}
+              onClick={() => void move(1)}
+            >
+              Descer
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-3 pt-2">
+          {mode === "edit" && channels.length > 1 ? (
+            <button type="button" onClick={() => void remove()} disabled={busy} className="text-sm text-red-400">
+              Excluir canal
+            </button>
+          ) : (
+            <span />
+          )}
+          <Button type="submit" disabled={busy || name.trim().length < 2}>
+            {mode === "create" ? "Criar canal" : "Salvar"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function MemberList({ users, onClose }: { users: User[]; onClose?: () => void }) {
+  const people = team(users);
+  return (
+    <div className="px-3 py-3">
+      <div className="mb-2 flex items-center justify-between px-2">
+        <p className="text-xs text-faint">Equipe — {people.length}</p>
+        {onClose ? (
+          <button type="button" aria-label="Fechar equipe" onClick={onClose} className="text-faint hover:text-ink">
+            <X className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        ) : null}
+      </div>
+      <ul className="space-y-0.5">
+        {people.map((person) => (
+          <li key={person.id} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+            <Avatar initials={person.initials} src={person.avatar} name={person.name} size="sm" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm">{person.name}</span>
+              <span className="block truncate text-[11px] text-faint">{person.role}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MessageText({ body, names }: { body: string; names: string[] }) {
+  const pieces = useMemo(() => tokenize(body, names), [body, names]);
+  return (
+    <p className="text-sm leading-6 whitespace-pre-wrap text-ink">
+      {pieces.map((piece, index) => {
+        if (piece.kind === "link") {
+          return (
+            <a
+              key={index}
+              href={piece.href}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline decoration-line underline-offset-2"
+            >
+              {piece.text}
+            </a>
+          );
+        }
+        if (piece.kind === "mention") {
+          return (
+            <span key={index} className="rounded bg-active px-1">
+              {piece.text}
+            </span>
+          );
+        }
+        return <span key={index}>{piece.text}</span>;
+      })}
+    </p>
+  );
+}
+
+function team(users: User[]) {
+  return users.filter(
+    (user) => user.membershipStatus !== "pending" && user.access !== "cliente" && user.name.trim().length > 0,
+  );
+}
+
+function dayKey(iso: string) {
+  return format(parseISO(iso), "yyyy-MM-dd");
+}
+
+function dayLabel(iso: string) {
+  const date = parseISO(iso);
+  if (isToday(date)) return "Hoje";
+  if (isYesterday(date)) return "Ontem";
+  return format(date, "d 'de' MMMM", { locale: ptBR });
+}
+
+function mentionAt(value: string, caret: number) {
+  const match = /(^|\s)@([^\n@]*)$/.exec(value.slice(0, caret));
+  if (!match) return null;
+  const query = match[2] ?? "";
+  return { query, start: caret - query.length - 1 };
+}
+
+type Piece =
+  | { kind: "text"; text: string }
+  | { kind: "link"; text: string; href: string }
+  | { kind: "mention"; text: string };
+
+function tokenize(body: string, names: string[]): Piece[] {
+  const sorted = [...names]
+    .map((name) => name.trim())
+    .filter((name) => name.length >= 2)
+    .sort((a, b) => b.length - a.length);
+  const pieces: Piece[] = [];
+  let index = 0;
+  while (index < body.length) {
+    const urlMatch = /https?:\/\//.exec(body.slice(index));
+    const urlIndex = urlMatch ? index + urlMatch.index : -1;
+    let mentionAtIndex = -1;
+    let mentionName = "";
+    for (const name of sorted) {
+      const at = body.indexOf(`@${name}`, index);
+      if (at === -1) continue;
+      const after = body[at + name.length + 1];
+      if (after && /[\p{L}\p{N}_]/u.test(after)) continue;
+      if (mentionAtIndex === -1 || at < mentionAtIndex) {
+        mentionAtIndex = at;
+        mentionName = name;
+      }
+    }
+    const next =
+      urlIndex === -1 ? mentionAtIndex : mentionAtIndex === -1 ? urlIndex : Math.min(urlIndex, mentionAtIndex);
+    if (next === -1) {
+      pieces.push({ kind: "text", text: body.slice(index) });
+      break;
+    }
+    if (next > index) pieces.push({ kind: "text", text: body.slice(index, next) });
+    if (next === mentionAtIndex) {
+      const text = `@${mentionName}`;
+      pieces.push({ kind: "mention", text });
+      index = next + text.length;
+      continue;
+    }
+    const raw = body.slice(next).split(/\s/)[0] ?? "";
+    const link = safeHref(raw);
+    if (!link) {
+      pieces.push({ kind: "text", text: raw || body[next] || "" });
+      index = next + Math.max(raw.length, 1);
+      continue;
+    }
+    pieces.push({ kind: "link", text: link.text, href: link.href });
+    const trailing = raw.slice(link.text.length);
+    if (trailing) pieces.push({ kind: "text", text: trailing });
+    index = next + raw.length;
+  }
+  return pieces;
+}
+
+function safeHref(raw: string) {
+  const text = raw.replace(/[),.;:!?]+$/g, "");
+  try {
+    const url = new URL(text);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return { text, href: url.href };
+  } catch {
+    return null;
+  }
+}

@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
+import { emitChannelLive, type ChannelLiveEvent } from "@/lib/channel-live";
 import { useChat } from "@/lib/chat";
 import { enableFirebaseAnalytics } from "@/lib/firebase";
 import { agentReady, usePrefs } from "@/lib/prefs";
@@ -94,6 +95,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
           }
           if (data.kind === "notification" && data.userId === useWorkspace.getState().user?.id) {
             void refreshNotifications();
+          }
+          if (
+            data.kind === "channel" ||
+            data.kind === "channels" ||
+            data.kind === "channel-removed" ||
+            data.kind === "channel-message" ||
+            data.kind === "channel-message-removed"
+          ) {
+            emitChannelLive(data as ChannelLiveEvent);
           }
         } catch {
           // Ignore a malformed event and keep the stream.

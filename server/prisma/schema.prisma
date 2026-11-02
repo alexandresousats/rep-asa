@@ -84,6 +84,8 @@ model User {
   comments         Comment[]
   messages         Message[]
   threads          ThreadParticipant[]
+  channelsCreated  Channel[]           @relation("ChannelCreator")
+  channelMessages  ChannelMessage[]
   notifications    Notification[]
   apiKeys          ApiKey[]
   taskFollows      TaskFollower[]
@@ -109,6 +111,7 @@ model Workspace {
   projects      Project[]
   tags          Tag[]
   threads       Thread[]
+  channels      Channel[]
   notifications Notification[]
   apiKeys       ApiKey[]
   subscription  WorkspaceSubscription?
@@ -368,6 +371,36 @@ model Message {
   author    User   @relation(fields: [authorId], references: [id])
 
   @@index([threadId])
+}
+
+model Channel {
+  id          String   @id
+  workspaceId String
+  name        String
+  topic       String   @default("")
+  position    Int      @default(0)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("ChannelCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  messages    ChannelMessage[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, position])
+}
+
+model ChannelMessage {
+  id        String    @id
+  channelId String
+  authorId  String
+  body      String    @db.Text
+  createdAt DateTime  @default(now())
+  editedAt  DateTime?
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([channelId, createdAt])
 }
 
 model Notification {

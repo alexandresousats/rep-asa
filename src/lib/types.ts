@@ -204,6 +204,23 @@ export interface MessageThread {
   lastMessageAt: string;
 }
 
+export interface Channel {
+  id: string;
+  name: string;
+  topic: string;
+  position: number;
+  createdAt: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+}
+
 export interface HeatmapCell {
   date: string;
   count: number;
