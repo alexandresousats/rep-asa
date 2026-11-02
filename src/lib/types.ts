@@ -212,6 +212,14 @@ export interface Channel {
   createdAt: string;
 }
 
+export interface ChannelFile {
+  id: string;
+  name: string;
+  mime: string;
+  kind: "image" | "audio" | "video" | "document" | string;
+  size: number;
+}
+
 export interface ChannelMessage {
   id: string;
   channelId: string;
@@ -219,6 +227,7 @@ export interface ChannelMessage {
   body: string;
   createdAt: string;
   editedAt: string | null;
+  files?: ChannelFile[];
 }
 
 export interface HeatmapCell {
@@ -338,6 +347,7 @@ export interface AgentSharing {
 
 export interface WorkspaceStorage {
   files: number;
+  channels?: number;
   agent: number;
   total: number;
   limit: number;

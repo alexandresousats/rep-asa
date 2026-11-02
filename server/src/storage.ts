@@ -10,10 +10,14 @@ export function workspaceStorageLimit() {
 }
 
 export async function workspaceStorageUsage(workspaceId: string) {
-  const [files, agent] = await Promise.all([
+  const [files, channels, agent] = await Promise.all([
     prisma.attachment.aggregate({
       _sum: { size: true },
       where: { task: { project: { workspaceId } } },
+    }),
+    prisma.channelFile.aggregate({
+      _sum: { size: true },
+      where: { message: { channel: { workspaceId } } },
     }),
     prisma.agentMessage.aggregate({
       _sum: { size: true },
@@ -21,11 +25,13 @@ export async function workspaceStorageUsage(workspaceId: string) {
     }),
   ]);
   const fileBytes = files._sum.size ?? 0;
+  const channelBytes = channels._sum.size ?? 0;
   const agentBytes = agent._sum.size ?? 0;
   return {
     files: fileBytes,
+    channels: channelBytes,
     agent: agentBytes,
-    total: fileBytes + agentBytes,
+    total: fileBytes + channelBytes + agentBytes,
     limit: workspaceStorageLimit(),
   };
 }

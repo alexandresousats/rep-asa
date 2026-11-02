@@ -399,8 +399,22 @@ model ChannelMessage {
   editedAt  DateTime?
   channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author    User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  files     ChannelFile[]
 
   @@index([channelId, createdAt])
+}
+
+model ChannelFile {
+  id        String         @id
+  messageId String
+  name      String
+  mime      String
+  kind      String
+  size      Int
+  createdAt DateTime       @default(now())
+  message   ChannelMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
 }
 
 model Notification {

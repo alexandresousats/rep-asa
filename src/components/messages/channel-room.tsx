@@ -5,6 +5,7 @@ import { ptBR } from "date-fns/locale";
 import {
   ArrowDown,
   Hash,
+  Paperclip,
   Pencil,
   Plus,
   Search,
@@ -13,12 +14,14 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MutableRefObject } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ChannelFileList } from "@/components/messages/channel-media";
 import { useToast } from "@/components/ui/toast";
+import { CHANNEL_FILES_PER_MESSAGE, channelFileKindFromName, clientFileIssue } from "@/lib/channel-file-rules";
 import {
   createChannel,
   deleteChannel,
@@ -164,7 +167,7 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
     return (
       <div className="flex h-full items-center justify-center px-6">
         <p className="max-w-sm text-center text-sm leading-6 text-faint">
-          Os canais são da equipe deste espaço.
+          As mensagens ficam só com quem foi convidado para este espaço.
         </p>
       </div>
     );
@@ -318,6 +321,8 @@ function Transcript({
   const scroller = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const dropFiles = useRef<(list: FileList | null) => void>(() => {});
+  const [dragging, setDragging] = useState(false);
   const [away, setAway] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -338,7 +343,26 @@ function Transcript({
     setSearchOpen(false);
     stick.current = true;
     setAway(false);
+    setDragging(false);
   }, [channel.id]);
+
+  useEffect(() => {
+    function blockFileNavigation(event: DragEvent) {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      event.preventDefault();
+    }
+    function clearDrag() {
+      setDragging(false);
+    }
+    window.addEventListener("dragover", blockFileNavigation);
+    window.addEventListener("drop", blockFileNavigation);
+    window.addEventListener("dragend", clearDrag);
+    return () => {
+      window.removeEventListener("dragover", blockFileNavigation);
+      window.removeEventListener("drop", blockFileNavigation);
+      window.removeEventListener("dragend", clearDrag);
+    };
+  }, []);
 
   useEffect(() => {
     if (!stick.current || hits) return;
@@ -395,8 +419,39 @@ function Transcript({
     }
   }
 
+  function onDragEnter(event: ReactDragEvent) {
+    if (!canWrite || !event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    setDragging(true);
+  }
+
+  function onDragOver(event: ReactDragEvent) {
+    if (!canWrite || !event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(event: ReactDragEvent) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setDragging(false);
+  }
+
+  function onDrop(event: ReactDragEvent) {
+    setDragging(false);
+    if (!canWrite || !event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    if (event.dataTransfer.files.length > 0) dropFiles.current(event.dataTransfer.files);
+  }
+
   return (
-    <>
+    <div
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3 md:px-4">
         <button
           type="button"
@@ -552,6 +607,7 @@ function Transcript({
         channel={channel}
         users={users}
         enabled={canWrite}
+        dropFiles={dropFiles}
         onSent={(message) => {
           stick.current = true;
           setAway(false);
@@ -561,8 +617,21 @@ function Transcript({
         }}
         onError={onError}
       />
+      {dragging ? (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-[color:var(--bg-base)]/90 p-8">
+          <div className="flex w-full max-w-sm flex-col items-center rounded-2xl border border-line bg-elevated px-8 py-8 text-center">
+            <span className="grid h-11 w-11 place-items-center rounded-full bg-ink text-[color:var(--bg-base)]">
+              <Paperclip className="h-5 w-5" strokeWidth={1.75} />
+            </span>
+            <p className="mt-4 text-sm font-medium text-ink">Solte para anexar</p>
+            <p className="mt-1 text-xs leading-5 text-faint">
+              A mensagem continua sua. Até {CHANNEL_FILES_PER_MESSAGE} arquivos.
+            </p>
+          </div>
+        </div>
+      ) : null}
       <span className="sr-only">{channels.length} canais</span>
-    </>
+    </div>
   );
 }
 
@@ -685,7 +754,8 @@ function MessageRow({
             </form>
           ) : (
             <>
-              <MessageText body={message.body} names={names} />
+              {message.body.trim() ? <MessageText body={message.body} names={names} /> : null}
+              <ChannelFileList channelId={channelId} files={message.files ?? []} />
               {message.editedAt ? <p className="text-[11px] text-faint">editada</p> : null}
             </>
           )}
@@ -738,12 +808,14 @@ function Composer({
   channel,
   users,
   enabled,
+  dropFiles,
   onSent,
   onError,
 }: {
   channel: Channel;
   users: User[];
   enabled: boolean;
+  dropFiles: MutableRefObject<(list: FileList | null) => void>;
   onSent: (message: ChannelMessage) => void;
   onError: (text: string) => void;
 }) {
@@ -753,6 +825,8 @@ function Composer({
   const [highlight, setHighlight] = useState(0);
   const [mentionOff, setMentionOff] = useState(false);
   const [sending, setSending] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const people = team(users);
   const mention = mentionAt(draft, caret);
   const matches = mention
@@ -785,13 +859,34 @@ function Composer({
     });
   }
 
+  function addFiles(list: FileList | null) {
+    if (!list) return;
+    const next = [...files];
+    for (const file of Array.from(list)) {
+      const issue = clientFileIssue(file);
+      if (issue) {
+        onError(issue);
+        continue;
+      }
+      if (next.length >= CHANNEL_FILES_PER_MESSAGE) {
+        onError(`Uma mensagem aceita até ${CHANNEL_FILES_PER_MESSAGE} arquivos.`);
+        break;
+      }
+      next.push(file);
+    }
+    setFiles(next);
+  }
+
+  dropFiles.current = addFiles;
+
   async function send() {
-    if (!enabled || sending || !draft.trim() || menuOpen) return;
+    if (!enabled || sending || menuOpen || (!draft.trim() && files.length === 0)) return;
     setSending(true);
     try {
-      const message = await postChannelMessage(channel.id, draft);
+      const message = await postChannelMessage(channel.id, draft, files);
       setDraft("");
       setCaret(0);
+      setFiles([]);
       onSent(message);
     } catch (caught) {
       onError(caught instanceof ApiError ? caught.message : "Não foi possível enviar.");
@@ -838,7 +933,39 @@ function Composer({
           ))}
         </ul>
       ) : null}
-      <div className="flex items-end gap-2 rounded-lg bg-elevated px-3 py-1.5">
+      <div className="rounded-lg bg-elevated px-3 py-1.5">
+        {files.length > 0 ? (
+          <ul className="mb-1.5 flex flex-wrap gap-2">
+            {files.map((file, index) => (
+              <PendingFile
+                key={`${file.name}-${file.size}-${index}`}
+                file={file}
+                onRemove={() => setFiles(files.filter((_, item) => item !== index))}
+              />
+            ))}
+          </ul>
+        ) : null}
+        <div className="flex items-end gap-2">
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          className="hidden"
+          accept=".jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.m4a,.ogg,.mp4,.webm,.mov,.pdf,.txt,.docx,.xlsx,.pptx"
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          aria-label="Anexar arquivo"
+          title="Imagem até 12 MB, áudio 25 MB, vídeo 80 MB, documento 25 MB. Conta no armazenamento do espaço."
+          onClick={() => fileInput.current?.click()}
+          className="mb-1 rounded-full p-1.5 text-faint hover:bg-hover hover:text-ink"
+        >
+          <Paperclip className="h-4 w-4" strokeWidth={1.75} />
+        </button>
         <label className="sr-only" htmlFor={`composer-${channel.id}`}>
           Mensagem em {channel.name}
         </label>
@@ -887,11 +1014,12 @@ function Composer({
         />
         <button
           type="submit"
-          disabled={sending || !draft.trim()}
+          disabled={sending || (!draft.trim() && files.length === 0)}
           className="mb-1 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-base disabled:opacity-40"
         >
           Enviar
         </button>
+        </div>
       </div>
       {draft.length >= 1800 ? (
         <p className="mt-1 text-right text-[11px] text-faint">
@@ -899,6 +1027,48 @@ function Composer({
         </p>
       ) : null}
     </form>
+  );
+}
+
+function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const kind = channelFileKindFromName(file.name, file.type);
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (kind !== "image") return;
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file, kind]);
+
+  if (url) {
+    return (
+      <li className="relative">
+        <img src={url} alt="" className="h-16 w-16 rounded-lg border border-line bg-[#0d0c0c] object-cover" />
+        <button
+          type="button"
+          aria-label={`Remover ${file.name}`}
+          onClick={onRemove}
+          className="absolute -top-1.5 -right-1.5 grid h-5 w-5 place-items-center rounded-full bg-ink text-[color:var(--bg-base)]"
+        >
+          <X className="h-3 w-3" strokeWidth={1.75} />
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex max-w-full items-center gap-1 rounded-full bg-hover py-1 pr-1 pl-3 text-xs">
+      <span className="truncate">{file.name}</span>
+      <button
+        type="button"
+        aria-label={`Remover ${file.name}`}
+        onClick={onRemove}
+        className="rounded-full p-1 text-faint hover:text-ink"
+      >
+        <X className="h-3 w-3" strokeWidth={1.75} />
+      </button>
+    </li>
   );
 }
 

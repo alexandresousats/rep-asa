@@ -36,8 +36,9 @@ function StorageUsage({ usage }: { usage: WorkspaceStorage }) {
         />
       </div>
       <p className="text-xs text-faint">
-        Arquivos das tarefas: {formatBytes(usage.files)} · Conversas do agente:{" "}
-        {formatBytes(usage.agent)}. Conta no espaço de trabalho, não em cada pessoa convidada.
+        Tarefas: {formatBytes(usage.files)} · Canais: {formatBytes(usage.channels ?? 0)} · Agente:{" "}
+        {formatBytes(usage.agent)}. Tudo soma no plano de quem administra o espaço, não na conta de
+        cada convidado.
       </p>
     </div>
   );
@@ -69,7 +70,7 @@ export function WorkspaceStorageCard() {
         Armazenamento
       </h2>
       <p className="mt-1 mb-4 text-sm text-faint">
-        Arquivos e conversas do agente de todo mundo neste espaço somam no limite do espaço.
+        Arquivos das tarefas, anexos dos canais e conversas do agente somam no plano deste espaço.
       </p>
       <Card className="border-none">
         {error ? (

@@ -734,11 +734,31 @@ export function listChannelMessages(
   );
 }
 
-export function postChannelMessage(channelId: string, body: string) {
-  return request<ChannelMessage>(`/channels/${encodeURIComponent(channelId)}/messages`, {
+export async function postChannelMessage(channelId: string, body: string, files: File[] = []) {
+  if (files.length === 0) {
+    return request<ChannelMessage>(`/channels/${encodeURIComponent(channelId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+  }
+  const form = new FormData();
+  form.set("body", body);
+  for (const file of files) form.append("file", file);
+  const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}/messages`, {
     method: "POST",
-    body: JSON.stringify({ body }),
+    body: form,
+    credentials: "include",
   });
+  const text = await res.text();
+  const data = text ? (JSON.parse(text) as ChannelMessage & { error?: string }) : null;
+  if (!res.ok || !data) {
+    throw new ApiError(res.status, data?.error ?? "Não foi possível enviar.");
+  }
+  return data;
+}
+
+export function channelFileUrl(channelId: string, fileId: string) {
+  return `/api/channels/${encodeURIComponent(channelId)}/files/${encodeURIComponent(fileId)}`;
 }
 
 export function editChannelMessage(channelId: string, messageId: string, body: string) {

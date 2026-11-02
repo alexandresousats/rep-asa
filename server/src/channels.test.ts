@@ -1,12 +1,15 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { access } from "node:fs/promises";
 import { after, test } from "node:test";
 import { Hono } from "hono";
+import { channelFilePath, inspectChannelFile, sliceFileRange } from "./channel-files";
 import { normalizeChannelMessage, normalizeChannelName, registerChannelRoutes } from "./channels";
 import { prisma } from "./db";
 import type { Actor } from "./domain";
 import { ApiError } from "./errors";
+import { workspaceStorageUsage } from "./storage";
 
 const created = { userIds: [] as string[], workspaceIds: [] as string[] };
 
@@ -37,6 +40,27 @@ function actorFor(id: string, workspaceId: string, access: Actor["access"], name
     workspaceName: "Espaço",
   };
 }
+
+test("anexo de canal segue o conteúdo e o limite do tipo", () => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const inspected = inspectChannelFile(png, "foto.html");
+  assert.equal(inspected.kind, "image");
+  assert.equal(inspected.mime, "image/png");
+  assert.throws(
+    () => inspectChannelFile(Buffer.from("<html></html>"), "x.png"),
+    (error: unknown) => error instanceof ApiError && error.status === 400,
+  );
+  const pdf = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(25 * 1024 * 1024)]);
+  assert.throws(
+    () => inspectChannelFile(pdf, "contrato.pdf"),
+    (error: unknown) => error instanceof ApiError && error.status === 413,
+  );
+  assert.deepEqual(sliceFileRange(10, "bytes=0-3"), { start: 0, end: 3, status: 206 });
+  assert.equal(sliceFileRange(10, undefined).status, 200);
+});
 
 test("nome e texto de canal descartam caracteres de controle", () => {
   assert.equal(normalizeChannelName("  Sala da Equipe!! "), "sala-da-equipe");
@@ -149,6 +173,25 @@ test("canais: só a equipe do espaço lê, escreve e administra", async () => {
   assert.equal(await prisma.channel.count({ where: { workspaceId: quietWs } }), 0);
 
   assert.equal((await call(actors.client, "GET", "/channels")).status, 403);
+  const pending = `${prefix}-pending`;
+  created.userIds.push(pending);
+  await prisma.user.create({
+    data: {
+      id: pending,
+      firstName: "Pendente",
+      lastName: "",
+      name: "Pendente",
+      email: `${pending}@example.com`,
+      initials: "XX",
+      role: "Time",
+      access: "editor",
+    },
+  });
+  await prisma.workspaceMember.create({
+    data: { workspaceId: ws, userId: pending, access: "editor", status: "pending", role: "Time" },
+  });
+  assert.equal((await call(actorFor(pending, ws, "editor", "Pendente"), "GET", "/channels")).status, 403);
+  assert.equal(await prisma.channel.count({ where: { workspaceId: ws } }), 0);
 
   const listed = await call(actors.editor, "GET", "/channels");
   assert.equal(listed.status, 200);
@@ -209,6 +252,55 @@ test("canais: só a equipe do espaço lê, escreve e administra", async () => {
   const leaked = await call(actors.outsider, "GET", `/channels/${otherId}/messages?q=segredo`);
   assert.equal(leaked.status, 200);
   assert.equal((leaked.json as { messages: unknown[] }).messages.length, 0);
+
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const form = new FormData();
+  form.set("body", "referência");
+  form.set("file", new File([png], "ponto.png", { type: "image/png" }));
+  current = actors.editor;
+  const uploaded = await app.request(`/channels/${room.id}/messages`, { method: "POST", body: form });
+  assert.equal(uploaded.status, 200);
+  const uploadedJson = (await uploaded.json()) as {
+    id: string;
+    files: { id: string; kind: string; size: number }[];
+  };
+  assert.equal(uploadedJson.files[0]?.kind, "image");
+  assert.equal(uploadedJson.files[0]?.size, png.length);
+  const fileId = uploadedJson.files[0]!.id;
+  const fileUrl = `/channels/${room.id}/files/${fileId}`;
+
+  current = actors.editor;
+  const seen = await app.request(fileUrl);
+  assert.equal(seen.status, 200);
+  assert.equal(seen.headers.get("content-type"), "image/png");
+  assert.equal(seen.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(seen.headers.get("cross-origin-resource-policy"), "same-origin");
+  assert.equal(Buffer.from(await seen.arrayBuffer()).length, png.length);
+
+  current = actors.reader;
+  const ranged = await app.request(fileUrl, { headers: { range: "bytes=0-2" } });
+  assert.equal(ranged.status, 206);
+  assert.equal(Buffer.from(await ranged.arrayBuffer()).length, 3);
+
+  assert.equal((await call(actors.client, "GET", fileUrl)).status, 403);
+  assert.equal((await call(actors.outsider, "GET", fileUrl)).status, 404);
+  assert.equal((await workspaceStorageUsage(ws)).channels, png.length);
+
+  const spoof = new FormData();
+  spoof.set("body", "não");
+  spoof.set("file", new File([Buffer.from("<html></html>")], "x.png", { type: "image/png" }));
+  current = actors.editor;
+  assert.equal((await app.request(`/channels/${room.id}/messages`, { method: "POST", body: spoof })).status, 400);
+
+  assert.equal(
+    (await call(actors.editor, "DELETE", `/channels/${room.id}/messages/${uploadedJson.id}`)).status,
+    200,
+  );
+  await assert.rejects(() => access(channelFilePath(fileId)));
+  assert.equal((await workspaceStorageUsage(ws)).channels, 0);
 
   assert.equal(
     (await call(actors.admin, "PATCH", `/channels/${room.id}/messages/${message.id}`, { body: "alterado" }))
