@@ -111,7 +111,9 @@ export function NotificationBell({ collapsed = false }: { collapsed?: boolean })
                     onClick={() => {
                       void markNotificationRead(item.id);
                       setOpen(false);
-                      if (item.href) router.push(item.href);
+                      if (item.href?.startsWith("/") && !item.href.startsWith("//") && !item.href.includes("\\")) {
+                        router.push(item.href);
+                      }
                     }}
                     className={cn(
                       "block w-full rounded-xl px-3 py-2 text-left hover:bg-hover",

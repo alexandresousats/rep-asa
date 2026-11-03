@@ -87,6 +87,10 @@ model User {
   threads          ThreadParticipant[]
   channelsCreated  Channel[]           @relation("ChannelCreator")
   channelMessages  ChannelMessage[]
+  directLow        DirectConversation[] @relation("DirectLow")
+  directHigh       DirectConversation[] @relation("DirectHigh")
+  directOpened     DirectConversation[] @relation("DirectOpened")
+  directMessages   DirectMessage[]
   notifications    Notification[]
   apiKeys          ApiKey[]
   taskFollows      TaskFollower[]
@@ -113,6 +117,7 @@ model Workspace {
   tags          Tag[]
   threads       Thread[]
   channels      Channel[]
+  directConversations DirectConversation[]
   notifications Notification[]
   apiKeys       ApiKey[]
   subscription  WorkspaceSubscription?
@@ -424,6 +429,41 @@ model ChannelFile {
   message   ChannelMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([messageId])
+}
+
+model DirectConversation {
+  id            String    @id
+  workspaceId   String
+  userLowId     String
+  userHighId    String
+  openedById    String
+  lastMessageAt DateTime?
+  lastAuthorId  String?
+  lastPreview   String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userLow       User      @relation("DirectLow", fields: [userLowId], references: [id], onDelete: Restrict)
+  userHigh      User      @relation("DirectHigh", fields: [userHighId], references: [id], onDelete: Restrict)
+  openedBy      User      @relation("DirectOpened", fields: [openedById], references: [id], onDelete: Restrict)
+  messages      DirectMessage[]
+
+  @@unique([workspaceId, userLowId, userHighId])
+  @@index([workspaceId, userLowId])
+  @@index([workspaceId, userHighId])
+}
+
+model DirectMessage {
+  id             String    @id
+  conversationId String
+  authorId       String
+  body           String    @db.Text
+  createdAt      DateTime  @default(now())
+  editedAt       DateTime?
+  conversation   DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author         User               @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, createdAt])
 }
 
 model Notification {

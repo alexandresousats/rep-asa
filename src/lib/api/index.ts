@@ -2,6 +2,9 @@ import type {
   AgentSharing,
   Channel,
   ChannelMessage,
+  DirectConversation,
+  DirectMessage,
+  DirectPeer,
   ChatFolder,
   ChatMessage,
   Priority,
@@ -780,6 +783,48 @@ export function editChannelMessage(channelId: string, messageId: string, body: s
 export function deleteChannelMessage(channelId: string, messageId: string) {
   return request<{ ok: true }>(
     `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function listDirectConversations() {
+  return request<DirectConversation[]>("/direct");
+}
+
+export function listDirectPeers() {
+  return request<DirectPeer[]>("/direct/peers");
+}
+
+export function getDirectConversation(id: string) {
+  return request<DirectConversation>(`/direct/${encodeURIComponent(id)}`);
+}
+
+export function listDirectMessages(conversationId: string, query?: { before?: string }) {
+  const params = new URLSearchParams();
+  if (query?.before) params.set("before", query.before);
+  const suffix = params.size ? `?${params}` : "";
+  return request<{ messages: DirectMessage[]; nextCursor: string | null }>(
+    `/direct/${encodeURIComponent(conversationId)}/messages${suffix}`,
+  );
+}
+
+export function sendDirectMessage(userId: string, body: string) {
+  return request<{ conversation: DirectConversation; message: DirectMessage }>("/direct/messages", {
+    method: "POST",
+    body: JSON.stringify({ userId, body }),
+  });
+}
+
+export function editDirectMessage(conversationId: string, messageId: string, body: string) {
+  return request<DirectMessage>(
+    `/direct/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "PATCH", body: JSON.stringify({ body }) },
+  );
+}
+
+export function deleteDirectMessage(conversationId: string, messageId: string) {
+  return request<{ ok: true }>(
+    `/direct/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
     { method: "DELETE" },
   );
 }

@@ -26,6 +26,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { EmojiPicker } from "@/components/messages/channel-emoji";
 import { ChannelFileList } from "@/components/messages/channel-media";
+import { DirectThread } from "@/components/messages/direct-thread";
 import { useToast } from "@/components/ui/toast";
 import { CHANNEL_FILES_PER_MESSAGE, channelFileKindFromName, clientFileIssue } from "@/lib/channel-file-rules";
 import {
@@ -35,15 +36,18 @@ import {
   editChannelMessage,
   listChannelMessages,
   listChannels,
+  listDirectConversations,
+  listDirectPeers,
   postChannelMessage,
   reorderChannels,
   updateChannel,
 } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
 import { subscribeChannelLive } from "@/lib/channel-live";
+import { subscribeDirectLive } from "@/lib/direct-live";
 import { subscribePresence } from "@/lib/presence";
 import { cn } from "@/lib/cn";
-import type { Channel, ChannelMessage, User } from "@/lib/types";
+import type { Channel, ChannelMessage, DirectConversation, DirectPeer, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const MESSAGE_MAX = 2000;
@@ -66,9 +70,20 @@ function quoteText(body: string, fileKind?: string | null, fileName?: string | n
   return "Mensagem";
 }
 
-export function ChannelRoom({ channelId }: { channelId?: string }) {
+export function ChannelRoom({
+  channelId,
+  directId,
+  draftPeerId,
+  startDraft = false,
+}: {
+  channelId?: string;
+  directId?: string;
+  draftPeerId?: string;
+  startDraft?: boolean;
+}) {
   const router = useRouter();
   const workspaceId = useWorkspace((state) => state.workspace?.id);
+  const meId = useWorkspace((state) => state.user?.id);
   const users = useWorkspace((state) => state.users);
   const { canWrite, isAdmin } = useAccess();
   const { show, node: toast } = useToast();
@@ -79,7 +94,13 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [error, setError] = useState("");
-  const [showList, setShowList] = useState(!channelId);
+  const [showList, setShowList] = useState(!channelId && !directId && !draftPeerId && !startDraft);
+  const [directs, setDirects] = useState<DirectConversation[]>([]);
+  const [peers, setPeers] = useState<DirectPeer[]>([]);
+  const [peersLoading, setPeersLoading] = useState(false);
+  const [peersReady, setPeersReady] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const viewingDirect = Boolean(directId || draftPeerId || startDraft);
   const [membersOpen, setMembersOpen] = useState(false);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
@@ -93,9 +114,11 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
     setLoading(true);
     setBlocked(false);
     setError("");
-    listChannels()
-      .then((rows) => {
-        if (!cancelled) setChannels(rows);
+    Promise.all([listChannels(), listDirectConversations()])
+      .then(([rows, conversations]) => {
+        if (cancelled) return;
+        setChannels(rows);
+        setDirects(conversations);
       })
       .catch((caught: unknown) => {
         if (cancelled) return;
@@ -111,15 +134,54 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
   }, [workspaceId]);
 
   useEffect(() => {
-    if (loading || blocked || channels.length === 0) return;
+    if (viewingDirect || loading || blocked || channels.length === 0) return;
     if (!channelId || !channels.some((channel) => channel.id === channelId)) {
       router.replace(`/mensagens/${channels[0].id}`);
     }
-  }, [blocked, channelId, channels, loading, router]);
+  }, [blocked, channelId, channels, loading, router, viewingDirect]);
 
   useEffect(() => {
-    if (channelId) setShowList(false);
-  }, [channelId]);
+    if (channelId || directId || draftPeerId || startDraft) setShowList(false);
+  }, [channelId, directId, draftPeerId, startDraft]);
+
+  useEffect(() => {
+    if (startDraft) setPicking(true);
+  }, [startDraft]);
+
+  useEffect(() => {
+    if (!workspaceId || (!picking && !draftPeerId)) return;
+    let cancelled = false;
+    setPeersLoading(true);
+    listDirectPeers()
+      .then((rows) => {
+        if (!cancelled) setPeers(rows);
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) {
+          show(caught instanceof ApiError ? caught.message : "Não foi possível listar a equipe.", "error");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPeersLoading(false);
+          setPeersReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftPeerId, picking, show, workspaceId]);
+
+  useEffect(() => {
+    return subscribeDirectLive((event) => {
+      if (event.kind === "direct") {
+        setDirects((current) => rememberDirect(current, event.conversation));
+      }
+      if (event.kind === "direct-removed") {
+        setDirects((current) => current.filter((item) => item.id !== event.conversationId));
+      }
+    });
+  }, []);
 
   useEffect(() => subscribePresence(setOnlineIds), []);
 
@@ -191,6 +253,16 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
     router.push(`/mensagens/${id}`);
   }
 
+  function openPeer(peerId: string) {
+    if (!peerId || peerId === meId) return;
+    setPicking(false);
+    setShowList(false);
+    setMembersOpen(false);
+    const existing = directs.find((item) => item.peer.id === peerId);
+    if (existing) router.push(`/mensagens/d/${existing.id}`);
+    else if (canWrite) router.push(`/mensagens/d/novo?com=${encodeURIComponent(peerId)}`);
+  }
+
   if (blocked) {
     return (
       <div className="flex h-full items-center justify-center px-6">
@@ -231,10 +303,10 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
                 <button
                   type="button"
                   onClick={() => openChannel(channel.id)}
-                  aria-current={channel.id === channelId ? "page" : undefined}
+                  aria-current={!viewingDirect && channel.id === channelId ? "page" : undefined}
                   className={cn(
                     "flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm",
-                    channel.id === channelId
+                    !viewingDirect && channel.id === channelId
                       ? "bg-active text-ink"
                       : "text-muted hover:bg-hover hover:text-ink",
                   )}
@@ -245,6 +317,54 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
               </li>
             ))}
           </ul>
+          <div className="mt-4 mb-1 flex items-center justify-between px-2">
+            <p className="text-xs text-faint">Diretas</p>
+            {canWrite ? (
+              <button
+                type="button"
+                aria-label="Nova mensagem direta"
+                onClick={() => setPicking(true)}
+                className="rounded-md p-1 text-faint hover:bg-hover hover:text-ink"
+              >
+                <Plus className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            ) : null}
+          </div>
+          {directs.length === 0 ? (
+            <p className="px-2 text-xs text-faint">Nenhuma conversa direta.</p>
+          ) : (
+            <ul className="space-y-0.5">
+              {directs.map((conversation) => (
+                <li key={conversation.id}>
+                  <button
+                    type="button"
+                    onClick={() => openPeer(conversation.peer.id)}
+                    aria-current={conversation.id === directId ? "page" : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
+                      conversation.id === directId
+                        ? "bg-active text-ink"
+                        : "text-muted hover:bg-hover hover:text-ink",
+                    )}
+                  >
+                    <Avatar
+                      initials={conversation.peer.initials}
+                      src={conversation.peer.avatar}
+                      name={conversation.peer.name}
+                      size="sm"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm">{conversation.peer.name}</span>
+                      <span className="block truncate text-[11px] text-faint">
+                        {conversation.lastAuthorId === meId && conversation.lastPreview ? "Você: " : ""}
+                        {conversation.lastPreview || "Mensagem privada"}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </aside>
 
@@ -254,7 +374,20 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
           showList ? "hidden md:flex" : "flex",
         )}
       >
-        {active ? (
+        {viewingDirect ? (
+          <DirectThread
+            key={directId ?? draftPeerId ?? "nova"}
+            conversationId={directId}
+            draftPeerId={draftPeerId}
+            peers={peers}
+            peersLoading={peersLoading || !peersReady}
+            canWrite={canWrite}
+            onBack={() => setShowList(true)}
+            onConversation={(conversation) => setDirects((current) => rememberDirect(current, conversation))}
+            onOpen={(id) => router.push(`/mensagens/d/${id}`)}
+            onError={(text) => show(text, "error")}
+          />
+        ) : active ? (
           <Transcript
             channel={active}
             channels={channels}
@@ -280,13 +413,20 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
         )}
         {membersOpen ? (
           <div className="absolute inset-y-0 right-0 z-20 w-[240px] border-l border-line bg-sidebar xl:hidden">
-            <MemberList users={users} onlineIds={onlineIds} onClose={() => setMembersOpen(false)} />
+            <MemberList
+              users={users}
+              onlineIds={onlineIds}
+              directs={directs}
+              canWrite={canWrite}
+              onOpen={openPeer}
+              onClose={() => setMembersOpen(false)}
+            />
           </div>
         ) : null}
       </section>
 
       <aside className="hidden w-[220px] shrink-0 border-l border-line bg-sidebar xl:block">
-        <MemberList users={users} onlineIds={onlineIds} />
+        <MemberList users={users} onlineIds={onlineIds} directs={directs} canWrite={canWrite} onOpen={openPeer} />
       </aside>
 
       {dialog === "create" || (dialog === "edit" && active) ? (
@@ -309,9 +449,41 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
           onError={(text) => show(text, "error")}
         />
       ) : null}
+      <Dialog open={picking} title="Nova mensagem" onClose={() => setPicking(false)}>
+        {peersLoading || !peersReady ? <p className="text-sm text-faint">Carregando a equipe…</p> : null}
+        {peersReady && !peersLoading && peers.length === 0 ? (
+          <p className="text-sm leading-6 text-faint">
+            Ninguém da equipe disponível para uma conversa direta.
+          </p>
+        ) : null}
+        <ul className="max-h-80 space-y-1 overflow-y-auto">
+          {peers.map((peer) => (
+            <li key={peer.id}>
+              <button
+                type="button"
+                onClick={() => openPeer(peer.id)}
+                className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:bg-hover"
+              >
+                <Avatar initials={peer.initials} src={peer.avatar} name={peer.name} size="sm" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm text-ink">{peer.name}</span>
+                  <span className="block truncate text-xs text-faint">{peer.role}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Dialog>
       {toast}
     </div>
   );
+}
+
+function rememberDirect(current: DirectConversation[], conversation: DirectConversation) {
+  const next = current.some((item) => item.id === conversation.id)
+    ? current.map((item) => (item.id === conversation.id ? conversation : item))
+    : [conversation, ...current];
+  return next.sort((a, b) => (b.lastMessageAt ?? "").localeCompare(a.lastMessageAt ?? ""));
 }
 
 function Transcript({
@@ -1496,15 +1668,28 @@ function ChannelDialog({
 function MemberList({
   users,
   onlineIds,
+  directs,
+  canWrite,
+  onOpen,
   onClose,
 }: {
   users: User[];
   onlineIds: string[];
+  directs: DirectConversation[];
+  canWrite: boolean;
+  onOpen: (userId: string) => void;
   onClose?: () => void;
 }) {
+  const meId = useWorkspace((state) => state.user?.id);
   const people = team(users);
   const online = people.filter((person) => onlineIds.includes(person.id));
   const away = people.filter((person) => !onlineIds.includes(person.id));
+  function openFor(person: User) {
+    if (person.id === meId) return undefined;
+    const existing = directs.some((item) => item.peer.id === person.id);
+    if (!existing && !canWrite) return undefined;
+    return () => onOpen(person.id);
+  }
   return (
     <div className="px-3 py-3">
       <div className="mb-2 flex items-center justify-between px-2">
@@ -1517,7 +1702,7 @@ function MemberList({
       </div>
       <ul className="space-y-0.5">
         {online.map((person) => (
-          <MemberRow key={person.id} person={person} online />
+          <MemberRow key={person.id} person={person} online onOpen={openFor(person)} />
         ))}
       </ul>
       {away.length > 0 ? (
@@ -1525,7 +1710,7 @@ function MemberList({
           <p className="mt-4 mb-2 px-2 text-xs text-faint">Offline — {away.length}</p>
           <ul className="space-y-0.5">
             {away.map((person) => (
-              <MemberRow key={person.id} person={person} online={false} />
+              <MemberRow key={person.id} person={person} online={false} onOpen={openFor(person)} />
             ))}
           </ul>
         </>
@@ -1534,9 +1719,17 @@ function MemberList({
   );
 }
 
-function MemberRow({ person, online }: { person: User; online: boolean }) {
-  return (
-    <li className="flex items-center gap-2 rounded-md px-2 py-1.5">
+function MemberRow({
+  person,
+  online,
+  onOpen,
+}: {
+  person: User;
+  online: boolean;
+  onOpen?: () => void;
+}) {
+  const content = (
+    <>
       <Avatar
         initials={person.initials}
         src={person.avatar}
@@ -1549,6 +1742,21 @@ function MemberRow({ person, online }: { person: User; online: boolean }) {
         <span className="block truncate text-sm">{person.name}</span>
         <span className="block truncate text-[11px] text-faint">{person.role}</span>
       </span>
+    </>
+  );
+  if (!onOpen) {
+    return <li className="flex items-center gap-2 rounded-md px-2 py-1.5">{content}</li>;
+  }
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Mensagem privada para ${person.name}`}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
+      >
+        {content}
+      </button>
     </li>
   );
 }

@@ -71,6 +71,14 @@ export async function assertChannelManageRate(userId: string) {
   await assertRateLimit(`channel-manage:${userId}`, 20, ONE_HOUR);
 }
 
+export async function assertDirectPostRate(userId: string) {
+  await assertRateLimit(`direct-post:${userId}`, 30, 60 * 1000);
+}
+
+export async function assertDirectOpenRate(userId: string) {
+  await assertRateLimit(`direct-open:${userId}`, 10, ONE_HOUR);
+}
+
 export async function assertDemandRate(ip: string, action: "info" | "chat" | "submit") {
   const limit = action === "submit" ? 10 : 30;
   await assertRateLimit(`demand:${action}:ip:${ip}`, limit, FIFTEEN_MINUTES);

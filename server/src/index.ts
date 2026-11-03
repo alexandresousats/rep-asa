@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { stream, streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { isChannelLive, subscribe } from "./events";
+import { deliversLiveEvent, subscribe } from "./events";
 import { joinPresence, leavePresence } from "./presence";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
@@ -103,6 +103,7 @@ import {
 } from "./rate-limit";
 import { registerAgentSessionRoutes } from "./agent-sessions";
 import { registerChannelRoutes } from "./channels";
+import { registerDirectRoutes } from "./direct";
 import { registerProjectExportRoutes } from "./project-export";
 import { isPublicSharePath, registerShareRoutes } from "./share-links";
 
@@ -711,14 +712,7 @@ app.get("/events", async (c) => {
     let connectionId: string | null = null;
     await stream.writeSSE({ event: "ping", data: "1" });
     const stop = subscribe((event) => {
-      if (!open) return;
-      if (event.kind === "notification") {
-        if (event.userId !== actor.id) return;
-      } else if (!actor.workspaceId || event.workspaceId !== actor.workspaceId) {
-        return;
-      } else if ((isChannelLive(event) || event.kind === "presence") && actor.access === "cliente") {
-        return;
-      }
+      if (!open || !deliversLiveEvent(actor, event)) return;
       void stream.writeSSE({ data: JSON.stringify(event) });
     });
     if (actor.workspaceId && actor.access !== "cliente") {
@@ -953,6 +947,7 @@ app.get("/mcp", (c) => c.json(rpcError(null, -32000, "Use POST."), 405));
 app.delete("/mcp", (c) => c.json(rpcError(null, -32000, "Sessão stateless."), 405));
 
 registerChannelRoutes(app, { actorOf });
+registerDirectRoutes(app, { actorOf });
 registerShareRoutes(app, { actorOf });
 registerProjectExportRoutes(app, { actorOf });
 registerAgentSessionRoutes(app, { actorOf });

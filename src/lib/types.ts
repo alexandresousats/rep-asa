@@ -90,7 +90,7 @@ export interface WorkspaceInvite {
 
 export interface AppNotification {
   id: string;
-  type: "task_assigned" | "comment" | "project_member" | "message" | "workspace_invite";
+  type: "task_assigned" | "comment" | "project_member" | "message" | "workspace_invite" | "direct";
   title: string;
   body: string;
   href: string | null;
@@ -240,6 +240,32 @@ export interface ChannelMessage {
   replyToId?: string | null;
   reply?: ChannelReply | null;
   files?: ChannelFile[];
+}
+
+export interface DirectPeer {
+  id: string;
+  name: string;
+  initials: string;
+  role: string;
+  avatar?: string | null;
+}
+
+export interface DirectConversation {
+  id: string;
+  peer: DirectPeer;
+  lastPreview: string;
+  lastAuthorId: string | null;
+  lastMessageAt: string | null;
+  createdAt: string;
+}
+
+export interface DirectMessage {
+  id: string;
+  conversationId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
 }
 
 export interface HeatmapCell {
