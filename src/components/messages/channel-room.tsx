@@ -4,21 +4,27 @@ import { format, isToday, isYesterday, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   ArrowDown,
+  ChevronDown,
+  Copy,
+  CornerUpLeft,
   Hash,
   Paperclip,
   Pencil,
   Plus,
   Search,
+  Smile,
   Trash2,
   Users,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MutableRefObject, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { EmojiPicker } from "@/components/messages/channel-emoji";
 import { ChannelFileList } from "@/components/messages/channel-media";
 import { useToast } from "@/components/ui/toast";
 import { CHANNEL_FILES_PER_MESSAGE, channelFileKindFromName, clientFileIssue } from "@/lib/channel-file-rules";
@@ -40,6 +46,24 @@ import type { Channel, ChannelMessage, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const MESSAGE_MAX = 2000;
+
+const NAME_COLORS = ["#53bdeb", "#e542a3", "#7f66ff", "#ff8b3d", "#25d366", "#f0b429", "#ff6b81", "#5ad0c8"];
+
+function memberColor(id: string) {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+  return NAME_COLORS[hash % NAME_COLORS.length] ?? NAME_COLORS[0];
+}
+
+function quoteText(body: string, fileKind?: string | null, fileName?: string | null) {
+  const text = body.trim().replace(/\s+/g, " ");
+  if (text) return text;
+  if (fileKind === "image") return "Imagem";
+  if (fileKind === "audio") return "Áudio";
+  if (fileKind === "video") return "Vídeo";
+  if (fileName) return fileName;
+  return "Mensagem";
+}
 
 export function ChannelRoom({ channelId }: { channelId?: string }) {
   const router = useRouter();
@@ -323,6 +347,7 @@ function Transcript({
   const stick = useRef(true);
   const dropFiles = useRef<(list: FileList | null) => void>(() => {});
   const [dragging, setDragging] = useState(false);
+  const [reply, setReply] = useState<ChannelMessage | null>(null);
   const [away, setAway] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -344,6 +369,7 @@ function Transcript({
     stick.current = true;
     setAway(false);
     setDragging(false);
+    setReply(null);
   }, [channel.id]);
 
   useEffect(() => {
@@ -561,17 +587,19 @@ function Transcript({
             </p>
           </div>
         ) : (
-          <ol className="space-y-1">
+          <ol>
             {shown.map((message, index) => (
               <MessageRow
                 key={message.id}
                 message={message}
                 previous={shown[index - 1]}
+                first={index === 0}
                 users={users}
                 names={names}
                 canWrite={canWrite}
                 isAdmin={isAdmin}
                 channelId={channel.id}
+                onReply={setReply}
                 onChanged={(saved) => {
                   onMessages(messages.map((item) => (item.id === saved.id ? saved : item)));
                   setHits((current) => current?.map((item) => (item.id === saved.id ? saved : item)) ?? null);
@@ -608,6 +636,8 @@ function Transcript({
         users={users}
         enabled={canWrite}
         dropFiles={dropFiles}
+        reply={reply}
+        onClearReply={() => setReply(null)}
         onSent={(message) => {
           stick.current = true;
           setAway(false);
@@ -638,22 +668,26 @@ function Transcript({
 function MessageRow({
   message,
   previous,
+  first,
   users,
   names,
   canWrite,
   isAdmin,
   channelId,
+  onReply,
   onChanged,
   onRemoved,
   onError,
 }: {
   message: ChannelMessage;
   previous?: ChannelMessage;
+  first: boolean;
   users: User[];
   names: string[];
   canWrite: boolean;
   isAdmin: boolean;
   channelId: string;
+  onReply: (message: ChannelMessage) => void;
   onChanged: (message: ChannelMessage) => void;
   onRemoved: (id: string) => void;
   onError: (text: string) => void;
@@ -665,6 +699,32 @@ function MessageRow({
   const [draft, setDraft] = useState(message.body);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    function onPointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || menuButtonRef.current?.contains(target)) return;
+      setMenu(null);
+      setConfirming(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenu(null);
+        setConfirming(false);
+      }
+    }
+    window.addEventListener("mousedown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
   const dayChanged = !previous || dayKey(previous.createdAt) !== dayKey(message.createdAt);
   const grouped =
     !dayChanged &&
@@ -697,109 +757,255 @@ function MessageRow({
     }
   }
 
+  const color = memberColor(message.authorId);
+  const quotedAuthor = users.find((user) => user.id === message.reply?.authorId);
+  const canAct = canWrite || mine || isAdmin;
+  const canCopy = message.body.trim().length > 0;
+  const showMenu = canAct || canCopy;
+  const stamp = (
+    <span className="float-right mt-1 ml-3 inline-flex items-center gap-0.5">
+      <time
+        className={cn("text-[10px] leading-4 whitespace-nowrap", mine ? "text-white/60" : "text-faint")}
+        dateTime={message.createdAt}
+      >
+        {message.editedAt ? "editada · " : ""}
+        {format(parseISO(message.createdAt), "HH:mm")}
+      </time>
+      {showMenu && (mine || grouped) ? (
+        <button
+          ref={menuButtonRef}
+          type="button"
+          aria-label="Abrir menu da mensagem"
+          aria-expanded={menu !== null}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => (menu ? closeMenu() : openMenu())}
+          className={cn(
+            "grid h-4 w-4 shrink-0 place-items-center rounded-full opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+            menu && "opacity-100",
+            mine ? "text-white/80" : "text-faint",
+          )}
+        >
+          <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.25} />
+        </button>
+      ) : null}
+    </span>
+  );
+
+  function closeMenu() {
+    setMenu(null);
+    setConfirming(false);
+  }
+
+  function openMenu() {
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 232;
+    const height = confirming ? 112 : 220;
+    const top = rect.bottom + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 6) : rect.bottom + 6;
+    const left = Math.min(Math.max(8, rect.right - width), window.innerWidth - width - 8);
+    setConfirming(false);
+    setMenu({ top, left });
+  }
+
+  async function copyText() {
+    try {
+      await navigator.clipboard.writeText(message.body);
+      closeMenu();
+    } catch {
+      onError("Não foi possível copiar.");
+    }
+  }
+
   return (
-    <li>
+    <li id={`msg-${message.id}`} className={cn(!first && (grouped ? "mt-0.5" : "mt-3"))}>
       {dayChanged ? (
-        <div className="my-3 flex items-center gap-3">
-          <span className="h-px flex-1 bg-line" />
-          <span className="text-[11px] text-faint">{dayLabel(message.createdAt)}</span>
-          <span className="h-px flex-1 bg-line" />
+        <div className="my-3 flex justify-center">
+          <span className="rounded-lg bg-elevated px-3 py-1 text-[11px] text-faint">{dayLabel(message.createdAt)}</span>
         </div>
       ) : null}
-      <div className="group relative flex gap-3 rounded-md px-1 py-0.5 hover:bg-hover/60">
-        {grouped ? (
+      <div className={cn("flex w-full items-end gap-2", mine ? "justify-end" : "justify-start")}>
+        {mine ? null : grouped ? (
           <span className="w-8 shrink-0" />
         ) : (
-          <Avatar initials={author?.initials ?? "?"} src={author?.avatar} name={author?.name} />
+          <Avatar initials={author?.initials ?? "?"} src={author?.avatar} name={author?.name} size="sm" />
         )}
-        <div className="min-w-0 flex-1">
-          {grouped ? null : (
-            <p className="text-sm">
-              <span className="font-medium">{author?.name ?? "Alguém da equipe"}</span>
-              <time className="ml-2 text-[11px] text-faint" dateTime={message.createdAt}>
-                {format(parseISO(message.createdAt), "HH:mm")}
-              </time>
-            </p>
-          )}
-          {editing ? (
-            <form
-              className="mt-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void save();
-              }}
-            >
-              <textarea
-                value={draft}
-                maxLength={MESSAGE_MAX}
-                onChange={(event) => setDraft(event.target.value)}
-                className="min-h-16 w-full resize-none rounded-lg bg-elevated px-3 py-2 text-sm leading-6 text-ink outline-none"
-              />
-              <div className="mt-2 flex gap-2">
-                <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
-                  Salvar
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setDraft(message.body);
-                    setEditing(false);
-                  }}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <>
-              {message.body.trim() ? <MessageText body={message.body} names={names} /> : null}
-              <ChannelFileList channelId={channelId} files={message.files ?? []} />
-              {message.editedAt ? <p className="text-[11px] text-faint">editada</p> : null}
-            </>
-          )}
-        </div>
-        {!editing && (mine || isAdmin) ? (
-          <div className="absolute top-0 right-1 flex items-center gap-0.5 rounded-md border border-line bg-elevated opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-md:opacity-100">
-            {mine && canWrite ? (
-              <button
+        {editing ? (
+          <form
+            className="w-[min(78vw,24rem)]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save();
+            }}
+          >
+            <textarea
+              value={draft}
+              maxLength={MESSAGE_MAX}
+              autoFocus
+              onChange={(event) => setDraft(event.target.value)}
+              className="min-h-16 w-full resize-none rounded-2xl bg-elevated px-3 py-2 text-sm leading-6 text-ink outline-none"
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <Button
                 type="button"
-                aria-label="Editar mensagem"
+                size="sm"
+                variant="ghost"
                 onClick={() => {
                   setDraft(message.body);
-                  setEditing(true);
-                  setConfirming(false);
+                  setEditing(false);
                 }}
-                className="p-1.5 text-faint hover:text-ink"
               >
-                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </button>
-            ) : null}
-            {mine || isAdmin ? (
-              confirming ? (
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+                Salvar
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="group relative w-max max-w-[min(82%,28rem)]">
+            <div
+              className={cn(
+                "relative rounded-2xl px-2.5 pt-1.5 pb-[7px] text-sm leading-5",
+                mine ? "rounded-br-md bg-[#005c4b] text-white" : "rounded-bl-md bg-elevated text-ink",
+              )}
+            >
+              {mine || grouped ? null : (
+                <p className="flex items-center gap-1 text-[13px] leading-5 font-medium" style={{ color }}>
+                  <span className="min-w-0 truncate">{author?.name ?? "Alguém da equipe"}</span>
+                  {showMenu ? (
+                    <button
+                      ref={menuButtonRef}
+                      type="button"
+                      aria-label="Abrir menu da mensagem"
+                      aria-expanded={menu !== null}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onClick={() => (menu ? closeMenu() : openMenu())}
+                      className={cn(
+                        "grid h-4 w-4 shrink-0 place-items-center rounded-full opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                        menu && "opacity-100",
+                      )}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.25} />
+                    </button>
+                  ) : null}
+                </p>
+              )}
+              {message.replyToId ? (
                 <button
                   type="button"
-                  onClick={() => void remove()}
-                  disabled={busy}
-                  className="px-2 py-1 text-[11px] text-red-400"
+                  onClick={() => document.getElementById(`msg-${message.reply?.id ?? ""}`)?.scrollIntoView({ block: "center" })}
+                  className="mb-1 block max-w-full min-w-36 rounded-md border-l-4 bg-black/25 px-2 py-1 text-left"
+                  style={{ borderColor: memberColor(message.reply?.authorId ?? message.replyToId) }}
                 >
-                  Apagar
+                  <span
+                    className="block truncate text-xs font-medium"
+                    style={{ color: memberColor(message.reply?.authorId ?? message.replyToId) }}
+                  >
+                    {quotedAuthor?.name ?? "Equipe"}
+                  </span>
+                  <span className={cn("block truncate text-xs", mine ? "text-white/70" : "text-faint")}>
+                    {message.reply
+                      ? quoteText(message.reply.body, message.reply.fileKind, message.reply.fileName)
+                      : "Mensagem apagada"}
+                  </span>
                 </button>
+              ) : null}
+              {message.body.trim() ? (
+                <MessageText body={message.body} names={names} mine={mine} meta={stamp} />
               ) : (
-                <button
-                  type="button"
-                  aria-label="Apagar mensagem"
-                  onClick={() => setConfirming(true)}
-                  className="p-1.5 text-faint hover:text-ink"
-                >
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                </button>
-              )
-            ) : null}
+                <div className="flow-root">
+                  <ChannelFileList channelId={channelId} files={message.files ?? []} embedded />
+                  {stamp}
+                </div>
+              )}
+              {message.body.trim() ? <ChannelFileList channelId={channelId} files={message.files ?? []} embedded /> : null}
+            </div>
           </div>
-        ) : null}
+        )}
       </div>
+      {menu
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={{ top: menu.top, left: menu.left }}
+              className="fixed z-[90] w-56 overflow-hidden rounded-xl border border-line bg-elevated py-1 shadow-2xl"
+            >
+              {confirming ? (
+                <div className="px-3 py-2">
+                  <p className="text-sm text-ink">Apagar esta mensagem?</p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void remove()}
+                      disabled={busy}
+                      className="rounded-lg px-2 py-1.5 text-sm text-red-400 hover:bg-hover disabled:opacity-50"
+                    >
+                      Apagar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(false)}
+                      className="rounded-lg px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-ink"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {canWrite ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        onReply(message);
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <CornerUpLeft className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Responder
+                    </button>
+                  ) : null}
+                  {canCopy ? (
+                    <button
+                      type="button"
+                      onClick={() => void copyText()}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <Copy className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Copiar
+                    </button>
+                  ) : null}
+                  {mine && canWrite ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraft(message.body);
+                        setEditing(true);
+                        closeMenu();
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <Pencil className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Editar
+                    </button>
+                  ) : null}
+                  {mine || isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(true)}
+                      className="mt-1 flex w-full items-center gap-3 border-t border-line px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <Trash2 className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Apagar
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </li>
   );
 }
@@ -809,6 +1015,8 @@ function Composer({
   users,
   enabled,
   dropFiles,
+  reply,
+  onClearReply,
   onSent,
   onError,
 }: {
@@ -816,6 +1024,8 @@ function Composer({
   users: User[];
   enabled: boolean;
   dropFiles: MutableRefObject<(list: FileList | null) => void>;
+  reply: ChannelMessage | null;
+  onClearReply: () => void;
   onSent: (message: ChannelMessage) => void;
   onError: (text: string) => void;
 }) {
@@ -826,7 +1036,9 @@ function Composer({
   const [mentionOff, setMentionOff] = useState(false);
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const emojiBox = useRef<HTMLDivElement>(null);
   const people = team(users);
   const mention = mentionAt(draft, caret);
   const matches = mention
@@ -839,6 +1051,26 @@ function Composer({
   useEffect(() => {
     setHighlight(0);
   }, [mention?.query]);
+
+  useEffect(() => {
+    if (reply) box.current?.focus();
+  }, [reply]);
+
+  useEffect(() => {
+    if (!emojiOpen) return;
+    function onPointer(event: MouseEvent) {
+      if (!emojiBox.current?.contains(event.target as Node)) setEmojiOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setEmojiOpen(false);
+    }
+    window.addEventListener("mousedown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [emojiOpen]);
 
   useEffect(() => {
     const el = box.current;
@@ -883,10 +1115,12 @@ function Composer({
     if (!enabled || sending || menuOpen || (!draft.trim() && files.length === 0)) return;
     setSending(true);
     try {
-      const message = await postChannelMessage(channel.id, draft, files);
+      const message = await postChannelMessage(channel.id, draft, files, reply?.id);
       setDraft("");
       setCaret(0);
       setFiles([]);
+      setEmojiOpen(false);
+      onClearReply();
       onSent(message);
     } catch (caught) {
       onError(caught instanceof ApiError ? caught.message : "Não foi possível enviar.");
@@ -933,7 +1167,42 @@ function Composer({
           ))}
         </ul>
       ) : null}
-      <div className="rounded-lg bg-elevated px-3 py-1.5">
+      {reply ? (
+        <div
+          className="mb-1.5 flex items-start gap-2 rounded-xl border-l-4 bg-elevated px-3 py-2"
+          style={{ borderColor: memberColor(reply.authorId) }}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium" style={{ color: memberColor(reply.authorId) }}>
+              {users.find((user) => user.id === reply.authorId)?.name ?? "Equipe"}
+            </span>
+            <span className="block truncate text-xs text-faint">
+              {quoteText(reply.body, reply.files?.[0]?.kind, reply.files?.[0]?.name)}
+            </span>
+          </span>
+          <button type="button" aria-label="Cancelar resposta" onClick={onClearReply} className="rounded-full p-1 text-faint hover:text-ink">
+            <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
+      ) : null}
+      <div className="relative rounded-3xl bg-elevated px-3 py-1.5">
+        {emojiOpen ? (
+          <div ref={emojiBox} className="absolute bottom-full left-0 z-30 mb-2">
+            <EmojiPicker
+              onPick={(emoji) => {
+                const start = box.current?.selectionStart ?? caret;
+                const next = `${draft.slice(0, start)}${emoji}${draft.slice(start)}`.slice(0, MESSAGE_MAX);
+                const pos = Math.min(start + emoji.length, next.length);
+                setDraft(next);
+                setCaret(pos);
+                requestAnimationFrame(() => {
+                  box.current?.focus();
+                  box.current?.setSelectionRange(pos, pos);
+                });
+              }}
+            />
+          </div>
+        ) : null}
         {files.length > 0 ? (
           <ul className="mb-1.5 flex flex-wrap gap-2">
             {files.map((file, index) => (
@@ -957,6 +1226,16 @@ function Composer({
             event.target.value = "";
           }}
         />
+        <button
+          type="button"
+          aria-label="Emoji"
+          aria-expanded={emojiOpen}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => setEmojiOpen((open) => !open)}
+          className="mb-1 rounded-full p-1.5 text-faint hover:bg-hover hover:text-ink"
+        >
+          <Smile className="h-4 w-4" strokeWidth={1.75} />
+        </button>
         <button
           type="button"
           aria-label="Anexar arquivo"
@@ -1220,10 +1499,20 @@ function MemberList({ users, onClose }: { users: User[]; onClose?: () => void })
   );
 }
 
-function MessageText({ body, names }: { body: string; names: string[] }) {
+function MessageText({
+  body,
+  names,
+  mine,
+  meta,
+}: {
+  body: string;
+  names: string[];
+  mine: boolean;
+  meta?: ReactNode;
+}) {
   const pieces = useMemo(() => tokenize(body, names), [body, names]);
   return (
-    <p className="text-sm leading-6 whitespace-pre-wrap text-ink">
+    <p className={cn("whitespace-pre-wrap [overflow-wrap:anywhere]", mine ? "text-white" : "text-ink")}>
       {pieces.map((piece, index) => {
         if (piece.kind === "link") {
           return (
@@ -1232,7 +1521,7 @@ function MessageText({ body, names }: { body: string; names: string[] }) {
               href={piece.href}
               target="_blank"
               rel="noreferrer noopener"
-              className="underline decoration-line underline-offset-2"
+              className="font-bold text-[#53bdeb] underline decoration-[#53bdeb] underline-offset-2"
             >
               {piece.text}
             </a>
@@ -1247,6 +1536,7 @@ function MessageText({ body, names }: { body: string; names: string[] }) {
         }
         return <span key={index}>{piece.text}</span>;
       })}
+      {meta}
     </p>
   );
 }

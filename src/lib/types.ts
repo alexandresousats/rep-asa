@@ -220,6 +220,14 @@ export interface ChannelFile {
   size: number;
 }
 
+export interface ChannelReply {
+  id: string;
+  authorId: string;
+  body: string;
+  fileKind: string | null;
+  fileName: string | null;
+}
+
 export interface ChannelMessage {
   id: string;
   channelId: string;
@@ -227,6 +235,8 @@ export interface ChannelMessage {
   body: string;
   createdAt: string;
   editedAt: string | null;
+  replyToId?: string | null;
+  reply?: ChannelReply | null;
   files?: ChannelFile[];
 }
 

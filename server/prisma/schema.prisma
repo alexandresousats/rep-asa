@@ -397,11 +397,15 @@ model ChannelMessage {
   body      String    @db.Text
   createdAt DateTime  @default(now())
   editedAt  DateTime?
-  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author    User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  replyToId String?
+  channel   Channel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author    User             @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  replyTo   ChannelMessage?  @relation("ChannelReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   ChannelMessage[] @relation("ChannelReply")
   files     ChannelFile[]
 
   @@index([channelId, createdAt])
+  @@index([replyToId])
 }
 
 model ChannelFile {

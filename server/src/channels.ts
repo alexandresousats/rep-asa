@@ -99,7 +99,21 @@ function publicChannel(channel: {
   };
 }
 
-const messageInclude = { files: { orderBy: { createdAt: "asc" as const } } };
+const messageInclude = {
+  files: { orderBy: { createdAt: "asc" as const } },
+  replyTo: {
+    select: {
+      id: true,
+      authorId: true,
+      body: true,
+      files: {
+        orderBy: { createdAt: "asc" as const },
+        take: 1,
+        select: { kind: true, name: true },
+      },
+    },
+  },
+};
 
 function publicFile(file: {
   id: string;
@@ -124,6 +138,7 @@ function publicMessage(message: {
   body: string;
   createdAt: Date;
   editedAt: Date | null;
+  replyToId?: string | null;
   files?: {
     id: string;
     name: string;
@@ -131,7 +146,15 @@ function publicMessage(message: {
     kind: string;
     size: number;
   }[];
+  replyTo?: {
+    id: string;
+    authorId: string;
+    body: string;
+    files?: { kind: string; name: string }[];
+  } | null;
 }) {
+  const quoted = message.replyTo;
+  const quotedFile = quoted?.files?.[0];
   return {
     id: message.id,
     channelId: message.channelId,
@@ -139,6 +162,16 @@ function publicMessage(message: {
     body: message.body,
     createdAt: message.createdAt.toISOString(),
     editedAt: message.editedAt ? message.editedAt.toISOString() : null,
+    replyToId: message.replyToId ?? null,
+    reply: quoted
+      ? {
+          id: quoted.id,
+          authorId: quoted.authorId,
+          body: quoted.body,
+          fileKind: quotedFile?.kind ?? null,
+          fileName: quotedFile?.name ?? null,
+        }
+      : null,
     files: (message.files ?? []).map(publicFile),
   };
 }
@@ -377,12 +410,24 @@ export async function postChannelMessage(
   channelId: string,
   body: string,
   files: InspectedChannelFile[] = [],
+  replyToId?: string | null,
 ) {
   assertWritable(actor);
   const channel = await visibleChannel(actor, channelId);
   const text = body.trim() ? normalizeChannelMessage(body) : "";
   assertChannelFileCount(files.length);
   if (!text && files.length === 0) throw new ApiError(400, "Escreva uma mensagem.");
+  const requested = replyToId?.trim() ?? "";
+  let quotedId: string | null = null;
+  if (requested) {
+    if (requested.length > 40) throw new ApiError(404, "Mensagem não encontrada.");
+    const quoted = await prisma.channelMessage.findFirst({
+      where: { id: requested, channelId: channel.id },
+      select: { id: true },
+    });
+    if (!quoted) throw new ApiError(404, "Mensagem não encontrada.");
+    quotedId = quoted.id;
+  }
   await assertChannelPostRate(actor.id);
   const bytes = files.reduce((sum, file) => sum + file.size, 0);
   await assertStorageAvailable(actor.workspaceId!, bytes);
@@ -390,7 +435,13 @@ export async function postChannelMessage(
   let stored: { id: string }[] = [];
   try {
     const message = await prisma.channelMessage.create({
-      data: { id: messageId, channelId: channel.id, authorId: actor.id, body: text },
+      data: {
+        id: messageId,
+        channelId: channel.id,
+        authorId: actor.id,
+        body: text,
+        replyToId: quotedId,
+      },
     });
     stored = await writeChannelFiles(message.id, files);
   } catch (error) {
@@ -467,6 +518,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown) {
 }
 
 const messageBody = z.object({ body: z.string().max(8000) });
+const messagePost = messageBody.extend({ replyToId: z.string().max(40).optional() });
 
 function messageQuery(c: Context) {
   const q = c.req.query("q");
@@ -534,6 +586,7 @@ export function registerChannelRoutes(
       }
       const form = await c.req.parseBody({ all: true });
       const text = typeof form.body === "string" ? form.body : "";
+      const replyToId = typeof form.replyTo === "string" ? form.replyTo : undefined;
       const raw = form.file;
       const uploads = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(
         (item): item is File => item instanceof File,
@@ -546,10 +599,10 @@ export function registerChannelRoutes(
         }
         files.push(inspectChannelFile(Buffer.from(await upload.arrayBuffer()), upload.name));
       }
-      return c.json(await postChannelMessage(actor, c.req.param("id"), text, files));
+      return c.json(await postChannelMessage(actor, c.req.param("id"), text, files, replyToId));
     }
-    const body = parse(messageBody, await c.req.json());
-    return c.json(await postChannelMessage(actor, c.req.param("id"), body.body));
+    const body = parse(messagePost, await c.req.json());
+    return c.json(await postChannelMessage(actor, c.req.param("id"), body.body, [], body.replyToId));
   });
 
   app.get("/channels/:id/files/:fileId", async (c) => {

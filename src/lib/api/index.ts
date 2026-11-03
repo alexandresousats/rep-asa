@@ -734,15 +734,21 @@ export function listChannelMessages(
   );
 }
 
-export async function postChannelMessage(channelId: string, body: string, files: File[] = []) {
+export async function postChannelMessage(
+  channelId: string,
+  body: string,
+  files: File[] = [],
+  replyToId?: string | null,
+) {
   if (files.length === 0) {
     return request<ChannelMessage>(`/channels/${encodeURIComponent(channelId)}/messages`, {
       method: "POST",
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, replyToId: replyToId || undefined }),
     });
   }
   const form = new FormData();
   form.set("body", body);
+  if (replyToId) form.set("replyTo", replyToId);
   for (const file of files) form.append("file", file);
   const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}/messages`, {
     method: "POST",

@@ -197,9 +197,11 @@ function VideoPiece({
 export function ChannelFileList({
   channelId,
   files,
+  embedded = false,
 }: {
   channelId: string;
   files: ChannelFile[];
+  embedded?: boolean;
 }) {
   const [open, setOpen] = useState<ChannelFile | null>(null);
   if (files.length === 0) return null;
@@ -209,7 +211,7 @@ export function ChannelFileList({
   const documents = files.filter((file) => file.kind === "document");
 
   return (
-    <div className="mt-2 max-w-xl space-y-2">
+    <div className={cn(embedded ? "mt-1 space-y-1" : "mt-2 max-w-xl space-y-2")}>
       {images.length > 0 ? (
         <div className={cn("flex flex-wrap gap-2", images.length > 1 && "max-w-lg")}>
           {images.map((file) => (
@@ -218,13 +220,19 @@ export function ChannelFileList({
               type="button"
               onClick={() => setOpen(file)}
               aria-label={`Abrir ${file.name}`}
-              className="overflow-hidden rounded-xl border border-line bg-[#0d0c0c]"
+              className={cn(
+                "overflow-hidden bg-[#0d0c0c]",
+                embedded ? "rounded-lg" : "rounded-xl border border-line",
+              )}
             >
               <img
                 src={channelFileUrl(channelId, file.id)}
                 alt=""
                 referrerPolicy="no-referrer"
-                className={cn("w-auto max-w-full object-contain", images.length > 1 ? "max-h-40" : "max-h-72")}
+                className={cn(
+                  "max-w-full object-contain",
+                  embedded ? "block max-h-80 w-full" : images.length > 1 ? "max-h-40 w-auto" : "max-h-72 w-auto",
+                )}
               />
             </button>
           ))}

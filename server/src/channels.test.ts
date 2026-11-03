@@ -221,6 +221,19 @@ test("canais: só a equipe do espaço lê, escreve e administra", async () => {
   assert.equal(message.body, "segredo <script>alert(1)</script> @Ana Lima @Bruno Alves");
   assert.equal(message.authorId, editor);
 
+  const quoted = await call(actors.admin, "POST", `/channels/${room.id}/messages`, {
+    body: "recebido",
+    replyToId: message.id,
+  });
+  assert.equal(quoted.status, 200);
+  const quotedJson = quoted.json as { reply: { authorId: string; body: string } | null };
+  assert.equal(quotedJson.reply?.authorId, editor);
+  assert.equal(quotedJson.reply?.body.startsWith("segredo"), true);
+  assert.equal(
+    (await call(actors.admin, "POST", `/channels/${geralId}/messages`, { body: "fora", replyToId: message.id })).status,
+    404,
+  );
+
   const mention = await prisma.notification.findFirst({
     where: { userId: editor, href: `/mensagens/${room.id}` },
   });
@@ -243,9 +256,10 @@ test("canais: só a equipe do espaço lê, escreve e administra", async () => {
 
   const readerView = await call(actors.reader, "GET", `/channels/${room.id}/messages`);
   assert.equal(readerView.status, 200);
-  const readerPage = readerView.json as { messages: { body: string }[] };
-  assert.equal(readerPage.messages.length, 1);
+  const readerPage = readerView.json as { messages: { body: string; reply: { body: string } | null }[] };
+  assert.equal(readerPage.messages.length, 2);
   assert.equal(readerPage.messages[0]?.body, message.body);
+  assert.equal(readerPage.messages[1]?.reply?.body.startsWith("segredo"), true);
 
   const otherSearch = await call(actors.outsider, "GET", "/channels");
   const otherId = (otherSearch.json as { id: string }[])[0]?.id;
