@@ -41,6 +41,7 @@ import {
 } from "@/lib/api";
 import { ApiError } from "@/lib/api/client";
 import { subscribeChannelLive } from "@/lib/channel-live";
+import { subscribePresence } from "@/lib/presence";
 import { cn } from "@/lib/cn";
 import type { Channel, ChannelMessage, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
@@ -80,6 +81,7 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
   const [error, setError] = useState("");
   const [showList, setShowList] = useState(!channelId);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
 
   const active = channels.find((channel) => channel.id === channelId) ?? null;
@@ -118,6 +120,8 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
   useEffect(() => {
     if (channelId) setShowList(false);
   }, [channelId]);
+
+  useEffect(() => subscribePresence(setOnlineIds), []);
 
   useEffect(() => {
     if (!channelId || !known) return;
@@ -261,6 +265,7 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
             canWrite={canWrite}
             isAdmin={isAdmin}
             membersOpen={membersOpen}
+            onlineIds={onlineIds}
             onToggleMembers={() => setMembersOpen((open) => !open)}
             onBack={() => setShowList(true)}
             onEditChannel={() => setDialog("edit")}
@@ -275,13 +280,13 @@ export function ChannelRoom({ channelId }: { channelId?: string }) {
         )}
         {membersOpen ? (
           <div className="absolute inset-y-0 right-0 z-20 w-[240px] border-l border-line bg-sidebar xl:hidden">
-            <MemberList users={users} onClose={() => setMembersOpen(false)} />
+            <MemberList users={users} onlineIds={onlineIds} onClose={() => setMembersOpen(false)} />
           </div>
         ) : null}
       </section>
 
       <aside className="hidden w-[220px] shrink-0 border-l border-line bg-sidebar xl:block">
-        <MemberList users={users} />
+        <MemberList users={users} onlineIds={onlineIds} />
       </aside>
 
       {dialog === "create" || (dialog === "edit" && active) ? (
@@ -319,6 +324,7 @@ function Transcript({
   canWrite,
   isAdmin,
   membersOpen,
+  onlineIds,
   onToggleMembers,
   onBack,
   onEditChannel,
@@ -335,6 +341,7 @@ function Transcript({
   canWrite: boolean;
   isAdmin: boolean;
   membersOpen: boolean;
+  onlineIds: string[];
   onToggleMembers: () => void;
   onBack: () => void;
   onEditChannel: () => void;
@@ -514,12 +521,15 @@ function Transcript({
         </button>
         <button
           type="button"
-          aria-label="Ver equipe"
+          aria-label="Ver quem está online"
           aria-pressed={membersOpen}
           onClick={onToggleMembers}
-          className="rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink xl:hidden"
+          className="relative rounded-md p-1.5 text-faint hover:bg-hover hover:text-ink xl:hidden"
         >
           <Users className="h-4 w-4" strokeWidth={1.75} />
+          {team(users).some((person) => onlineIds.includes(person.id)) ? (
+            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#25d366]" />
+          ) : null}
         </button>
         {isAdmin ? (
           <button
@@ -598,6 +608,7 @@ function Transcript({
                 names={names}
                 canWrite={canWrite}
                 isAdmin={isAdmin}
+                online={onlineIds.includes(message.authorId)}
                 channelId={channel.id}
                 onReply={setReply}
                 onChanged={(saved) => {
@@ -673,6 +684,7 @@ function MessageRow({
   names,
   canWrite,
   isAdmin,
+  online,
   channelId,
   onReply,
   onChanged,
@@ -686,6 +698,7 @@ function MessageRow({
   names: string[];
   canWrite: boolean;
   isAdmin: boolean;
+  online: boolean;
   channelId: string;
   onReply: (message: ChannelMessage) => void;
   onChanged: (message: ChannelMessage) => void;
@@ -827,7 +840,15 @@ function MessageRow({
         {mine ? null : grouped ? (
           <span className="w-8 shrink-0" />
         ) : (
-          <Avatar initials={author?.initials ?? "?"} src={author?.avatar} name={author?.name} size="sm" />
+          <Avatar
+            initials={author?.initials ?? "?"}
+            src={author?.avatar}
+            name={author?.name}
+            size="sm"
+            online={
+              online && author?.membershipStatus !== "pending" && author?.access !== "cliente"
+            }
+          />
         )}
         {editing ? (
           <form
@@ -1472,12 +1493,22 @@ function ChannelDialog({
   );
 }
 
-function MemberList({ users, onClose }: { users: User[]; onClose?: () => void }) {
+function MemberList({
+  users,
+  onlineIds,
+  onClose,
+}: {
+  users: User[];
+  onlineIds: string[];
+  onClose?: () => void;
+}) {
   const people = team(users);
+  const online = people.filter((person) => onlineIds.includes(person.id));
+  const away = people.filter((person) => !onlineIds.includes(person.id));
   return (
     <div className="px-3 py-3">
       <div className="mb-2 flex items-center justify-between px-2">
-        <p className="text-xs text-faint">Equipe — {people.length}</p>
+        <p className="text-xs text-faint">Online — {online.length}</p>
         {onClose ? (
           <button type="button" aria-label="Fechar equipe" onClick={onClose} className="text-faint hover:text-ink">
             <X className="h-4 w-4" strokeWidth={1.75} />
@@ -1485,17 +1516,40 @@ function MemberList({ users, onClose }: { users: User[]; onClose?: () => void })
         ) : null}
       </div>
       <ul className="space-y-0.5">
-        {people.map((person) => (
-          <li key={person.id} className="flex items-center gap-2 rounded-md px-2 py-1.5">
-            <Avatar initials={person.initials} src={person.avatar} name={person.name} size="sm" />
-            <span className="min-w-0">
-              <span className="block truncate text-sm">{person.name}</span>
-              <span className="block truncate text-[11px] text-faint">{person.role}</span>
-            </span>
-          </li>
+        {online.map((person) => (
+          <MemberRow key={person.id} person={person} online />
         ))}
       </ul>
+      {away.length > 0 ? (
+        <>
+          <p className="mt-4 mb-2 px-2 text-xs text-faint">Offline — {away.length}</p>
+          <ul className="space-y-0.5">
+            {away.map((person) => (
+              <MemberRow key={person.id} person={person} online={false} />
+            ))}
+          </ul>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function MemberRow({ person, online }: { person: User; online: boolean }) {
+  return (
+    <li className="flex items-center gap-2 rounded-md px-2 py-1.5">
+      <Avatar
+        initials={person.initials}
+        src={person.avatar}
+        name={person.name}
+        size="sm"
+        online={online}
+        surface="sidebar"
+      />
+      <span className="min-w-0">
+        <span className="block truncate text-sm">{person.name}</span>
+        <span className="block truncate text-[11px] text-faint">{person.role}</span>
+      </span>
+    </li>
   );
 }
 

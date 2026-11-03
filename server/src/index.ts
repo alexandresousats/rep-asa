@@ -6,6 +6,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { stream, streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { isChannelLive, subscribe } from "./events";
+import { joinPresence, leavePresence } from "./presence";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
 import {
@@ -707,6 +708,7 @@ app.get("/events", async (c) => {
   c.header("X-Accel-Buffering", "no");
   return streamSSE(c, async (stream) => {
     let open = true;
+    let connectionId: string | null = null;
     await stream.writeSSE({ event: "ping", data: "1" });
     const stop = subscribe((event) => {
       if (!open) return;
@@ -714,15 +716,23 @@ app.get("/events", async (c) => {
         if (event.userId !== actor.id) return;
       } else if (!actor.workspaceId || event.workspaceId !== actor.workspaceId) {
         return;
-      } else if (isChannelLive(event) && actor.access === "cliente") {
+      } else if ((isChannelLive(event) || event.kind === "presence") && actor.access === "cliente") {
         return;
       }
       void stream.writeSSE({ data: JSON.stringify(event) });
     });
-    stream.onAbort(() => {
+    if (actor.workspaceId && actor.access !== "cliente") {
+      connectionId = joinPresence(actor.id, actor.workspaceId);
+    }
+    const drop = () => {
       open = false;
       stop();
-    });
+      if (!connectionId) return;
+      const current = connectionId;
+      connectionId = null;
+      leavePresence(current);
+    };
+    stream.onAbort(drop);
     try {
       while (open) {
         await stream.sleep(15000);
@@ -730,8 +740,7 @@ app.get("/events", async (c) => {
         await stream.writeSSE({ event: "ping", data: "1" });
       }
     } finally {
-      open = false;
-      stop();
+      drop();
     }
   });
 });

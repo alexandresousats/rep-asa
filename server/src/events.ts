@@ -6,7 +6,8 @@ export type LiveEvent =
   | { workspaceId: string; kind: "channels"; channels: unknown }
   | { workspaceId: string; kind: "channel-removed"; channelId: string }
   | { workspaceId: string; kind: "channel-message"; message: unknown }
-  | { workspaceId: string; kind: "channel-message-removed"; channelId: string; messageId: string };
+  | { workspaceId: string; kind: "channel-message-removed"; channelId: string; messageId: string }
+  | { workspaceId: string; kind: "presence"; userIds: string[] };
 
 const CHANNEL_KINDS = new Set<LiveEvent["kind"]>([
   "channel",

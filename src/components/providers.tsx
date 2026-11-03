@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
 import { emitChannelLive, type ChannelLiveEvent } from "@/lib/channel-live";
+import { emitPresence } from "@/lib/presence";
 import { useChat } from "@/lib/chat";
 import { enableFirebaseAnalytics } from "@/lib/firebase";
 import { agentReady, usePrefs } from "@/lib/prefs";
@@ -105,6 +106,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
           ) {
             emitChannelLive(data as ChannelLiveEvent);
           }
+          if (data.kind === "presence" && Array.isArray((data as { userIds?: unknown }).userIds)) {
+            const userIds = (data as { userIds: unknown[] }).userIds.filter(
+              (id): id is string => typeof id === "string",
+            );
+            emitPresence(userIds);
+          }
         } catch {
           // Ignore a malformed event and keep the stream.
         }
@@ -121,6 +128,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       stopped = true;
       if (retry) window.clearTimeout(retry);
       source?.close();
+      emitPresence([]);
     };
   }, [userId, workspaceId, billingActive]);
 
