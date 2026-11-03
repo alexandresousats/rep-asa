@@ -1302,6 +1302,8 @@ export async function createTask(
       demandFormat: input.demandFormat ?? null,
       referenceUrls: input.referenceUrls?.trim() ?? null,
       approvalStatus: "none",
+      createdById: actor.id,
+      createdByName: actor.name,
       tags: input.tagIds?.length
         ? { create: input.tagIds.map((tagId) => ({ tagId })) }
         : undefined,
@@ -1606,6 +1608,8 @@ export async function addSubtask(
       parentId: parent.id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      createdById: actor.id,
+      createdByName: actor.name,
     },
     include: taskInclude,
   });

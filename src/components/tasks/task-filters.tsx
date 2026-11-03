@@ -101,6 +101,8 @@ export function TaskColumnFilters({
         ) : null}
       </TaskFilterColumn>
 
+      <span className="flex items-center">Adicionada por</span>
+
       <TaskFilterColumn
         label="Data"
         active={filters.date !== "all"}

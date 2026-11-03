@@ -81,6 +81,7 @@ model User {
   sentInvites      WorkspaceMember[]   @relation("InvitedBy")
   assignedTasks    Task[]              @relation("Assignee")
   approvedTasks    Task[]              @relation("TaskApprover")
+  createdTasks     Task[]              @relation("TaskCreator")
   comments         Comment[]
   messages         Message[]
   threads          ThreadParticipant[]
@@ -265,12 +266,16 @@ model Task {
   approvedById     String?
   approvedBy       User?          @relation("TaskApprover", fields: [approvedById], references: [id])
   approvedByClientName String?
+  createdById      String?
+  createdByName    String?
+  createdBy        User?          @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
   clientFeedback   ClientFeedback[]
 
   @@index([projectId])
   @@index([assigneeId])
   @@index([approvalStatus])
   @@index([externalId])
+  @@index([createdById])
 }
 
 model TaskDependency {

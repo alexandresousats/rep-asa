@@ -519,6 +519,7 @@ export async function submitDemandInContext(ctx: DemandContext, input: SubmitDem
       demandFormat: input.demandFormat || null,
       referenceUrls: input.referenceUrls || null,
       approvalStatus: ctx.approvalStatus,
+      createdByName: input.requesterName?.trim().slice(0, 120) || null,
       tags:
         tagIds.size > 0
           ? { create: Array.from(tagIds).map((tagId) => ({ tagId })) }

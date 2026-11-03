@@ -168,6 +168,8 @@ export interface Task {
   attachments?: TaskAttachment[];
   completedAt: string | null;
   createdAt: string;
+  createdById: string | null;
+  createdByName: string | null;
   isDemand?: boolean;
   demandFormat?: string | null;
   referenceUrls?: string | null;

@@ -4,6 +4,7 @@ import { endOfWeek, startOfDay } from "date-fns";
 import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { TaskAssigneePicker } from "@/components/tasks/task-assignee-picker";
+import { TaskCreator } from "@/components/tasks/task-creator";
 import { TaskDatePicker } from "@/components/tasks/task-date-picker";
 import {
   TaskFilterClear,
@@ -37,7 +38,7 @@ import type { Priority, Project, Task, TaskViewMode, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_7.5rem_9.5rem_10rem_7.5rem_8.5rem_2.5rem] items-center gap-2";
+  "grid grid-cols-[minmax(0,1fr)_7.5rem_9.5rem_9rem_10rem_7.5rem_8.5rem_2.5rem] items-center gap-2";
 
 type Scope = "open" | "done";
 
@@ -232,7 +233,7 @@ export default function MyTasksPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <div className="min-w-[1080px] space-y-8">
+              <div className="min-w-[1224px] space-y-8">
               <div className={cn(COLUMNS, "items-center px-2 text-xs text-faint")}>
                 <span>Nome</span>
                 <TaskFilterColumn
@@ -292,6 +293,7 @@ export default function MyTasksPage() {
                     />
                   ) : null}
                 </TaskFilterColumn>
+                <span>Adicionada por</span>
                 <TaskFilterColumn
                   label="Projeto"
                   className="justify-start gap-1 pl-2 pr-0"
@@ -502,6 +504,9 @@ export default function MyTasksPage() {
                               variant="cell"
                               onSelect={(assigneeId) => updateTask(task.id, { assigneeId })}
                             />
+                          </span>
+                          <span className="min-w-0">
+                            <TaskCreator task={task} users={users} />
                           </span>
                           <span onClick={stopRowClick} onKeyDown={stopRowClick}>
                             <TaskProjectPicker

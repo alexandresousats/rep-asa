@@ -525,6 +525,9 @@ function scheduleTaskSave(id: string, delay: number) {
     delete body.comments;
     delete body.subtasks;
     delete body.id;
+    delete body.createdAt;
+    delete body.createdById;
+    delete body.createdByName;
     const snapshot = taskSnapshots.get(id);
     taskBuffers.delete(id);
     taskTimers.delete(id);

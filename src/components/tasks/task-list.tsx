@@ -11,6 +11,7 @@ import { formatDay } from "@/lib/dates";
 import { EditableTitle } from "@/components/tasks/editable-title";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
+import { TaskCreator } from "@/components/tasks/task-creator";
 import { TaskColumnFilters } from "@/components/tasks/task-filters";
 import {
   createSection,
@@ -33,6 +34,7 @@ import {
 import type { Project, Tag, Task, User } from "@/lib/types";
 
 const TASK_DRAG_TYPE = "application/x-rep-asa-task";
+const LIST_GRID = "grid-cols-[minmax(14rem,1fr)_148px_148px_118px_108px_150px]";
 
 type TaskDrag = {
   id: string | null;
@@ -111,7 +113,7 @@ export function TaskList({
 
   return (
     <div
-      className="min-w-[720px]"
+      className="min-w-[980px]"
       data-task-list
       onDragOver={(event) => {
         if (!drag?.idRef.current) return;
@@ -119,7 +121,12 @@ export function TaskList({
       }}
     >
       {showHeader ? (
-        <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_130px_120px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
+        <div
+          className={cn(
+            "sticky top-0 z-10 grid gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint",
+            LIST_GRID,
+          )}
+        >
           <span>Nome</span>
           <TaskColumnFilters users={people} tags={tags} filters={filters} onChange={setFilters} />
         </div>
@@ -209,7 +216,8 @@ export function TaskList({
               setOverId(null);
             }}
             className={cn(
-              "grid w-full cursor-pointer grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
+              "grid w-full cursor-pointer items-center gap-3 border-b border-line-subtle px-4 py-3 text-left text-sm hover:bg-hover",
+              LIST_GRID,
               selectedId === task.id && "bg-elevated",
               task.status === "done" && activeDragId !== task.id && "opacity-50",
               activeDragId === task.id && "opacity-40",
@@ -271,6 +279,7 @@ export function TaskList({
                 "—"
               )}
             </span>
+            <TaskCreator task={task} users={users} />
             <span className="text-muted">{task.dueDate ? formatDay(task.dueDate) : "—"}</span>
             <PriorityLabel priority={task.priority} />
             <span className="flex flex-wrap items-center gap-1 overflow-hidden">
@@ -409,8 +418,13 @@ export function GroupedTaskList({
   const fallback = pendingDelete ? neighborSection(sections, pendingDelete) : "";
 
   return (
-    <div className="min-w-[720px]">
-      <div className="sticky top-0 z-10 grid grid-cols-[1fr_160px_130px_120px_150px] gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint">
+    <div className="min-w-[980px]">
+      <div
+        className={cn(
+          "sticky top-0 z-10 grid gap-3 border-b border-line-subtle bg-base px-4 py-3 text-xs text-faint",
+          LIST_GRID,
+        )}
+      >
         <span>Nome</span>
         <TaskColumnFilters users={people} tags={tags} filters={filters} onChange={setFilters} />
       </div>
@@ -753,7 +767,7 @@ function DraftRow({
 
   return (
     <form
-      className="grid grid-cols-[1fr_160px_130px_120px_150px] items-center gap-3 border-b border-line-subtle px-4 py-2"
+      className={cn("grid items-center gap-3 border-b border-line-subtle px-4 py-2", LIST_GRID)}
       onSubmit={(event) => {
         event.preventDefault();
         skipBlur.current = true;
