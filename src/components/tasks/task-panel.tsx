@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, Check, PanelRight, X } from "lucide-react";
+import { AppWindow, ArrowLeft, Check, PanelRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { RichText } from "@/components/ui/rich-text";
@@ -40,6 +40,7 @@ export function TaskViewer({
   onClose,
   subtasks = [],
   onOpenSubtask,
+  parent = null,
   startEditing = false,
 }: {
   task: Task;
@@ -51,6 +52,7 @@ export function TaskViewer({
   onClose: () => void;
   subtasks?: Task[];
   onOpenSubtask?: (id: string) => void;
+  parent?: { id: string; title: string } | null;
   startEditing?: boolean;
 }) {
   useEffect(() => {
@@ -72,6 +74,7 @@ export function TaskViewer({
     onClose,
     subtasks,
     onOpenSubtask,
+    parent,
     startEditing,
   };
 
@@ -142,6 +145,7 @@ export function TaskPanel({
   onViewChange,
   subtasks = [],
   onOpenSubtask,
+  parent = null,
   startEditing = false,
 }: {
   task: Task;
@@ -154,6 +158,7 @@ export function TaskPanel({
   onViewChange?: (mode: TaskViewMode) => void;
   subtasks?: Task[];
   onOpenSubtask?: (id: string) => void;
+  parent?: { id: string; title: string } | null;
   startEditing?: boolean;
 }) {
   const [comment, setComment] = useState("");
@@ -216,6 +221,17 @@ export function TaskPanel({
       ) : null}
       <div className="flex items-start justify-between gap-4 border-b border-line-subtle px-5 py-5">
         <div className="min-w-0 flex-1">
+          {parent && onOpenSubtask ? (
+            <button
+              type="button"
+              onClick={() => onOpenSubtask(parent.id)}
+              title={parent.title}
+              className="mb-2 flex w-full min-w-0 items-center gap-1.5 text-left text-xs text-faint hover:text-ink"
+            >
+              <ArrowLeft className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+              <span className="truncate">Voltar para: {parent.title}</span>
+            </button>
+          ) : null}
           {canWrite ? (
             <EditableTitle
               key={task.id}
@@ -226,7 +242,7 @@ export function TaskPanel({
               onCommit={(title) => updateTask(task.id, { title })}
             />
           ) : (
-            <h2 className="min-w-0 text-lg font-medium leading-snug tracking-tight text-ink">
+            <h2 className="min-w-0 text-lg font-medium leading-snug tracking-tight text-ink [overflow-wrap:anywhere]">
               {task.title}
             </h2>
           )}

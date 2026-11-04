@@ -9,6 +9,7 @@ import { ShareDemandLinkDialog } from "@/components/demands/share-demand-link-di
 import { MaintenanceGate } from "@/components/layout/maintenance-gate";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { usePrefs } from "@/lib/prefs";
+import { taskParent } from "@/lib/tasks";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 export default function DemandsPage() {
@@ -107,6 +108,7 @@ export default function DemandsPage() {
           onClose={() => setSelectedId(null)}
           subtasks={allTasks.filter((task) => task.parentId === selected.id)}
           onOpenSubtask={(id) => setSelectedId(id)}
+          parent={taskParent(selected, allTasks)}
         />
       ) : null}
 

@@ -35,6 +35,7 @@ import {
   type TaskFilterState,
 } from "@/lib/task-filters";
 import type { Priority, Project, Task, TaskViewMode, User } from "@/lib/types";
+import { taskParent } from "@/lib/tasks";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const COLUMNS =
@@ -580,6 +581,7 @@ export default function MyTasksPage() {
           onClose={() => setSelectedId(null)}
           subtasks={tasks.filter((task) => task.parentId === selected.id)}
           onOpenSubtask={setSelectedId}
+          parent={taskParent(selected, tasks)}
         />
       ) : null}
       {createOpen ? (

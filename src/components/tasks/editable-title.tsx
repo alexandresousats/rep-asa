@@ -19,14 +19,73 @@ export function EditableTitle({
   const [editing, setEditing] = useState(startEditing);
   const [value, setValue] = useState(title);
   const committed = useRef(false);
+  const multiline = Tag === "h2";
 
   function commit() {
     if (committed.current) return;
     committed.current = true;
-    const next = value.trim();
+    const next = (multiline ? value.replace(/[\r\n]+/g, " ") : value).trim();
     setEditing(false);
     if (next && next !== title) onCommit(next);
     else setValue(title);
+  }
+
+  function cancel() {
+    committed.current = true;
+    setValue(title);
+    setEditing(false);
+  }
+
+  if (editing && multiline) {
+    return (
+      <div className="relative max-h-60 overflow-hidden">
+        <div
+          aria-hidden
+          className={cn(
+            "invisible whitespace-pre-wrap [overflow-wrap:anywhere]",
+            className,
+          )}
+        >
+          {value || "\u00a0"}
+          {value.endsWith("\n") ? "\u00a0" : ""}
+        </div>
+        <textarea
+          autoFocus
+          rows={1}
+          value={value}
+          aria-label="Título da tarefa"
+          onFocus={(event) => {
+            const input = event.currentTarget;
+            const placeCaret = () => {
+              const end = input.value.length;
+              input.setSelectionRange(end, end);
+            };
+            placeCaret();
+            requestAnimationFrame(placeCaret);
+          }}
+          onChange={(event) => setValue(event.target.value)}
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commit();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancel();
+            }
+          }}
+          onBlur={commit}
+          className={cn(
+            "absolute inset-0 h-full w-full resize-none overflow-auto border-0 bg-transparent p-0 font-[inherit] text-inherit outline-none [overflow-wrap:anywhere]",
+            className,
+          )}
+        />
+      </div>
+    );
   }
 
   if (editing) {
@@ -57,16 +116,14 @@ export function EditableTitle({
             commit();
           }
           if (event.key === "Escape") {
-            committed.current = true;
-            setValue(title);
-            setEditing(false);
+            event.preventDefault();
+            cancel();
           }
         }}
         onBlur={commit}
         style={{ textOverflow: "clip" }}
         className={cn(
-          "min-w-0 max-w-full bg-transparent text-inherit outline-none",
-          Tag === "h2" ? "block w-full" : "flex-1",
+          "min-w-0 max-w-full flex-1 bg-transparent text-inherit outline-none",
           className,
         )}
       />
@@ -83,7 +140,7 @@ export function EditableTitle({
         setValue(title);
         setEditing(true);
       }}
-      className={className}
+      className={cn(className, multiline && "[overflow-wrap:anywhere]")}
     >
       {title}
     </Tag>

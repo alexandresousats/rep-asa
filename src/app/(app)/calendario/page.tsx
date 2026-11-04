@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { MonthCalendar } from "@/components/calendar/month-calendar";
 import { TaskViewer } from "@/components/tasks/task-panel";
 import { usePrefs } from "@/lib/prefs";
+import { taskParent } from "@/lib/tasks";
 import { useWorkspace } from "@/lib/workspace";
 
 export default function CalendarPage() {
@@ -49,6 +50,7 @@ export default function CalendarPage() {
           onClose={() => setSelectedId(null)}
           subtasks={tasks.filter((task) => task.parentId === selected.id)}
           onOpenSubtask={setSelectedId}
+          parent={taskParent(selected, tasks)}
         />
       ) : null}
     </div>

@@ -24,6 +24,7 @@ import { createTask, deleteProject, reorderTasks } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { usePrefs } from "@/lib/prefs";
 import type { ProjectView } from "@/lib/types";
+import { taskParent } from "@/lib/tasks";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const VIEWS: { id: ProjectView; label: string }[] = [
@@ -405,6 +406,7 @@ function ProjectWorkspace() {
           onClose={() => setQuery({ task: null })}
           subtasks={tasks.filter((task) => task.parentId === selected.id)}
           onOpenSubtask={(id) => setQuery({ task: id })}
+          parent={taskParent(selected, tasks)}
           startEditing={selected.id === freshTaskId}
         />
       ) : null}

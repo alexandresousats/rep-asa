@@ -1,5 +1,10 @@
 import type { Project, Subtask, Task } from "./types";
 
+export function taskParent(task: { parentId?: string | null }, tasks: Task[]): Task | null {
+  if (!task.parentId) return null;
+  return tasks.find((item) => item.id === task.parentId) ?? null;
+}
+
 export function expandSubtasks(tasks: Task[]): Task[] {
   const ids = new Set(tasks.map((task) => task.id));
   const children: Task[] = [];
