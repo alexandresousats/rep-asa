@@ -7,6 +7,7 @@ import { RichText } from "@/components/ui/rich-text";
 import { StatusDot } from "@/components/ui/badge";
 import { TaskTagPicker } from "@/components/tasks/task-tag-picker";
 import { TaskAssigneePicker } from "@/components/tasks/task-assignee-picker";
+import { TaskCreator } from "@/components/tasks/task-creator";
 import { TaskDatePicker } from "@/components/tasks/task-date-picker";
 import { TaskProjectPicker } from "@/components/tasks/task-project-picker";
 import { TaskPriorityPicker } from "@/components/tasks/task-priority-picker";
@@ -326,6 +327,10 @@ export function TaskPanel({
             canWrite={canWrite}
             onSelect={(assigneeId) => updateTask(task.id, { assigneeId })}
           />
+        </Field>
+
+        <Field label="Adicionada por">
+          <TaskCreator task={task} users={users} variant="field" />
         </Field>
 
         <Field label="Data de conclusão">

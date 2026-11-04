@@ -1,7 +1,8 @@
 "use client";
 
 import { Check, Loader2, Plus, Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { TagChip } from "@/components/ui/badge";
 import { createTag } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -25,17 +26,23 @@ export function TaskTagPicker({
   tags,
   canWrite,
   onUpdateTagIds,
+  variant = "field",
 }: {
   tagIds: string[];
   tags: Tag[];
   canWrite: boolean;
   onUpdateTagIds: (nextIds: string[]) => void;
+  variant?: "field" | "cell";
 }) {
+  const isCell = variant === "cell";
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedColor, setSelectedColor] = useState(TAG_COLORS[0]);
   const [creating, setCreating] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function handleClose() {
@@ -53,12 +60,10 @@ export function TaskTagPicker({
     if (!isOpen) return;
 
     function onPointerDown(event: MouseEvent | TouchEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        handleClose();
-      }
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      handleClose();
     }
 
     function onKeyDown(event: KeyboardEvent) {
@@ -74,6 +79,36 @@ export function TaskTagPicker({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [isOpen]);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !isCell) return;
+
+    function updatePosition() {
+      const el = buttonRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const menuWidth = 288;
+      const estimatedHeight = 360;
+      let left = rect.left;
+      let top = rect.bottom + 6;
+      if (left + menuWidth > window.innerWidth - 8) {
+        left = window.innerWidth - menuWidth - 8;
+      }
+      if (left < 8) left = 8;
+      if (top + estimatedHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - estimatedHeight - 6);
+      }
+      setCoords({ top, left });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, isCell]);
 
   // Focus input when opened
   useEffect(() => {
@@ -134,50 +169,26 @@ export function TaskTagPicker({
     }
   }
 
-  return (
-    <div ref={containerRef} className="relative flex flex-wrap items-center justify-end gap-1.5">
-      {assignedTags.map((tag) => (
-        <TagChip
-          key={tag.id}
-          name={tag.name}
-          color={tag.color}
-          onRemove={canWrite ? () => toggleTag(tag.id) : undefined}
-        />
-      ))}
+  const chips = assignedTags.map((tag) => (
+    <TagChip
+      key={tag.id}
+      name={tag.name}
+      color={tag.color}
+      onRemove={isCell || !canWrite ? undefined : () => toggleTag(tag.id)}
+    />
+  ));
 
-      {canWrite ? (
-        assignedTags.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => (isOpen ? handleClose() : handleOpen())}
-            aria-label="Adicionar tag"
-            title="Adicionar tag"
-            className={cn(
-              "inline-flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-line text-faint hover:border-line-subtle hover:bg-hover hover:text-ink transition-colors",
-              isOpen && "border-solid border-ink text-ink bg-hover",
-            )}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => (isOpen ? handleClose() : handleOpen())}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border border-dashed border-line px-2.5 py-1 text-xs text-faint hover:border-line-subtle hover:bg-hover hover:text-ink transition-colors",
-              isOpen && "border-solid border-ink text-ink bg-hover",
-            )}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Adicionar tag</span>
-          </button>
-        )
-      ) : assignedTags.length === 0 ? (
-        <span className="text-xs text-faint">Sem tags</span>
-      ) : null}
-
-      {isOpen && canWrite ? (
-        <div className="absolute right-0 top-full mt-2 z-50 w-72 rounded-2xl border border-line bg-elevated p-3 shadow-2xl text-left animate-in fade-in zoom-in-95 duration-150">
+  const menu = isOpen && canWrite ? (
+    <div
+      ref={menuRef}
+      style={isCell ? { top: coords.top, left: coords.left, width: 288 } : undefined}
+      className={cn(
+        "z-[80] w-72 rounded-2xl border border-line bg-elevated p-3 text-left shadow-2xl",
+        isCell
+          ? "fixed menu-in"
+          : "absolute right-0 top-full mt-2 animate-in fade-in zoom-in-95 duration-150",
+      )}
+    >
           {/* Search/Create Input */}
           <div className="relative flex items-center">
             <Search className="absolute left-2.5 h-3.5 w-3.5 text-faint pointer-events-none" />
@@ -292,8 +303,74 @@ export function TaskTagPicker({
               </div>
             ) : null}
           </div>
-        </div>
-      ) : null}
+    </div>
+  ) : null;
+
+  return (
+    <div
+      ref={containerRef}
+      className={
+        isCell
+          ? "min-w-0 max-w-full"
+          : "relative flex flex-wrap items-center justify-end gap-1.5"
+      }
+    >
+      {isCell ? (
+        canWrite ? (
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={() => (isOpen ? handleClose() : handleOpen())}
+            aria-expanded={isOpen}
+            aria-label="Alterar tags"
+            className={cn(
+              "inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 overflow-hidden rounded-lg border border-transparent px-1.5 py-1 text-left transition-colors hover:border-line hover:bg-elevated hover:shadow-sm",
+              isOpen && "border-line bg-elevated shadow-sm",
+            )}
+          >
+            {chips.length > 0 ? chips : <span className="text-xs text-faint">—</span>}
+          </button>
+        ) : (
+          <span className="inline-flex min-w-0 items-center gap-1 overflow-hidden px-1.5">
+            {chips.length > 0 ? chips : <span className="text-xs text-faint">—</span>}
+          </span>
+        )
+      ) : (
+        <>
+          {chips}
+          {canWrite ? (
+            assignedTags.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => (isOpen ? handleClose() : handleOpen())}
+                aria-label="Adicionar tag"
+                title="Adicionar tag"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-line text-faint hover:border-line-subtle hover:bg-hover hover:text-ink transition-colors",
+                  isOpen && "border-solid border-ink text-ink bg-hover",
+                )}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => (isOpen ? handleClose() : handleOpen())}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border border-dashed border-line px-2.5 py-1 text-xs text-faint hover:border-line-subtle hover:bg-hover hover:text-ink transition-colors",
+                  isOpen && "border-solid border-ink text-ink bg-hover",
+                )}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Adicionar tag</span>
+              </button>
+            )
+          ) : assignedTags.length === 0 ? (
+            <span className="text-xs text-faint">Sem tags</span>
+          ) : null}
+        </>
+      )}
+      {menu ? (isCell ? createPortal(menu, document.body) : menu) : null}
     </div>
   );
 }

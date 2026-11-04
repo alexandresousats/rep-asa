@@ -68,5 +68,7 @@ function subtaskToTask(parent: Task, sub: Subtask): Task {
     comments: [],
     completedAt: null,
     createdAt: parent.createdAt,
+    createdById: null,
+    createdByName: null,
   };
 }

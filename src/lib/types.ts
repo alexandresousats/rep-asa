@@ -90,7 +90,7 @@ export interface WorkspaceInvite {
 
 export interface AppNotification {
   id: string;
-  type: "task_assigned" | "comment" | "project_member" | "message" | "workspace_invite";
+  type: "task_assigned" | "comment" | "project_member" | "message" | "workspace_invite" | "direct";
   title: string;
   body: string;
   href: string | null;
@@ -168,6 +168,8 @@ export interface Task {
   attachments?: TaskAttachment[];
   completedAt: string | null;
   createdAt: string;
+  createdById: string | null;
+  createdByName: string | null;
   isDemand?: boolean;
   demandFormat?: string | null;
   referenceUrls?: string | null;
@@ -202,6 +204,68 @@ export interface MessageThread {
   projectId: string | null;
   participantIds: string[];
   lastMessageAt: string;
+}
+
+export interface Channel {
+  id: string;
+  name: string;
+  topic: string;
+  position: number;
+  createdAt: string;
+}
+
+export interface ChannelFile {
+  id: string;
+  name: string;
+  mime: string;
+  kind: "image" | "audio" | "video" | "document" | string;
+  size: number;
+}
+
+export interface ChannelReply {
+  id: string;
+  authorId: string;
+  body: string;
+  fileKind: string | null;
+  fileName: string | null;
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  replyToId?: string | null;
+  reply?: ChannelReply | null;
+  files?: ChannelFile[];
+}
+
+export interface DirectPeer {
+  id: string;
+  name: string;
+  initials: string;
+  role: string;
+  avatar?: string | null;
+}
+
+export interface DirectConversation {
+  id: string;
+  peer: DirectPeer;
+  lastPreview: string;
+  lastAuthorId: string | null;
+  lastMessageAt: string | null;
+  createdAt: string;
+}
+
+export interface DirectMessage {
+  id: string;
+  conversationId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
 }
 
 export interface HeatmapCell {
@@ -321,6 +385,7 @@ export interface AgentSharing {
 
 export interface WorkspaceStorage {
   files: number;
+  channels?: number;
   agent: number;
   total: number;
   limit: number;

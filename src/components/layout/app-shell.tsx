@@ -123,7 +123,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Search className="h-4 w-4" strokeWidth={1.5} />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className={`min-h-0 flex-1 ${pathname.startsWith("/mensagens") ? "overflow-hidden" : "overflow-y-auto"}`}
+        >
           {workspace ? children : <PendingInvites />}
         </div>
       </div>

@@ -20,7 +20,7 @@ import { AccountMenu } from "@/components/layout/account-menu";
 import type { SettingsTab } from "@/components/settings/settings-dialog";
 import { cn } from "@/lib/cn";
 import { sidebarNavIconClass, sidebarNavItemClass } from "@/lib/sidebar-nav";
-import { useWorkspace } from "@/lib/workspace";
+import { useAccess, useWorkspace } from "@/lib/workspace";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { NotificationBell } from "./notifications";
 import { Logo } from "./logo";
@@ -54,6 +54,7 @@ export function Sidebar({
   onOpenSettings: (tab: SettingsTab) => void;
 }) {
   const pathname = usePathname();
+  const { isClient } = useAccess();
   const workspace = useWorkspace((state) => state.workspace);
   const workspaces = useWorkspace((state) => state.workspaces);
   const tasks = useWorkspace((state) => state.tasks);
@@ -113,7 +114,7 @@ export function Sidebar({
       </div>
 
       <nav className={cn("flex flex-1 flex-col gap-1", collapsed && "w-full items-center")}>
-        {NAV.map((item) => {
+        {NAV.filter((item) => !(isClient && item.href === "/mensagens")).map((item) => {
           const active =
             item.href === "/"
               ? pathname === "/"

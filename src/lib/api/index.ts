@@ -1,5 +1,10 @@
 import type {
   AgentSharing,
+  Channel,
+  ChannelMessage,
+  DirectConversation,
+  DirectMessage,
+  DirectPeer,
   ChatFolder,
   ChatMessage,
   Priority,
@@ -523,6 +528,9 @@ function scheduleTaskSave(id: string, delay: number) {
     delete body.comments;
     delete body.subtasks;
     delete body.id;
+    delete body.createdAt;
+    delete body.createdById;
+    delete body.createdByName;
     const snapshot = taskSnapshots.get(id);
     taskBuffers.delete(id);
     taskTimers.delete(id);
@@ -690,6 +698,135 @@ export async function sendMessage(threadId: string, body: string) {
   );
   useWorkspace.getState().upsertMessage(message);
   return message;
+}
+
+export function listChannels() {
+  return request<Channel[]>("/channels");
+}
+
+export function createChannel(input: { name: string; topic?: string }) {
+  return request<Channel>("/channels", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateChannel(id: string, patch: { name?: string; topic?: string }) {
+  return request<Channel>(`/channels/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteChannel(id: string) {
+  return request<{ ok: true }>(`/channels/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function reorderChannels(ids: string[]) {
+  return request<Channel[]>("/channels/reorder", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export function listChannelMessages(
+  channelId: string,
+  query?: { before?: string; q?: string; limit?: number },
+) {
+  const params = new URLSearchParams();
+  if (query?.before) params.set("before", query.before);
+  if (query?.q) params.set("q", query.q);
+  if (query?.limit) params.set("limit", String(query.limit));
+  const suffix = params.size ? `?${params.toString()}` : "";
+  return request<{ messages: ChannelMessage[]; nextCursor: string | null }>(
+    `/channels/${encodeURIComponent(channelId)}/messages${suffix}`,
+  );
+}
+
+export async function postChannelMessage(
+  channelId: string,
+  body: string,
+  files: File[] = [],
+  replyToId?: string | null,
+) {
+  if (files.length === 0) {
+    return request<ChannelMessage>(`/channels/${encodeURIComponent(channelId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ body, replyToId: replyToId || undefined }),
+    });
+  }
+  const form = new FormData();
+  form.set("body", body);
+  if (replyToId) form.set("replyTo", replyToId);
+  for (const file of files) form.append("file", file);
+  const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}/messages`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  const text = await res.text();
+  const data = text ? (JSON.parse(text) as ChannelMessage & { error?: string }) : null;
+  if (!res.ok || !data) {
+    throw new ApiError(res.status, data?.error ?? "Não foi possível enviar.");
+  }
+  return data;
+}
+
+export function channelFileUrl(channelId: string, fileId: string) {
+  return `/api/channels/${encodeURIComponent(channelId)}/files/${encodeURIComponent(fileId)}`;
+}
+
+export function editChannelMessage(channelId: string, messageId: string, body: string) {
+  return request<ChannelMessage>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "PATCH", body: JSON.stringify({ body }) },
+  );
+}
+
+export function deleteChannelMessage(channelId: string, messageId: string) {
+  return request<{ ok: true }>(
+    `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function listDirectConversations() {
+  return request<DirectConversation[]>("/direct");
+}
+
+export function listDirectPeers() {
+  return request<DirectPeer[]>("/direct/peers");
+}
+
+export function getDirectConversation(id: string) {
+  return request<DirectConversation>(`/direct/${encodeURIComponent(id)}`);
+}
+
+export function listDirectMessages(conversationId: string, query?: { before?: string }) {
+  const params = new URLSearchParams();
+  if (query?.before) params.set("before", query.before);
+  const suffix = params.size ? `?${params}` : "";
+  return request<{ messages: DirectMessage[]; nextCursor: string | null }>(
+    `/direct/${encodeURIComponent(conversationId)}/messages${suffix}`,
+  );
+}
+
+export function sendDirectMessage(userId: string, body: string) {
+  return request<{ conversation: DirectConversation; message: DirectMessage }>("/direct/messages", {
+    method: "POST",
+    body: JSON.stringify({ userId, body }),
+  });
+}
+
+export function editDirectMessage(conversationId: string, messageId: string, body: string) {
+  return request<DirectMessage>(
+    `/direct/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "PATCH", body: JSON.stringify({ body }) },
+  );
+}
+
+export function deleteDirectMessage(conversationId: string, messageId: string) {
+  return request<{ ok: true }>(
+    `/direct/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function createThread(

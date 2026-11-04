@@ -5,7 +5,8 @@ import { cors } from "hono/cors";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { stream, streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { subscribe } from "./events";
+import { deliversLiveEvent, subscribe } from "./events";
+import { joinPresence, leavePresence } from "./presence";
 import { normalizeConfig, runAgent, testAgent, type AgentEvent } from "./agent";
 import { readWorkspaceAgent, saveWorkspaceAgent } from "./workspace-agent";
 import {
@@ -101,6 +102,8 @@ import {
   clientIp,
 } from "./rate-limit";
 import { registerAgentSessionRoutes } from "./agent-sessions";
+import { registerChannelRoutes } from "./channels";
+import { registerDirectRoutes } from "./direct";
 import { registerProjectExportRoutes } from "./project-export";
 import { isPublicSharePath, registerShareRoutes } from "./share-links";
 
@@ -706,20 +709,24 @@ app.get("/events", async (c) => {
   c.header("X-Accel-Buffering", "no");
   return streamSSE(c, async (stream) => {
     let open = true;
+    let connectionId: string | null = null;
     await stream.writeSSE({ event: "ping", data: "1" });
     const stop = subscribe((event) => {
-      if (!open) return;
-      if (event.kind === "notification") {
-        if (event.userId !== actor.id) return;
-      } else if (!actor.workspaceId || event.workspaceId !== actor.workspaceId) {
-        return;
-      }
+      if (!open || !deliversLiveEvent(actor, event)) return;
       void stream.writeSSE({ data: JSON.stringify(event) });
     });
-    stream.onAbort(() => {
+    if (actor.workspaceId && actor.access !== "cliente") {
+      connectionId = joinPresence(actor.id, actor.workspaceId);
+    }
+    const drop = () => {
       open = false;
       stop();
-    });
+      if (!connectionId) return;
+      const current = connectionId;
+      connectionId = null;
+      leavePresence(current);
+    };
+    stream.onAbort(drop);
     try {
       while (open) {
         await stream.sleep(15000);
@@ -727,8 +734,7 @@ app.get("/events", async (c) => {
         await stream.writeSSE({ event: "ping", data: "1" });
       }
     } finally {
-      open = false;
-      stop();
+      drop();
     }
   });
 });
@@ -940,6 +946,8 @@ app.post("/mcp", async (c) => {
 app.get("/mcp", (c) => c.json(rpcError(null, -32000, "Use POST."), 405));
 app.delete("/mcp", (c) => c.json(rpcError(null, -32000, "Sessão stateless."), 405));
 
+registerChannelRoutes(app, { actorOf });
+registerDirectRoutes(app, { actorOf });
 registerShareRoutes(app, { actorOf });
 registerProjectExportRoutes(app, { actorOf });
 registerAgentSessionRoutes(app, { actorOf });

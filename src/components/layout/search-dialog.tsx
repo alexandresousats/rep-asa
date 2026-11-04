@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useWorkspace } from "@/lib/workspace";
+import { useAccess, useWorkspace } from "@/lib/workspace";
 
 export function SearchDialog({
   open,
@@ -13,6 +13,7 @@ export function SearchDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { isClient } = useAccess();
   const [query, setQuery] = useState("");
   const projects = useWorkspace((state) => state.projects);
   const tasks = useWorkspace((state) => state.tasks);
@@ -22,7 +23,7 @@ export function SearchDialog({
     const pages = [
       { href: "/caixa", label: "Caixa de entrada" },
       { href: "/insights", label: "Insights" },
-      { href: "/mensagens", label: "Mensagens" },
+      ...(isClient ? [] : [{ href: "/mensagens", label: "Mensagens" }]),
       { href: "/tarefas", label: "Minhas tarefas" },
     ].filter((page) => page.label.toLowerCase().includes(term));
     if (!term) return { pages: [], projects: projects.slice(0, 4), tasks: [] };
@@ -36,7 +37,7 @@ export function SearchDialog({
           !task.id.startsWith("hist-") && task.title.toLowerCase().includes(term),
       ),
     };
-  }, [projects, query, tasks]);
+  }, [isClient, projects, query, tasks]);
 
   if (!open) return null;
 

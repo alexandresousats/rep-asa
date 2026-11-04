@@ -4,6 +4,9 @@ import { ThemeProvider } from "next-themes";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { loadSession, refreshNotifications, syncWorkspaceAgent } from "@/lib/api";
+import { emitChannelLive, type ChannelLiveEvent } from "@/lib/channel-live";
+import { emitDirectLive, type DirectLiveEvent } from "@/lib/direct-live";
+import { emitPresence } from "@/lib/presence";
 import { useChat } from "@/lib/chat";
 import { enableFirebaseAnalytics } from "@/lib/firebase";
 import { agentReady, usePrefs } from "@/lib/prefs";
@@ -95,6 +98,32 @@ export function Providers({ children }: { children: React.ReactNode }) {
           if (data.kind === "notification" && data.userId === useWorkspace.getState().user?.id) {
             void refreshNotifications();
           }
+          if (
+            data.kind === "channel" ||
+            data.kind === "channels" ||
+            data.kind === "channel-removed" ||
+            data.kind === "channel-message" ||
+            data.kind === "channel-message-removed"
+          ) {
+            emitChannelLive(data as ChannelLiveEvent);
+          }
+          if (
+            data.kind === "direct" ||
+            data.kind === "direct-message" ||
+            data.kind === "direct-message-removed" ||
+            data.kind === "direct-removed"
+          ) {
+            const live = data as DirectLiveEvent;
+            const me = useWorkspace.getState().user?.id;
+            if (!me || !Array.isArray(live.audience) || !live.audience.includes(me)) return;
+            emitDirectLive(live);
+          }
+          if (data.kind === "presence" && Array.isArray((data as { userIds?: unknown }).userIds)) {
+            const userIds = (data as { userIds: unknown[] }).userIds.filter(
+              (id): id is string => typeof id === "string",
+            );
+            emitPresence(userIds);
+          }
         } catch {
           // Ignore a malformed event and keep the stream.
         }
@@ -111,6 +140,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       stopped = true;
       if (retry) window.clearTimeout(retry);
       source?.close();
+      emitPresence([]);
     };
   }, [userId, workspaceId, billingActive]);
 

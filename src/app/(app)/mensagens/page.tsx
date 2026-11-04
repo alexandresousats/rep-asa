@@ -1,5 +1,7 @@
-import { MessagesMaintenance } from "@/components/messages/messages-maintenance";
+"use client";
+
+import { ChannelRoom } from "@/components/messages/channel-room";
 
 export default function MessagesPage() {
-  return <MessagesMaintenance />;
+  return <ChannelRoom />;
 }

@@ -1,19 +1,44 @@
 "use client";
 
 import { endOfWeek, startOfDay } from "date-fns";
-import { Check, ChevronDown } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import { TaskAssigneePicker } from "@/components/tasks/task-assignee-picker";
+import { TaskCreator } from "@/components/tasks/task-creator";
+import { TaskDatePicker } from "@/components/tasks/task-date-picker";
+import {
+  TaskFilterClear,
+  TaskFilterColumn,
+  TaskFilterOption,
+} from "@/components/tasks/task-filters";
 import { PriorityLabel } from "@/components/tasks/priority-label";
 import { SubtaskMark } from "@/components/tasks/task-list";
 import { TaskViewer } from "@/components/tasks/task-panel";
-import { TagChip } from "@/components/ui/badge";
-import { setTaskStatus } from "@/lib/api";
+import { TaskPriorityPicker } from "@/components/tasks/task-priority-picker";
+import { TaskProjectPicker } from "@/components/tasks/task-project-picker";
+import { TaskTagPicker } from "@/components/tasks/task-tag-picker";
+import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
+import { createTask, setTaskStatus, updateTask } from "@/lib/api";
+import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/cn";
-import { formatDay, parseDate } from "@/lib/dates";
+import { parseDate } from "@/lib/dates";
 import { PRIORITY_ORDER } from "@/lib/priority";
 import { usePrefs } from "@/lib/prefs";
-import type { Task } from "@/lib/types";
+import {
+  DATE_FILTERS,
+  EMPTY_FILTERS,
+  filterTasks,
+  isFiltering,
+  type DateFilter,
+  type TaskFilterState,
+} from "@/lib/task-filters";
+import type { Priority, Project, Task, TaskViewMode, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
+
+const COLUMNS =
+  "grid grid-cols-[minmax(0,1fr)_7.5rem_9.5rem_9rem_10rem_7.5rem_8.5rem_2.5rem] items-center gap-2";
 
 type Scope = "open" | "done";
 
@@ -26,6 +51,11 @@ export default function MyTasksPage() {
   const [scope, setScope] = useState<Scope>("open");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [createOpen, setCreateOpen] = useState(false);
+  const [filters, setFilters] = useState<TaskFilterState>(EMPTY_FILTERS);
+  const [filterMenu, setFilterMenu] = useState<
+    "date" | "assignee" | "project" | "priority" | "tag" | null
+  >(null);
   const user = useWorkspace((state) => state.user);
   const allTasks = useWorkspace((state) => state.tasks);
   const projects = useWorkspace((state) => state.projects);
@@ -51,16 +81,25 @@ export default function MyTasksPage() {
     () => mine.filter((task) => task.status === "done"),
     [mine],
   );
+  const filtering = isFiltering(filters);
+  const visibleOpen = useMemo(
+    () => filterTasks(openTasks, filters),
+    [openTasks, filters],
+  );
+  const visibleDone = useMemo(
+    () => filterTasks(doneTasks, filters),
+    [doneTasks, filters],
+  );
   const today = startOfDay(new Date());
-  const overdue = openTasks.filter((task) => {
+  const overdue = visibleOpen.filter((task) => {
     if (!task.dueDate) return false;
     return startOfDay(parseDate(task.dueDate)) < today;
   }).length;
 
   const groups = useMemo(() => {
     if (scope === "done") {
-      return doneTasks.length
-        ? [{ id: "done", name: "Concluídas", href: null as string | null, rows: nestAssigned(doneTasks, scope) }]
+      return visibleDone.length
+        ? [{ id: "done", name: "Concluídas", href: null as string | null, rows: nestAssigned(visibleDone, scope) }]
         : [];
     }
     const buckets = [
@@ -73,7 +112,7 @@ export default function MyTasksPage() {
     const todayKey = startOfDay(new Date());
     const weekEnd = startOfDay(endOfWeek(todayKey, { weekStartsOn: 1 }));
     const placed = new Map<string, Task[]>();
-    for (const task of openTasks) {
+    for (const task of visibleOpen) {
       const id = dueBucket(task, todayKey, weekEnd);
       const list = placed.get(id) ?? [];
       list.push(task);
@@ -84,17 +123,49 @@ export default function MyTasksPage() {
       if (!items?.length) return [];
       return [{ id: bucket.id, name: bucket.name, href: null as string | null, rows: nestAssigned(items, scope) }];
     });
-  }, [doneTasks, openTasks, scope]);
+  }, [scope, visibleDone, visibleOpen]);
 
   const selected = useMemo(
     () => tasks.find((task) => task.id === selectedId) ?? null,
     [tasks, selectedId],
   );
 
+  function openTask(id: string, mode?: TaskViewMode) {
+    if (mode) setTaskView(mode);
+    setSelectedId(id);
+  }
+
+  function toggleFilter(menu: NonNullable<typeof filterMenu>) {
+    setFilterMenu((current) => (current === menu ? null : menu));
+  }
+
+  function toggleId(key: "assignees" | "projects" | "tags", id: string) {
+    const current = filters[key];
+    const next = current.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id];
+    setFilters({ ...filters, [key]: next });
+  }
+
+  function togglePriority(priority: Priority) {
+    const priorities = filters.priorities.includes(priority)
+      ? filters.priorities.filter((item) => item !== priority)
+      : [...filters.priorities, priority];
+    setFilters({ ...filters, priorities });
+  }
+
+  const people = users
+    .filter((person) => person.membershipStatus !== "pending")
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const projectOptions = projects
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto w-full max-w-4xl px-6 py-8">
+        <div className="mx-auto w-full max-w-6xl px-6 py-8">
           <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
               <h1 className="text-2xl font-medium tracking-tight text-ink">
@@ -103,46 +174,220 @@ export default function MyTasksPage() {
               <p className="mt-1 text-sm text-faint">
                 {mine.length === 0
                   ? "Nada atribuído a você nos projetos deste espaço."
-                  : openTasks.length === 0
-                    ? "Nenhuma tarefa aberta atribuída a você."
-                    : `${openTasks.length} ${openTasks.length === 1 ? "aberta" : "abertas"}${
+                  : visibleOpen.length === 0
+                    ? filtering
+                      ? "Nenhuma tarefa aberta com esses filtros."
+                      : "Nenhuma tarefa aberta atribuída a você."
+                    : `${visibleOpen.length} ${visibleOpen.length === 1 ? "aberta" : "abertas"}${
                         overdue > 0
                           ? ` · ${overdue} ${overdue === 1 ? "atrasada" : "atrasadas"}`
                           : ""
                       }`}
               </p>
             </div>
-            <div className="flex gap-1">
-              {SCOPES.map((item) => {
-                const count = item.id === "done" ? doneTasks.length : openTasks.length;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setScope(item.id)}
-                    className={cn(
-                      "rounded-full px-3 py-1 text-xs",
-                      scope === item.id
-                        ? "bg-elevated text-ink"
-                        : "text-faint hover:text-ink",
-                    )}
-                  >
-                    {item.label}
-                    <span className="ml-1.5 text-faint">{count}</span>
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-1">
+                {SCOPES.map((item) => {
+                  const count = item.id === "done" ? visibleDone.length : visibleOpen.length;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setScope(item.id)}
+                      className={cn(
+                        "rounded-full px-3 py-1 text-xs",
+                        scope === item.id
+                          ? "bg-elevated text-ink"
+                          : "text-faint hover:text-ink",
+                      )}
+                    >
+                      {item.label}
+                      <span className="ml-1.5 text-faint">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {canWrite ? (
+                <Button
+                  size="sm"
+                  onClick={() => setCreateOpen(true)}
+                  disabled={projects.length === 0}
+                  title={
+                    projects.length === 0
+                      ? "Crie um projeto para adicionar tarefas"
+                      : undefined
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  Criar tarefa
+                </Button>
+              ) : null}
             </div>
           </div>
 
-          {groups.length === 0 ? (
+          {groups.length === 0 && !filtering ? (
             <p className="text-sm text-faint">
               {scope === "done"
                 ? "Você ainda não concluiu tarefas atribuídas a você."
                 : "Nenhuma tarefa aberta atribuída a você."}
             </p>
           ) : (
-            <div className="space-y-8">
+            <div className="overflow-x-auto">
+              <div className="min-w-[1224px] space-y-8">
+              <div className={cn(COLUMNS, "items-center px-2 text-xs text-faint")}>
+                <span>Nome</span>
+                <TaskFilterColumn
+                  label="Data"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.date !== "all"}
+                  open={filterMenu === "date"}
+                  onToggle={() => toggleFilter("date")}
+                >
+                  {DATE_FILTERS.map((item) => (
+                    <TaskFilterOption
+                      key={item.id}
+                      selected={filters.date === item.id}
+                      onClick={() => {
+                        setFilters({ ...filters, date: item.id as DateFilter });
+                        setFilterMenu(null);
+                      }}
+                    >
+                      {item.label}
+                    </TaskFilterOption>
+                  ))}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Responsável"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.assignees.length > 0}
+                  open={filterMenu === "assignee"}
+                  onToggle={() => toggleFilter("assignee")}
+                >
+                  <TaskFilterOption
+                    selected={filters.assignees.includes("none")}
+                    onClick={() => toggleId("assignees", "none")}
+                  >
+                    <span className="text-muted">Sem responsável</span>
+                  </TaskFilterOption>
+                  {people.map((person) => (
+                    <TaskFilterOption
+                      key={person.id}
+                      selected={filters.assignees.includes(person.id)}
+                      onClick={() => toggleId("assignees", person.id)}
+                    >
+                      <Avatar
+                        initials={person.initials}
+                        src={person.avatar}
+                        name={person.name}
+                        size="sm"
+                      />
+                      <span className="truncate">{person.name.split(" ")[0]}</span>
+                    </TaskFilterOption>
+                  ))}
+                  {filters.assignees.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, assignees: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <span>Adicionada por</span>
+                <TaskFilterColumn
+                  label="Projeto"
+                  className="justify-start gap-1 pl-2 pr-0"
+                  active={filters.projects.length > 0}
+                  open={filterMenu === "project"}
+                  onToggle={() => toggleFilter("project")}
+                >
+                  {projectOptions.map((project) => (
+                    <TaskFilterOption
+                      key={project.id}
+                      selected={filters.projects.includes(project.id)}
+                      onClick={() => toggleId("projects", project.id)}
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-[3px]"
+                        style={{ backgroundColor: project.color }}
+                      />
+                      <span className="truncate">{project.name}</span>
+                    </TaskFilterOption>
+                  ))}
+                  {filters.projects.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, projects: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Prioridade"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.priorities.length > 0}
+                  open={filterMenu === "priority"}
+                  onToggle={() => toggleFilter("priority")}
+                >
+                  {PRIORITY_ORDER.map((priority) => (
+                    <TaskFilterOption
+                      key={priority}
+                      selected={filters.priorities.includes(priority)}
+                      onClick={() => togglePriority(priority)}
+                    >
+                      <PriorityLabel priority={priority} />
+                    </TaskFilterOption>
+                  ))}
+                  {filters.priorities.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, priorities: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <TaskFilterColumn
+                  label="Tags"
+                  className="justify-start gap-1 pl-1.5 pr-0"
+                  active={filters.tags.length > 0}
+                  open={filterMenu === "tag"}
+                  onToggle={() => toggleFilter("tag")}
+                >
+                  <TaskFilterOption
+                    selected={filters.tags.includes("none")}
+                    onClick={() => toggleId("tags", "none")}
+                  >
+                    <span className="text-muted">Sem tags</span>
+                  </TaskFilterOption>
+                  {tags.map((tag) => (
+                    <TaskFilterOption
+                      key={tag.id}
+                      selected={filters.tags.includes(tag.id)}
+                      onClick={() => toggleId("tags", tag.id)}
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span className="truncate">{tag.name}</span>
+                    </TaskFilterOption>
+                  ))}
+                  {filters.tags.length > 0 ? (
+                    <TaskFilterClear
+                      onClick={() => {
+                        setFilters({ ...filters, tags: [] });
+                        setFilterMenu(null);
+                      }}
+                    />
+                  ) : null}
+                </TaskFilterColumn>
+                <span className="sr-only">Abrir</span>
+              </div>
+              {groups.length === 0 ? (
+                <p className="px-2 text-sm text-faint">Nenhuma tarefa com esses filtros.</p>
+              ) : null}
               {groups.map((group) => {
                 const open = !collapsed[group.id];
                 return (
@@ -176,32 +421,27 @@ export default function MyTasksPage() {
                       const parent = task.parentId
                         ? tasks.find((item) => item.id === task.parentId)
                         : null;
-                      const project = projects.find((item) => item.id === task.projectId);
                       const metaExtras: string[] = [];
                       if (parent) metaExtras.push(`Subtarefa de ${parent.title}`);
                       if (task.status === "doing") metaExtras.push("Em andamento");
                       if (task.section) metaExtras.push(task.section);
-                      const taskTags = tags.filter((tag) => task.tagIds.includes(tag.id));
-                      const late =
-                        task.status !== "done" &&
-                        Boolean(task.dueDate) &&
-                        startOfDay(parseDate(task.dueDate as string)) < today;
                       return (
                         <div
                           key={task.id}
                           role="button"
                           tabIndex={0}
-                          onClick={() => setSelectedId(task.id)}
+                          onClick={() => openTask(task.id)}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter") setSelectedId(task.id);
+                            if (event.key === "Enter") openTask(task.id);
                           }}
                           className={cn(
-                            "flex w-full cursor-pointer items-center gap-3 rounded-2xl px-2 py-2.5 text-left hover:bg-hover",
+                            COLUMNS,
+                            "cursor-pointer rounded-2xl px-2 py-2 text-left hover:bg-hover",
                             selectedId === task.id && "bg-elevated",
                             task.status === "done" && "opacity-60",
                           )}
                         >
-                          <span className={cn("flex min-w-0 flex-1 items-center gap-3", nested && "pl-6")}>
+                          <span className={cn("flex min-w-0 items-center gap-3", nested && "pl-6")}>
                             {nested ? <SubtaskMark /> : null}
                             <button
                               type="button"
@@ -216,6 +456,7 @@ export default function MyTasksPage() {
                                   task.status === "done" ? "todo" : "done",
                                 );
                               }}
+                              onKeyDown={stopRowClick}
                               className="shrink-0 cursor-pointer"
                             >
                               {task.status === "done" ? (
@@ -235,36 +476,85 @@ export default function MyTasksPage() {
                               >
                                 {task.title}
                               </span>
-                              {project || metaExtras.length > 0 ? (
+                              {metaExtras.length > 0 ? (
                                 <span className="mt-0.5 block truncate text-xs text-faint">
-                                  {project ? (
-                                    <span style={{ color: project.color }}>
-                                      {project.name}
-                                    </span>
-                                  ) : null}
-                                  {project && metaExtras.length > 0 ? " · " : null}
                                   {metaExtras.join(" · ")}
                                 </span>
                               ) : null}
                             </span>
                           </span>
-                          {taskTags.length > 0 ? (
-                            <span className="hidden gap-1 lg:flex">
-                              {taskTags.map((tag) => (
-                                <TagChip key={tag.id} name={tag.name} color={tag.color} />
-                              ))}
-                            </span>
-                          ) : null}
-                          <span
-                            className={cn(
-                              "w-16 shrink-0 text-right text-xs capitalize",
-                              late ? "text-red-400" : "text-faint",
-                            )}
-                          >
-                            {task.dueDate ? formatDay(task.dueDate) : "—"}
+                          <span onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskDatePicker
+                              dueDate={task.dueDate}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onChange={(dueDate) =>
+                                updateTask(task.id, {
+                                  dueDate,
+                                  startDate: dueDate || task.startDate,
+                                })
+                              }
+                            />
                           </span>
-                          <span className="hidden w-24 shrink-0 text-xs sm:block">
-                            <PriorityLabel priority={task.priority} />
+                          <span onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskAssigneePicker
+                              assigneeId={task.assigneeId}
+                              users={users}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onSelect={(assigneeId) => updateTask(task.id, { assigneeId })}
+                            />
+                          </span>
+                          <span className="min-w-0">
+                            <TaskCreator task={task} users={users} />
+                          </span>
+                          <span onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskProjectPicker
+                              projectId={task.projectId}
+                              section={task.section}
+                              projects={projects}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onChangeProject={(projectId, section) =>
+                                updateTask(task.id, { projectId, section })
+                              }
+                              onChangeSection={(section) => updateTask(task.id, { section })}
+                            />
+                          </span>
+                          <span onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskPriorityPicker
+                              priority={task.priority}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onChange={(priority) => updateTask(task.id, { priority })}
+                            />
+                          </span>
+                          <span className="min-w-0" onClick={stopRowClick} onKeyDown={stopRowClick}>
+                            <TaskTagPicker
+                              tagIds={task.tagIds}
+                              tags={tags}
+                              canWrite={canWrite}
+                              variant="cell"
+                              onUpdateTagIds={(tagIds) => updateTask(task.id, { tagIds })}
+                            />
+                          </span>
+                          <span
+                            className="flex justify-end"
+                            onClick={stopRowClick}
+                            onKeyDown={stopRowClick}
+                          >
+                            <button
+                              type="button"
+                              aria-label="Abrir tarefa"
+                              title="Abrir tarefa"
+                              onClick={() => openTask(task.id)}
+                              className={cn(
+                                "cursor-pointer rounded-lg border border-transparent p-1.5 transition-colors hover:border-line hover:bg-elevated hover:text-ink hover:shadow-sm",
+                                selectedId === task.id ? "text-ink" : "text-faint",
+                              )}
+                            >
+                              <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
+                            </button>
                           </span>
                         </div>
                       );
@@ -274,6 +564,7 @@ export default function MyTasksPage() {
                 </section>
               );
               })}
+              </div>
             </div>
           )}
         </div>
@@ -291,7 +582,127 @@ export default function MyTasksPage() {
           onOpenSubtask={setSelectedId}
         />
       ) : null}
+      {createOpen ? (
+        <CreateTaskDialog
+          projects={projects}
+          users={users}
+          defaultAssigneeId={user?.id ?? null}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(id) => {
+            setCreateOpen(false);
+            openTask(id, "sidebar");
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function stopRowClick(event: { stopPropagation: () => void }) {
+  event.stopPropagation();
+}
+
+function firstSection(project: Project | undefined) {
+  return project?.sections?.[0] || "Geral";
+}
+
+function CreateTaskDialog({
+  projects,
+  users,
+  defaultAssigneeId,
+  onClose,
+  onCreated,
+}: {
+  projects: Project[];
+  users: User[];
+  defaultAssigneeId: string | null;
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const first = projects[0];
+  const [title, setTitle] = useState("");
+  const [projectId, setProjectId] = useState(first?.id ?? "");
+  const [section, setSection] = useState(firstSection(first));
+  const [assigneeId, setAssigneeId] = useState<string | null>(defaultAssigneeId);
+  const [dueDate, setDueDate] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const name = title.trim();
+    if (!name || !projectId || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const task = await createTask({
+        projectId,
+        title: name,
+        assigneeId,
+        dueDate,
+        startDate: dueDate,
+        section,
+      });
+      onCreated(task.id);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError ? caught.message : "Não foi possível criar a tarefa.",
+      );
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open title="Nova tarefa" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <input
+          autoFocus
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="Nome da tarefa"
+          aria-label="Nome da tarefa"
+          className="w-full rounded-xl border border-line bg-base px-3 py-2 text-sm text-ink outline-none placeholder:text-faint focus:border-ink"
+        />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-faint">Projeto</span>
+            <TaskProjectPicker
+              projectId={projectId}
+              section={section}
+              projects={projects}
+              canWrite
+              onChangeProject={(nextProjectId, nextSection) => {
+                setProjectId(nextProjectId);
+                setSection(nextSection);
+              }}
+              onChangeSection={setSection}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-faint">Responsável</span>
+            <TaskAssigneePicker
+              assigneeId={assigneeId}
+              users={users}
+              canWrite
+              onSelect={setAssigneeId}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-faint">Data</span>
+            <TaskDatePicker dueDate={dueDate} canWrite onChange={setDueDate} />
+          </div>
+        </div>
+        {error ? <p className="text-xs text-red-400">{error}</p> : null}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={!title.trim() || !projectId || saving}>
+            {saving ? "Criando..." : "Criar tarefa"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

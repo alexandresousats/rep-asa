@@ -115,6 +115,8 @@ export function publicTask(
       })) ?? [],
     completedAt: task.completedAt,
     createdAt: task.createdAt,
+    createdById: task.createdById,
+    createdByName: task.createdByName,
     isDemand: task.isDemand,
     demandFormat: task.demandFormat,
     referenceUrls: task.referenceUrls,
