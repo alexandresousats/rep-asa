@@ -2,9 +2,11 @@
 
 import { format, isToday, isYesterday, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, Lock } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, Copy, Lock, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   deleteDirectMessage,
   editDirectMessage,
@@ -20,12 +22,21 @@ import { useWorkspace } from "@/lib/workspace";
 
 const MESSAGE_MAX = 2000;
 
+const NAME_COLORS = ["#53bdeb", "#e542a3", "#7f66ff", "#ff8b3d", "#25d366", "#f0b429", "#ff6b81", "#5ad0c8"];
+
+function memberColor(id: string) {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+  return NAME_COLORS[hash % NAME_COLORS.length] ?? NAME_COLORS[0];
+}
+
 export function DirectThread({
   conversationId,
   draftPeerId,
   peers,
   peersLoading,
   canWrite,
+  onlineIds,
   onBack,
   onConversation,
   onOpen,
@@ -36,6 +47,7 @@ export function DirectThread({
   peers: DirectPeer[];
   peersLoading: boolean;
   canWrite: boolean;
+  onlineIds: string[];
   onBack: () => void;
   onConversation: (conversation: DirectConversation) => void;
   onOpen: (id: string) => void;
@@ -264,6 +276,7 @@ export function DirectThread({
                 previous={messages[index - 1]}
                 mine={message.authorId === me}
                 peer={peer}
+                online={onlineIds.includes(message.authorId)}
                 canWrite={canWrite}
                 onChanged={(saved) =>
                   setMessages((current) => current.map((item) => (item.id === saved.id ? saved : item)))
@@ -336,6 +349,7 @@ function DirectBubble({
   previous,
   mine,
   peer,
+  online,
   canWrite,
   onChanged,
   onRemoved,
@@ -345,6 +359,7 @@ function DirectBubble({
   previous?: DirectMessage;
   mine: boolean;
   peer: DirectPeer | null;
+  online: boolean;
   canWrite: boolean;
   onChanged: (message: DirectMessage) => void;
   onRemoved: (id: string) => void;
@@ -354,7 +369,55 @@ function DirectBubble({
   const [draft, setDraft] = useState(message.body);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const dayChanged = !previous || dayKey(previous.createdAt) !== dayKey(message.createdAt);
+  const grouped =
+    !dayChanged &&
+    previous?.authorId === message.authorId &&
+    new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() < 5 * 60 * 1000;
+  const canCopy = message.body.trim().length > 0;
+  const showMenu = canCopy || (mine && canWrite);
+  const color = memberColor(message.authorId);
+
+  useEffect(() => {
+    if (!menu) return;
+    function onPointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) || menuButtonRef.current?.contains(target)) return;
+      setMenu(null);
+      setConfirming(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenu(null);
+        setConfirming(false);
+      }
+    }
+    window.addEventListener("mousedown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  function closeMenu() {
+    setMenu(null);
+    setConfirming(false);
+  }
+
+  function openMenu() {
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 232;
+    const height = confirming ? 112 : 168;
+    const top = rect.bottom + height > window.innerHeight - 8 ? Math.max(8, rect.top - height - 6) : rect.bottom + 6;
+    const left = Math.min(Math.max(8, rect.right - width), window.innerWidth - width - 8);
+    setConfirming(false);
+    setMenu({ top, left });
+  }
 
   async function save() {
     if (!draft.trim() || busy) return;
@@ -380,73 +443,185 @@ function DirectBubble({
     }
   }
 
+  async function copyText() {
+    try {
+      await navigator.clipboard.writeText(message.body);
+      closeMenu();
+    } catch {
+      onError("Não foi possível copiar.");
+    }
+  }
+
+  const menuButton = showMenu ? (
+    <button
+      ref={menuButtonRef}
+      type="button"
+      aria-label="Abrir menu da mensagem"
+      aria-expanded={menu !== null}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={() => (menu ? closeMenu() : openMenu())}
+      className={cn(
+        "grid h-4 w-4 shrink-0 place-items-center rounded-full opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+        menu && "opacity-100",
+        mine ? "text-white/80" : "text-faint",
+      )}
+    >
+      <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.25} />
+    </button>
+  ) : null;
+
+  const stamp = (
+    <span className="float-right mt-1 ml-3 inline-flex items-center gap-0.5">
+      <time
+        className={cn("text-[10px] leading-4 whitespace-nowrap", mine ? "text-white/60" : "text-faint")}
+        dateTime={message.createdAt}
+      >
+        {message.editedAt ? "editada · " : ""}
+        {format(parseISO(message.createdAt), "HH:mm")}
+      </time>
+      {mine || grouped ? menuButton : null}
+    </span>
+  );
+
   return (
-    <li className={cn("flex flex-col", dayChanged ? "mt-4" : "mt-1")}>
+    <li className={cn(previous && (grouped ? "mt-0.5" : "mt-3"))}>
       {dayChanged ? (
-        <p className="mb-3 text-center text-[11px] text-faint">{dayLabel(message.createdAt)}</p>
+        <div className="my-3 flex justify-center">
+          <span className="rounded-lg bg-elevated px-3 py-1 text-[11px] text-faint">{dayLabel(message.createdAt)}</span>
+        </div>
       ) : null}
-      <div className={cn("flex w-full", mine ? "justify-end" : "justify-start")}>
-        <div className={cn("max-w-[82%]", mine ? "items-end" : "items-start")}>
-          {editing ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void save();
-              }}
-            >
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value.slice(0, MESSAGE_MAX))}
-                rows={2}
-                className="w-full resize-none rounded-2xl bg-elevated px-3 py-2 text-sm leading-6 text-ink outline-none"
-              />
-              <div className="mt-1 flex justify-end gap-2">
-                <button type="button" onClick={() => setEditing(false)} className="text-xs text-faint">
-                  Cancelar
-                </button>
-                <button type="submit" disabled={busy} className="text-xs text-ink">
-                  Salvar
-                </button>
-              </div>
-            </form>
-          ) : (
+      <div className={cn("flex w-full items-end gap-2", mine ? "justify-end" : "justify-start")}>
+        {mine ? null : grouped ? (
+          <span className="w-8 shrink-0" />
+        ) : (
+          <Avatar initials={peer?.initials ?? "?"} src={peer?.avatar} name={peer?.name} size="sm" online={online} />
+        )}
+        {editing ? (
+          <form
+            className="w-[min(78vw,24rem)]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save();
+            }}
+          >
+            <textarea
+              value={draft}
+              maxLength={MESSAGE_MAX}
+              autoFocus
+              onChange={(event) => setDraft(event.target.value.slice(0, MESSAGE_MAX))}
+              className="min-h-16 w-full resize-none rounded-2xl bg-elevated px-3 py-2 text-sm leading-6 text-ink outline-none"
+            />
+            <div className="mt-2 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setDraft(message.body);
+                  setEditing(false);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+                Salvar
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="group relative w-max max-w-[min(82%,28rem)]">
             <div
               className={cn(
-                "rounded-2xl px-2.5 pt-1.5 pb-[7px] text-sm leading-5",
+                "relative rounded-2xl px-2.5 pt-1.5 pb-[7px] text-sm leading-5",
                 mine ? "rounded-br-md bg-[#005c4b] text-white" : "rounded-bl-md bg-elevated text-ink",
               )}
             >
-              <MessageBody body={message.body} mine={mine} />
-              <span className={cn("float-right mt-1 ml-3 text-[10px] leading-4", mine ? "text-white/60" : "text-faint")}>
-                {message.editedAt ? "editada · " : ""}
-                {format(parseISO(message.createdAt), "HH:mm")}
-              </span>
-            </div>
-          )}
-          {mine && canWrite && !editing ? (
-            <div className="mt-0.5 flex justify-end gap-2 px-1">
-              <button type="button" onClick={() => setEditing(true)} className="text-[11px] text-faint hover:text-ink">
-                Editar
-              </button>
-              {confirming ? (
-                <button type="button" onClick={() => void remove()} disabled={busy} className="text-[11px] text-red-400">
-                  Apagar esta mensagem
-                </button>
-              ) : (
-                <button type="button" onClick={() => setConfirming(true)} className="text-[11px] text-faint hover:text-ink">
-                  Apagar
-                </button>
+              {mine || grouped ? null : (
+                <p className="flex items-center gap-1 text-[13px] leading-5 font-medium" style={{ color }}>
+                  <span className="min-w-0 truncate">{peer?.name ?? "Equipe"}</span>
+                  {menuButton}
+                </p>
               )}
+              <MessageBody body={message.body} mine={mine} meta={stamp} />
             </div>
-          ) : null}
-          {!mine && peer && dayChanged ? <span className="sr-only">{peer.name}</span> : null}
-        </div>
+          </div>
+        )}
       </div>
+      {menu
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={{ top: menu.top, left: menu.left }}
+              className="fixed z-[90] w-56 overflow-hidden rounded-xl border border-line bg-elevated py-1 shadow-2xl"
+            >
+              {confirming ? (
+                <div className="px-3 py-2">
+                  <p className="text-sm text-ink">Apagar esta mensagem?</p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void remove()}
+                      disabled={busy}
+                      className="rounded-lg px-2 py-1.5 text-sm text-red-400 hover:bg-hover disabled:opacity-50"
+                    >
+                      Apagar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(false)}
+                      className="rounded-lg px-2 py-1.5 text-sm text-faint hover:bg-hover hover:text-ink"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {canCopy ? (
+                    <button
+                      type="button"
+                      onClick={() => void copyText()}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <Copy className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Copiar
+                    </button>
+                  ) : null}
+                  {mine && canWrite ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraft(message.body);
+                        setEditing(true);
+                        closeMenu();
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <Pencil className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Editar
+                    </button>
+                  ) : null}
+                  {mine && canWrite ? (
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(true)}
+                      className="mt-1 flex w-full items-center gap-3 border-t border-line px-3 py-2.5 text-left text-sm text-ink hover:bg-hover"
+                    >
+                      <Trash2 className="h-4 w-4 text-faint" strokeWidth={1.75} />
+                      Apagar
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </li>
   );
 }
 
-function MessageBody({ body, mine }: { body: string; mine: boolean }) {
+function MessageBody({ body, mine, meta }: { body: string; mine: boolean; meta?: ReactNode }) {
   const pieces = useMemo(() => linkPieces(body), [body]);
   return (
     <p className={cn("whitespace-pre-wrap [overflow-wrap:anywhere]", mine ? "text-white" : "text-ink")}>
@@ -465,6 +640,7 @@ function MessageBody({ body, mine }: { body: string; mine: boolean }) {
           <span key={index}>{piece.text}</span>
         ),
       )}
+      {meta}
     </p>
   );
 }

@@ -382,6 +382,7 @@ export function ChannelRoom({
             peers={peers}
             peersLoading={peersLoading || !peersReady}
             canWrite={canWrite}
+            onlineIds={onlineIds}
             onBack={() => setShowList(true)}
             onConversation={(conversation) => setDirects((current) => rememberDirect(current, conversation))}
             onOpen={(id) => router.push(`/mensagens/d/${id}`)}
