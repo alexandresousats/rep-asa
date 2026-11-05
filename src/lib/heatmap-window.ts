@@ -14,6 +14,13 @@ export function heatmapInterval(today = new Date()) {
   return eachDayOfInterval({ start, end });
 }
 
+/** Ano civil, com as semanas parciais de janeiro e dezembro. */
+export function heatmapYearInterval(year: number) {
+  const start = startOfWeek(new Date(year, 0, 1), { weekStartsOn: 0 });
+  const end = endOfWeek(new Date(year, 11, 31), { weekStartsOn: 0 });
+  return eachDayOfInterval({ start, end });
+}
+
 export function isFutureHeatmapDay(day: Date, today = new Date()) {
   return startOfDay(day) > startOfDay(today);
 }

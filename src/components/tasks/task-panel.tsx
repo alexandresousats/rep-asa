@@ -1,6 +1,6 @@
 "use client";
 
-import { AppWindow, Check, PanelRight, X } from "lucide-react";
+import { ArrowLeft, Check, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { RichText } from "@/components/ui/rich-text";
@@ -19,10 +19,10 @@ import { TaskApprovalSection } from "@/components/tasks/task-approval-section";
 import { TaskApprovalBadge, TaskFormatBadge } from "@/components/tasks/task-approval-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { addComment, addSubtask, deleteTask, setTaskFollow, setTaskStatus, updateTask } from "@/lib/api";
+import { addComment, addSubtask, deleteTask, setTaskStatus, updateTask } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
-import { useAccess, useWorkspace } from "@/lib/workspace";
+import { useAccess } from "@/lib/workspace";
 import type { Project, Tag, Task, TaskViewMode, User } from "@/lib/types";
 
 const PANEL_WIDTH_KEY = "asa-task-panel-width";
@@ -40,6 +40,7 @@ export function TaskViewer({
   onClose,
   subtasks = [],
   onOpenSubtask,
+  parent = null,
   startEditing = false,
 }: {
   task: Task;
@@ -51,6 +52,7 @@ export function TaskViewer({
   onClose: () => void;
   subtasks?: Task[];
   onOpenSubtask?: (id: string) => void;
+  parent?: { id: string; title: string } | null;
   startEditing?: boolean;
 }) {
   useEffect(() => {
@@ -72,6 +74,7 @@ export function TaskViewer({
     onClose,
     subtasks,
     onOpenSubtask,
+    parent,
     startEditing,
   };
 
@@ -142,6 +145,7 @@ export function TaskPanel({
   onViewChange,
   subtasks = [],
   onOpenSubtask,
+  parent = null,
   startEditing = false,
 }: {
   task: Task;
@@ -154,6 +158,7 @@ export function TaskPanel({
   onViewChange?: (mode: TaskViewMode) => void;
   subtasks?: Task[];
   onOpenSubtask?: (id: string) => void;
+  parent?: { id: string; title: string } | null;
   startEditing?: boolean;
 }) {
   const [comment, setComment] = useState("");
@@ -169,8 +174,6 @@ export function TaskPanel({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const { canWrite, isClient } = useAccess();
-  const userId = useWorkspace((state) => state.user?.id);
-  const following = Boolean(userId && task.followerIds?.includes(userId));
 
   function startResize(event: React.PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -216,6 +219,17 @@ export function TaskPanel({
       ) : null}
       <div className="flex items-start justify-between gap-4 border-b border-line-subtle px-5 py-5">
         <div className="min-w-0 flex-1">
+          {parent && onOpenSubtask ? (
+            <button
+              type="button"
+              onClick={() => onOpenSubtask(parent.id)}
+              title={parent.title}
+              className="mb-2 flex w-full min-w-0 items-center gap-1.5 text-left text-xs text-faint hover:text-ink"
+            >
+              <ArrowLeft className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+              <span className="truncate">Voltar para: {parent.title}</span>
+            </button>
+          ) : null}
           {canWrite ? (
             <EditableTitle
               key={task.id}
@@ -226,7 +240,7 @@ export function TaskPanel({
               onCommit={(title) => updateTask(task.id, { title })}
             />
           ) : (
-            <h2 className="min-w-0 text-lg font-medium leading-snug tracking-tight text-ink">
+            <h2 className="min-w-0 text-lg font-medium leading-snug tracking-tight text-ink [overflow-wrap:anywhere]">
               {task.title}
             </h2>
           )}
@@ -251,16 +265,11 @@ export function TaskPanel({
               {task.status === "done" ? "Reabrir" : "Concluir"}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => void setTaskFollow(task.id, !following)}
-            className="rounded-full px-3 py-1 text-xs text-faint hover:bg-hover hover:text-ink"
-          >
-            {following ? "Seguindo" : "Seguir"}
-          </button>
           <TaskActionsMenu
             task={task}
             canWrite={canWrite}
+            view={view}
+            onViewChange={onViewChange}
             onFocusProjects={() => {
               document.querySelector<HTMLButtonElement>('[aria-label="Alterar projeto"]')?.click();
             }}
@@ -279,34 +288,6 @@ export function TaskPanel({
               setConfirmDelete(true);
             }}
           />
-          {onViewChange ? (
-            <>
-              <button
-                type="button"
-                aria-label="Painel lateral"
-                title="Painel lateral"
-                onClick={() => onViewChange("sidebar")}
-                className={cn(
-                  "rounded-full p-1.5",
-                  view === "sidebar" ? "bg-hover text-ink" : "text-faint hover:text-ink",
-                )}
-              >
-                <PanelRight className="h-4 w-4" strokeWidth={1.5} />
-              </button>
-              <button
-                type="button"
-                aria-label="Modal"
-                title="Modal"
-                onClick={() => onViewChange("modal")}
-                className={cn(
-                  "rounded-full p-1.5",
-                  view === "modal" ? "bg-hover text-ink" : "text-faint hover:text-ink",
-                )}
-              >
-                <AppWindow className="h-4 w-4" strokeWidth={1.5} />
-              </button>
-            </>
-          ) : null}
           <button
             type="button"
             onClick={onClose}
@@ -317,9 +298,10 @@ export function TaskPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5 text-sm">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 py-4 text-sm">
         <TaskApprovalSection task={task} />
 
+        <div className="space-y-1.5">
         <Field label="Responsável">
           <TaskAssigneePicker
             assigneeId={task.assigneeId}
@@ -375,6 +357,7 @@ export function TaskPanel({
             onChange={(priority) => updateTask(task.id, { priority })}
           />
         </Field>
+        </div>
 
         <div>
           <p className="mb-2 text-faint">Descrição</p>

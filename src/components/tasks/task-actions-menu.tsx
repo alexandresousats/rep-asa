@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  AppWindow,
   ArrowUp,
+  Bell,
   CalendarPlus,
   Check,
   ChevronRight,
@@ -13,6 +15,7 @@ import {
   Link2,
   Loader2,
   MoreHorizontal,
+  PanelRight,
   Paperclip,
   Printer,
   Search,
@@ -30,16 +33,19 @@ import {
   addSubtask,
   createProject,
   createTask,
+  setTaskFollow,
   updateTask,
 } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/dates";
 import { useWorkspace } from "@/lib/workspace";
-import type { Task } from "@/lib/types";
+import type { Task, TaskViewMode } from "@/lib/types";
 
 export function TaskActionsMenu({
   task,
   canWrite,
+  view,
+  onViewChange,
   onFocusProjects,
   onFocusSubtasks,
   onFocusTags,
@@ -48,6 +54,8 @@ export function TaskActionsMenu({
 }: {
   task: Task;
   canWrite: boolean;
+  view?: TaskViewMode;
+  onViewChange?: (mode: TaskViewMode) => void;
   onFocusProjects?: () => void;
   onFocusSubtasks?: () => void;
   onFocusTags?: () => void;
@@ -70,6 +78,7 @@ export function TaskActionsMenu({
   const router = useRouter();
 
   const user = useWorkspace((state) => state.user);
+  const following = Boolean(user?.id && task.followerIds?.includes(user.id));
   const users = useWorkspace((state) => state.users);
   const allTasks = useWorkspace((state) => state.tasks);
 
@@ -382,6 +391,20 @@ export function TaskActionsMenu({
           anchorRef={buttonRef}
           canWrite={canWrite}
           isSubtask={Boolean(task.parentId)}
+          view={onViewChange ? view : undefined}
+          onViewChange={
+            onViewChange
+              ? (mode) => {
+                  setIsOpen(false);
+                  onViewChange(mode);
+                }
+              : undefined
+          }
+          following={following}
+          onToggleFollow={() => {
+            setIsOpen(false);
+            void setTaskFollow(task.id, !following);
+          }}
           onClose={() => setIsOpen(false)}
           onFocusProjects={() => {
             setIsOpen(false);
@@ -591,6 +614,10 @@ function MenuDropdown({
   anchorRef,
   canWrite,
   isSubtask,
+  view,
+  onViewChange,
+  following,
+  onToggleFollow,
   onClose,
   onFocusProjects,
   onFocusSubtasks,
@@ -610,6 +637,10 @@ function MenuDropdown({
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   canWrite: boolean;
   isSubtask: boolean;
+  view?: TaskViewMode;
+  onViewChange?: (mode: TaskViewMode) => void;
+  following: boolean;
+  onToggleFollow: () => void;
   onClose: () => void;
   onFocusProjects: () => void;
   onFocusSubtasks: () => void;
@@ -645,7 +676,7 @@ function MenuDropdown({
         left = window.innerWidth - menuWidth - 8;
       }
 
-      const estimatedHeight = 440;
+      const estimatedHeight = 560;
       if (top + estimatedHeight > window.innerHeight - 8) {
         top = Math.max(8, rect.top - estimatedHeight - 6);
       }
@@ -693,6 +724,32 @@ function MenuDropdown({
       }}
       className="fixed z-50 rounded-2xl border border-line bg-elevated/95 p-1.5 shadow-2xl backdrop-blur-md menu-in text-xs text-ink"
     >
+      <div className="space-y-0.5">
+        {onViewChange ? (
+          <>
+            <MenuItem
+              icon={<PanelRight className="h-4 w-4 text-faint" />}
+              label="Painel lateral"
+              selected={view === "sidebar"}
+              onClick={() => onViewChange("sidebar")}
+            />
+            <MenuItem
+              icon={<AppWindow className="h-4 w-4 text-faint" />}
+              label="Popup"
+              selected={view === "modal"}
+              onClick={() => onViewChange("modal")}
+            />
+          </>
+        ) : null}
+        <MenuItem
+          icon={<Bell className="h-4 w-4 text-faint" />}
+          label={following ? "Deixar de seguir" : "Seguir"}
+          onClick={onToggleFollow}
+        />
+      </div>
+
+      <div className="my-1.5 h-px bg-line-subtle" />
+
       {/* Group 1: Projects, Subtasks, Tags, Attachments, Follow-up, Duplicates */}
       <div className="space-y-0.5">
         <MenuItem
@@ -845,6 +902,7 @@ function MenuItem({
   onClick,
   destructive = false,
   disabled = false,
+  selected = false,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -852,6 +910,7 @@ function MenuItem({
   onClick: () => void;
   destructive?: boolean;
   disabled?: boolean;
+  selected?: boolean;
 }) {
   return (
     <button
@@ -870,7 +929,9 @@ function MenuItem({
         <span className="truncate">{label}</span>
       </div>
 
-      {shortcuts && shortcuts.length > 0 ? (
+      {selected ? (
+        <Check className="ml-2 h-3.5 w-3.5 shrink-0 text-ink" strokeWidth={2.5} />
+      ) : shortcuts && shortcuts.length > 0 ? (
         <span className="ml-2 flex shrink-0 items-center gap-1">
           {shortcuts.map((key) => (
             <kbd
