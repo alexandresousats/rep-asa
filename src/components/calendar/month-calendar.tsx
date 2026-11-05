@@ -4,12 +4,11 @@ import {
   addDays,
   addMonths,
   differenceInCalendarDays,
-  eachDayOfInterval,
   endOfMonth,
   endOfWeek,
   format,
-  isSameDay,
   isSameMonth,
+  parseISO,
   startOfMonth,
   startOfToday,
   startOfWeek,
@@ -28,16 +27,43 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { createTask, setTaskStatus, updateTask } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { isSameDate, parseDate, toISODate, WEEKDAYS } from "@/lib/dates";
+import { parseDate, toISODate, WEEKDAYS } from "@/lib/dates";
 import { PRIORITY_META, PRIORITY_ORDER } from "@/lib/priority";
 import type { Project, Tag, Task, User } from "@/lib/types";
 import { useAccess, useWorkspace } from "@/lib/workspace";
 
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+// Dia local (AAAA-MM-DD) do vencimento. Dá o mesmo dia que isSameDate dava,
+// mas é calculado uma vez por tarefa em vez de uma vez por tarefa e por dia.
+function dueDayKey(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : toISODate(parseISO(value));
+}
+
+const EMPTY_TASKS: Task[] = [];
+
+// Funções estáveis que as semanas e os cartões recebem. Elas sempre chamam a
+// versão mais recente do handler, então mudar o estado do calendário não força
+// todas as semanas a renderizar de novo.
+type CalendarActions = {
+  select: (id: string) => void;
+  dragTask: (event: React.DragEvent, taskId: string) => void;
+  dragTaskEnd: () => void;
+  dayClick: (dayISO: string, isCreating: boolean) => void;
+  dayDragOver: (event: React.DragEvent, dayISO: string) => void;
+  dayDrop: (event: React.DragEvent, dayISO: string) => void;
+  openCreator: (dayISO: string) => void;
+  expandDay: (day: Date) => void;
+  setNewTitle: (value: string) => void;
+  submitCreator: (dayISO: string) => void;
+  cancelCreator: () => void;
+  setProject: (id: string) => void;
+};
 
 export function MonthCalendar({
   month,
@@ -117,6 +143,8 @@ export function MonthCalendar({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const initialScrolledRef = useRef(false);
   const pendingScrollAdjustRef = useRef<{ prevHeight: number; prevScrollTop: number } | null>(null);
+  const pendingEndExpandRef = useRef(false);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const newTitleRef = useRef(newTitle);
   newTitleRef.current = newTitle;
@@ -132,23 +160,31 @@ export function MonthCalendar({
     }
   }, [rangeStartMonth]);
 
-  const today = startOfToday();
+  // Libera a próxima expansão para baixo só depois que a anterior entrou na tela.
+  useIsomorphicLayoutEffect(() => {
+    pendingEndExpandRef.current = false;
+  }, [rangeEndMonth]);
 
-  // Generate continuous interval of all days
-  const allDays = useMemo(() => {
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    },
+    [],
+  );
+
+  const today = startOfToday();
+  const todayISO = toISODate(today);
+
+  // Semanas do intervalo carregado, identificadas pela segunda-feira (AAAA-MM-DD).
+  const weeks = useMemo(() => {
     const start = startOfWeek(startOfMonth(rangeStartMonth), { weekStartsOn: 1 });
     const end = endOfWeek(endOfMonth(rangeEndMonth), { weekStartsOn: 1 });
-    return eachDayOfInterval({ start, end });
-  }, [rangeStartMonth, rangeEndMonth]);
-
-  // Group days into weeks (7 days each)
-  const weeks = useMemo(() => {
-    const result: Date[][] = [];
-    for (let i = 0; i < allDays.length; i += 7) {
-      result.push(allDays.slice(i, i + 7));
+    const result: { start: string; end: string }[] = [];
+    for (let day = start; day <= end; day = addDays(day, 7)) {
+      result.push({ start: toISODate(day), end: toISODate(addDays(day, 6)) });
     }
     return result;
-  }, [allDays]);
+  }, [rangeStartMonth, rangeEndMonth]);
 
   // Initial scroll to current month on mount
   useEffect(() => {
@@ -159,12 +195,12 @@ export function MonthCalendar({
       const container = scrollContainerRef.current;
       const headerEl = container.querySelector<HTMLElement>(".sticky");
       const headerHeight = headerEl?.offsetHeight ?? 40;
-      const weekRow = targetEl.closest<HTMLElement>("[data-week-index]");
+      const weekRow = targetEl.closest<HTMLElement>("[data-week-start]");
       const targetTop = weekRow ? weekRow.offsetTop - headerHeight : targetEl.offsetTop - headerHeight;
       container.scrollTop = Math.max(0, targetTop);
       initialScrolledRef.current = true;
     }
-  }, [month, allDays]);
+  }, [month, weeks]);
 
   // Focus input when inline creation opens
   useEffect(() => {
@@ -207,6 +243,15 @@ export function MonthCalendar({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [creatingDate]);
 
+  // O navegador dispara scroll várias vezes por quadro; processa no máximo uma por quadro.
+  function onScroll() {
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      handleScrollRef.current();
+    });
+  }
+
   // Continuous scroll listener: detect visible month & expand range dynamically
   function handleScroll() {
     const container = scrollContainerRef.current;
@@ -219,7 +264,7 @@ export function MonthCalendar({
     const headerHeight = headerEl?.offsetHeight ?? 40;
     const targetY = scrollTop + headerHeight + 35;
 
-    const weekRows = container.querySelectorAll<HTMLElement>("[data-week-index]");
+    const weekRows = container.querySelectorAll<HTMLElement>("[data-week-start]");
     let activeMonthISO: string | null = null;
 
     for (let i = 0; i < weekRows.length; i++) {
@@ -249,8 +294,10 @@ export function MonthCalendar({
       }
     }
 
-    // Infinite scroll expansion at bottom
-    if (scrollTop + clientHeight >= scrollHeight - 350) {
+    // Infinite scroll expansion at bottom. Sem a trava, cada evento de scroll
+    // antes do próximo render somava mais 6 meses de uma vez.
+    if (scrollTop + clientHeight >= scrollHeight - 350 && !pendingEndExpandRef.current) {
+      pendingEndExpandRef.current = true;
       setRangeEndMonth((prev) => addMonths(prev, 6));
     }
 
@@ -263,6 +310,8 @@ export function MonthCalendar({
       setRangeStartMonth((prev) => addMonths(prev, -6));
     }
   }
+  const handleScrollRef = useRef(handleScroll);
+  handleScrollRef.current = handleScroll;
 
   // Smooth scroll to month
   function scrollToMonth(targetDate: Date) {
@@ -273,7 +322,7 @@ export function MonthCalendar({
       const container = scrollContainerRef.current;
       const headerEl = container.querySelector<HTMLElement>(".sticky");
       const headerHeight = headerEl?.offsetHeight ?? 40;
-      const weekRow = el.closest<HTMLElement>("[data-week-index]");
+      const weekRow = el.closest<HTMLElement>("[data-week-start]");
       const targetTop = weekRow ? weekRow.offsetTop - headerHeight : el.offsetTop - headerHeight;
       container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     } else {
@@ -289,7 +338,7 @@ export function MonthCalendar({
           const container = scrollContainerRef.current;
           const headerEl = container.querySelector<HTMLElement>(".sticky");
           const headerHeight = headerEl?.offsetHeight ?? 40;
-          const weekRow = newEl.closest<HTMLElement>("[data-week-index]");
+          const weekRow = newEl.closest<HTMLElement>("[data-week-start]");
           const targetTop = weekRow ? weekRow.offsetTop - headerHeight : newEl.offsetTop - headerHeight;
           container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
         }
@@ -305,7 +354,7 @@ export function MonthCalendar({
       const container = scrollContainerRef.current;
       const headerEl = container.querySelector<HTMLElement>(".sticky");
       const headerHeight = headerEl?.offsetHeight ?? 40;
-      const weekRow = el.closest<HTMLElement>("[data-week-index]");
+      const weekRow = el.closest<HTMLElement>("[data-week-start]");
       const targetTop = weekRow ? weekRow.offsetTop - headerHeight : el.offsetTop - headerHeight;
       container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     } else {
@@ -363,6 +412,30 @@ export function MonthCalendar({
   const undatedTasks = useMemo(() => {
     return filteredTasks.filter((task) => !task.dueDate);
   }, [filteredTasks]);
+
+  // Índice dia -> tarefas, montado uma vez. Antes cada célula percorria todas as
+  // tarefas e reconvertia cada data: com 2.000 tarefas e 18 meses isso passava
+  // de 1 segundo por render, e o scroll renderiza o calendário várias vezes.
+  const tasksByDay = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of filteredTasks) {
+      if (!task.dueDate) continue;
+      const key = dueDayKey(task.dueDate);
+      const list = map.get(key);
+      if (list) list.push(task);
+      else map.set(key, [task]);
+    }
+    return map;
+  }, [filteredTasks]);
+
+  // Quantas subtarefas cada tarefa tem, contado uma vez para todos os cartões.
+  const subtaskCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const task of allStoreTasks) {
+      if (task.parentId) map.set(task.parentId, (map.get(task.parentId) ?? 0) + 1);
+    }
+    return map;
+  }, [allStoreTasks]);
 
   const activeFiltersCount =
     (statusFilter !== "all" ? 1 : 0) +
@@ -463,6 +536,73 @@ export function MonthCalendar({
       setCreating(false);
     }
   }
+
+  function handleDayClick(dayISO: string, isCreating: boolean) {
+    if (suppressDayClickRef.current) {
+      suppressDayClickRef.current = false;
+      return;
+    }
+    if (canWrite && !isCreating && !draggingId) {
+      setCreatingDate(dayISO);
+    }
+  }
+
+  function handleDayDragOver(event: React.DragEvent, dayISO: string) {
+    if (!canWrite || !draggingIdRef.current) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    scrollWhileDragging(event);
+    setDropDate(dayISO);
+  }
+
+  function handleDayDrop(event: React.DragEvent, dayISO: string) {
+    if (!canWrite) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressDayClickRef.current = true;
+    const taskId = event.dataTransfer.getData("text/plain") || draggingIdRef.current;
+    if (taskId) moveTaskToDate(taskId, dayISO);
+    endTaskDrag();
+  }
+
+  const latestActions: CalendarActions = {
+    select: onSelect,
+    dragTask: beginTaskDrag,
+    dragTaskEnd: endTaskDrag,
+    dayClick: handleDayClick,
+    dayDragOver: handleDayDragOver,
+    dayDrop: handleDayDrop,
+    openCreator: setCreatingDate,
+    expandDay: setExpandedDate,
+    setNewTitle,
+    submitCreator: (dayISO) => void handleCreateInlineTask(dayISO),
+    cancelCreator: () => {
+      setCreatingDate(null);
+      setNewTitle("");
+    },
+    setProject: setSelectedProjectId,
+  };
+  const latestActionsRef = useRef(latestActions);
+  latestActionsRef.current = latestActions;
+  const actions = useMemo<CalendarActions>(
+    () => ({
+      select: (id) => latestActionsRef.current.select(id),
+      dragTask: (event, taskId) => latestActionsRef.current.dragTask(event, taskId),
+      dragTaskEnd: () => latestActionsRef.current.dragTaskEnd(),
+      dayClick: (dayISO, isCreating) => latestActionsRef.current.dayClick(dayISO, isCreating),
+      dayDragOver: (event, dayISO) => latestActionsRef.current.dayDragOver(event, dayISO),
+      dayDrop: (event, dayISO) => latestActionsRef.current.dayDrop(event, dayISO),
+      openCreator: (dayISO) => latestActionsRef.current.openCreator(dayISO),
+      expandDay: (day) => latestActionsRef.current.expandDay(day),
+      setNewTitle: (value) => latestActionsRef.current.setNewTitle(value),
+      submitCreator: (dayISO) => latestActionsRef.current.submitCreator(dayISO),
+      cancelCreator: () => latestActionsRef.current.cancelCreator(),
+      setProject: (id) => latestActionsRef.current.setProject(id),
+    }),
+    [],
+  );
+
+  const showProjectPicker = projects.length > 1 && !projectId;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -733,11 +873,12 @@ export function MonthCalendar({
         {/* Continuous Scroll Container (Asana-style) */}
         <div
           ref={scrollContainerRef}
-          onScroll={handleScroll}
+          onScroll={onScroll}
           className="flex-1 overflow-y-auto overscroll-contain rounded-2xl border border-line bg-elevated shadow-xs"
         >
-          {/* Sticky Weekday Column Headers */}
-          <div className="sticky top-0 z-20 grid grid-cols-7 border-b border-line bg-elevated/95 backdrop-blur-sm">
+          {/* Sticky Weekday Column Headers. Fundo sólido: desfoque em cabeçalho fixo
+              obriga o navegador a repintar o blur em cada quadro do scroll. */}
+          <div className="sticky top-0 z-20 grid grid-cols-7 border-b border-line bg-elevated">
             {WEEKDAYS.map((day, index) => {
               const isWeekend = index === 5 || index === 6;
               return (
@@ -754,208 +895,37 @@ export function MonthCalendar({
             })}
           </div>
 
-          {/* Continuous Weeks Grid */}
+          {/* Continuous Weeks Grid. Cada semana só renderiza de novo quando algo
+              dela muda: datas de criação, soltura e "hoje" só chegam à semana certa. */}
           <div className="divide-y divide-line">
-            {weeks.map((week, weekIndex) => {
-              const weekMonthISO = toISODate(startOfMonth(week[3]));
+            {weeks.map((week) => {
+              const inWeek = (iso: string | null) =>
+                iso !== null && iso >= week.start && iso <= week.end;
+              const creatingHere = inWeek(creatingDate);
               return (
-                <div
-                  key={weekIndex}
-                  data-week-index={weekIndex}
-                  data-week-month={weekMonthISO}
-                  className="grid grid-cols-7 divide-x divide-line relative"
-                >
-                  {week.map((day, dayIndex) => {
-                    const isWeekend = dayIndex === 5 || dayIndex === 6;
-                    const isToday = isSameDay(day, today);
-                    const dayISO = toISODate(day);
-                    const isFirstDayOfMonth = day.getDate() === 1;
-
-                    const dayTasks = filteredTasks.filter(
-                      (task) => task.dueDate && isSameDate(task.dueDate, day),
-                    );
-
-                    const isCreating = creatingDate === dayISO;
-                    const maxVisible = 3;
-                    const visibleTasks = dayTasks.slice(0, maxVisible);
-                    const extraTasksCount = dayTasks.length - maxVisible;
-
-                    return (
-                      <div
-                        key={dayISO}
-                        id={`day-${dayISO}`}
-                        data-date={dayISO}
-                        onClick={() => {
-                          if (suppressDayClickRef.current) {
-                            suppressDayClickRef.current = false;
-                            return;
-                          }
-                          if (canWrite && !isCreating && !draggingId) {
-                            setCreatingDate(dayISO);
-                          }
-                        }}
-                        onDragOver={(event) => {
-                          if (!canWrite || !draggingIdRef.current) return;
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = "move";
-                          scrollWhileDragging(event);
-                          if (dropDate !== dayISO) setDropDate(dayISO);
-                        }}
-                        onDrop={(event) => {
-                          if (!canWrite) return;
-                          event.preventDefault();
-                          event.stopPropagation();
-                          suppressDayClickRef.current = true;
-                          const taskId = event.dataTransfer.getData("text/plain") || draggingIdRef.current;
-                          if (taskId) moveTaskToDate(taskId, dayISO);
-                          endTaskDrag();
-                        }}
-                        className={cn(
-                          "group relative min-h-[160px] sm:min-h-[175px] p-1.5 sm:p-2 transition-colors",
-                          canWrite ? "cursor-copy" : undefined,
-                          isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
-                          "hover:bg-hover/30",
-                          dropDate === dayISO && "bg-blue-500/15 ring-2 ring-inset ring-blue-400/70",
-                        )}
-                      >
-                        {/* Day Header: Number/Month name + Hover Add button */}
-                        <div className="mb-1.5 flex items-center justify-between">
-                          <span
-                            className={cn(
-                              "inline-flex items-center text-xs transition-transform",
-                              isToday
-                                ? "h-6 w-6 items-center justify-center rounded-full bg-blue-600 font-bold text-white shadow-xs"
-                                : isFirstDayOfMonth
-                                  ? "font-bold text-ink rounded-md bg-ink/10 dark:bg-white/10 px-1.5 py-0.5"
-                                  : "font-medium text-faint group-hover:text-ink",
-                            )}
-                          >
-                            {isFirstDayOfMonth ? (
-                              <span>{format(day, "d MMM", { locale: ptBR })}</span>
-                            ) : (
-                              format(day, "d")
-                            )}
-                          </span>
-
-                        {/* Quick + Button on hover */}
-                        {canWrite ? (
-                          <button
-                            type="button"
-                            aria-label="Adicionar tarefa neste dia"
-                            title="Adicionar tarefa neste dia"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCreatingDate(dayISO);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 h-5 w-5 rounded-full flex items-center justify-center text-faint hover:bg-hover hover:text-ink transition-all"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
-                        ) : null}
-                      </div>
-
-                      {/* Tasks List */}
-                      <div className="space-y-1.5">
-                        {visibleTasks.map((task) => (
-                          <CalendarTaskCard
-                            key={task.id}
-                            task={task}
-                            tags={tags}
-                            users={users}
-                            projects={projects}
-                            allTasks={allStoreTasks}
-                            selectedId={selectedId}
-                            onSelect={onSelect}
-                            canDrag={canWrite}
-                            dragging={draggingId === task.id}
-                            onDragTask={beginTaskDrag}
-                            onDragTaskEnd={endTaskDrag}
-                          />
-                        ))}
-
-                        {/* Inline Task Creator */}
-                        {isCreating ? (
-                          <div
-                            ref={inlineCreatorRef}
-                            onClick={(e) => e.stopPropagation()}
-                            className="rounded-xl border border-line bg-elevated p-2 shadow-lg animate-in fade-in zoom-in-95 duration-100 text-left"
-                          >
-                            <input
-                              ref={inlineInputRef}
-                              type="text"
-                              value={newTitle}
-                              onChange={(e) => setNewTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void handleCreateInlineTask(dayISO);
-                                }
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  setCreatingDate(null);
-                                  setNewTitle("");
-                                }
-                              }}
-                              placeholder="Nome da tarefa..."
-                              className="w-full bg-transparent text-xs font-medium text-ink placeholder:text-faint outline-none"
-                            />
-                            {projects.length > 1 && !projectId ? (
-                              <div className="mt-1.5 flex items-center justify-between gap-1">
-                                <select
-                                  value={targetProjectId}
-                                  onChange={(e) => setSelectedProjectId(e.target.value)}
-                                  className="max-w-[120px] truncate bg-transparent text-[10px] text-faint outline-none hover:text-ink"
-                                >
-                                  {projects.map((p) => (
-                                    <option
-                                      key={p.id}
-                                      value={p.id}
-                                      className="bg-elevated text-ink"
-                                    >
-                                      {p.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-
-                        {/* "+N mais" button if day has overflow */}
-                        {extraTasksCount > 0 ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setExpandedDate(day);
-                            }}
-                            className="w-full rounded-md py-0.5 text-center text-[11px] font-medium text-faint hover:bg-hover hover:text-ink transition-colors"
-                          >
-                            Mais {extraTasksCount}
-                          </button>
-                        ) : null}
-
-                        {/* Hover "+ Adicionar uma tarefa" button at bottom */}
-                        {!isCreating && canWrite ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCreatingDate(dayISO);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[11px] text-faint hover:text-ink px-1.5 py-0.5 rounded hover:bg-hover/80 w-full justify-start transition-opacity"
-                          >
-                            <Plus className="h-3 w-3" />
-                            <span>Adicionar uma tarefa</span>
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                <CalendarWeek
+                  key={week.start}
+                  weekStartISO={week.start}
+                  todayISO={inWeek(todayISO) ? todayISO : null}
+                  tasksByDay={tasksByDay}
+                  subtaskCounts={subtaskCounts}
+                  tags={tags}
+                  users={users}
+                  projects={projects}
+                  canWrite={canWrite}
+                  creatingDate={creatingHere ? creatingDate : null}
+                  newTitle={creatingHere ? newTitle : ""}
+                  dropDate={inWeek(dropDate) ? dropDate : null}
+                  draggingId={draggingId}
+                  selectedId={selectedId ?? null}
+                  showProjectPicker={showProjectPicker}
+                  targetProjectId={targetProjectId}
+                  inlineCreatorRef={inlineCreatorRef}
+                  inlineInputRef={inlineInputRef}
+                  actions={actions}
+                />
+              );
+            })}
           </div>
         </div>
 
@@ -1054,13 +1024,11 @@ export function MonthCalendar({
       {expandedDate ? (
         <DayTasksModal
           date={expandedDate}
-          tasks={filteredTasks.filter(
-            (t) => t.dueDate && isSameDate(t.dueDate, expandedDate),
-          )}
+          tasks={tasksByDay.get(toISODate(expandedDate)) ?? EMPTY_TASKS}
           tags={tags}
           users={users}
           projects={projects}
-          allTasks={allStoreTasks}
+          subtaskCounts={subtaskCounts}
           selectedId={selectedId}
           onSelect={onSelect}
           canDrag={canWrite}
@@ -1079,14 +1047,229 @@ export function MonthCalendar({
   );
 }
 
+// Uma linha de 7 dias do calendário contínuo.
+const CalendarWeek = memo(function CalendarWeek({
+  weekStartISO,
+  todayISO,
+  tasksByDay,
+  subtaskCounts,
+  tags,
+  users,
+  projects,
+  canWrite,
+  creatingDate,
+  newTitle,
+  dropDate,
+  draggingId,
+  selectedId,
+  showProjectPicker,
+  targetProjectId,
+  inlineCreatorRef,
+  inlineInputRef,
+  actions,
+}: {
+  weekStartISO: string;
+  todayISO: string | null;
+  tasksByDay: Map<string, Task[]>;
+  subtaskCounts: Map<string, number>;
+  tags: Tag[];
+  users: User[];
+  projects: Project[];
+  canWrite: boolean;
+  creatingDate: string | null;
+  newTitle: string;
+  dropDate: string | null;
+  draggingId: string | null;
+  selectedId: string | null;
+  showProjectPicker: boolean;
+  targetProjectId: string;
+  inlineCreatorRef: RefObject<HTMLDivElement | null>;
+  inlineInputRef: RefObject<HTMLInputElement | null>;
+  actions: CalendarActions;
+}) {
+  const days = useMemo(() => {
+    const start = parseDate(weekStartISO);
+    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  }, [weekStartISO]);
+  const weekMonthISO = toISODate(startOfMonth(days[3]));
+
+  return (
+    <div
+      data-week-start={weekStartISO}
+      data-week-month={weekMonthISO}
+      className="grid grid-cols-7 divide-x divide-line relative"
+    >
+      {days.map((day, dayIndex) => {
+        const isWeekend = dayIndex === 5 || dayIndex === 6;
+        const dayISO = toISODate(day);
+        const isToday = dayISO === todayISO;
+        const isFirstDayOfMonth = day.getDate() === 1;
+
+        const dayTasks = tasksByDay.get(dayISO) ?? EMPTY_TASKS;
+
+        const isCreating = creatingDate === dayISO;
+        const maxVisible = 3;
+        const visibleTasks = dayTasks.slice(0, maxVisible);
+        const extraTasksCount = dayTasks.length - maxVisible;
+
+        return (
+          <div
+            key={dayISO}
+            id={`day-${dayISO}`}
+            data-date={dayISO}
+            onClick={() => actions.dayClick(dayISO, isCreating)}
+            onDragOver={(event) => actions.dayDragOver(event, dayISO)}
+            onDrop={(event) => actions.dayDrop(event, dayISO)}
+            className={cn(
+              "group relative min-h-[160px] sm:min-h-[175px] p-1.5 sm:p-2 transition-colors",
+              canWrite ? "cursor-copy" : undefined,
+              isWeekend ? "bg-base/25 dark:bg-black/20" : "bg-elevated",
+              "hover:bg-hover/30",
+              dropDate === dayISO && "bg-blue-500/15 ring-2 ring-inset ring-blue-400/70",
+            )}
+          >
+            {/* Day Header: Number/Month name + Hover Add button */}
+            <div className="mb-1.5 flex items-center justify-between">
+              <span
+                className={cn(
+                  "inline-flex items-center text-xs transition-transform",
+                  isToday
+                    ? "h-6 w-6 items-center justify-center rounded-full bg-blue-600 font-bold text-white shadow-xs"
+                    : isFirstDayOfMonth
+                      ? "font-bold text-ink rounded-md bg-ink/10 dark:bg-white/10 px-1.5 py-0.5"
+                      : "font-medium text-faint group-hover:text-ink",
+                )}
+              >
+                {isFirstDayOfMonth ? (
+                  <span>{format(day, "d MMM", { locale: ptBR })}</span>
+                ) : (
+                  day.getDate()
+                )}
+              </span>
+
+              {/* Quick + Button on hover */}
+              {canWrite ? (
+                <button
+                  type="button"
+                  aria-label="Adicionar tarefa neste dia"
+                  title="Adicionar tarefa neste dia"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    actions.openCreator(dayISO);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 h-5 w-5 rounded-full flex items-center justify-center text-faint hover:bg-hover hover:text-ink transition-all"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+
+            {/* Tasks List */}
+            <div className="space-y-1.5">
+              {visibleTasks.map((task) => (
+                <CalendarTaskCard
+                  key={task.id}
+                  task={task}
+                  tags={tags}
+                  users={users}
+                  projects={projects}
+                  subtasksCount={subtaskCounts.get(task.id) ?? 0}
+                  selected={selectedId === task.id}
+                  onSelect={actions.select}
+                  canDrag={canWrite}
+                  dragging={draggingId === task.id}
+                  onDragTask={actions.dragTask}
+                  onDragTaskEnd={actions.dragTaskEnd}
+                />
+              ))}
+
+              {/* Inline Task Creator */}
+              {isCreating ? (
+                <div
+                  ref={inlineCreatorRef}
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-xl border border-line bg-elevated p-2 shadow-lg animate-in fade-in zoom-in-95 duration-100 text-left"
+                >
+                  <input
+                    ref={inlineInputRef}
+                    type="text"
+                    value={newTitle}
+                    onChange={(e) => actions.setNewTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        actions.submitCreator(dayISO);
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        actions.cancelCreator();
+                      }
+                    }}
+                    placeholder="Nome da tarefa..."
+                    className="w-full bg-transparent text-xs font-medium text-ink placeholder:text-faint outline-none"
+                  />
+                  {showProjectPicker ? (
+                    <div className="mt-1.5 flex items-center justify-between gap-1">
+                      <select
+                        value={targetProjectId}
+                        onChange={(e) => actions.setProject(e.target.value)}
+                        className="max-w-[120px] truncate bg-transparent text-[10px] text-faint outline-none hover:text-ink"
+                      >
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id} className="bg-elevated text-ink">
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* "+N mais" button if day has overflow */}
+              {extraTasksCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    actions.expandDay(day);
+                  }}
+                  className="w-full rounded-md py-0.5 text-center text-[11px] font-medium text-faint hover:bg-hover hover:text-ink transition-colors"
+                >
+                  Mais {extraTasksCount}
+                </button>
+              ) : null}
+
+              {/* Hover "+ Adicionar uma tarefa" button at bottom */}
+              {!isCreating && canWrite ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    actions.openCreator(dayISO);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[11px] text-faint hover:text-ink px-1.5 py-0.5 rounded hover:bg-hover/80 w-full justify-start transition-opacity"
+                >
+                  <Plus className="h-3 w-3" />
+                  <span>Adicionar uma tarefa</span>
+                </button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 // Asana-Style Task Card for Calendar
-function CalendarTaskCard({
+const CalendarTaskCard = memo(function CalendarTaskCard({
   task,
   tags,
   users,
   projects,
-  allTasks,
-  selectedId,
+  subtasksCount,
+  selected = false,
   onSelect,
   canDrag = false,
   dragging = false,
@@ -1097,8 +1280,8 @@ function CalendarTaskCard({
   tags: Tag[];
   users: User[];
   projects: Project[];
-  allTasks: Task[];
-  selectedId?: string | null;
+  subtasksCount: number;
+  selected?: boolean;
   onSelect: (id: string) => void;
   canDrag?: boolean;
   dragging?: boolean;
@@ -1114,9 +1297,6 @@ function CalendarTaskCard({
   // Card color priority: primary tag color -> project color -> neutral
   const color = primaryTag?.color ?? project?.color ?? "#8b5cf6";
 
-  const subtasksCount = useMemo(() => {
-    return allTasks.filter((t) => t.parentId === task.id).length;
-  }, [allTasks, task.id]);
   const draggedRef = useRef(false);
 
   return (
@@ -1152,7 +1332,7 @@ function CalendarTaskCard({
         "group/task relative flex w-full items-start gap-1.5 rounded-lg border px-2.5 py-0.5 sm:py-1 text-left text-xs transition-all duration-150 min-h-[30px]",
         "border-black/10 dark:border-white/10 shadow-2xs hover:shadow-xs hover:brightness-95 dark:hover:brightness-110",
         canDrag && "cursor-grab active:cursor-grabbing",
-        selectedId === task.id && "ring-2 ring-ink ring-offset-1 ring-offset-elevated",
+        selected && "ring-2 ring-ink ring-offset-1 ring-offset-elevated",
         (isDone || dragging) && "opacity-60",
       )}
       style={{
@@ -1230,7 +1410,7 @@ function CalendarTaskCard({
       ) : null}
     </div>
   );
-}
+});
 
 // Modal for days with many tasks ("+N mais")
 function DayTasksModal({
@@ -1239,7 +1419,7 @@ function DayTasksModal({
   tags,
   users,
   projects,
-  allTasks,
+  subtaskCounts,
   selectedId,
   onSelect,
   canDrag,
@@ -1254,7 +1434,7 @@ function DayTasksModal({
   tags: Tag[];
   users: User[];
   projects: Project[];
-  allTasks: Task[];
+  subtaskCounts: Map<string, number>;
   selectedId?: string | null;
   onSelect: (id: string) => void;
   canDrag?: boolean;
@@ -1302,8 +1482,8 @@ function DayTasksModal({
               tags={tags}
               users={users}
               projects={projects}
-              allTasks={allTasks}
-              selectedId={selectedId}
+              subtasksCount={subtaskCounts.get(task.id) ?? 0}
+              selected={selectedId === task.id}
               canDrag={canDrag}
               dragging={draggingId === task.id}
               onDragTask={onDragTask}
