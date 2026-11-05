@@ -21,25 +21,30 @@ function monthShort(day: Date) {
 
 const LEGEND_LEVELS = [0, 1, 2, 3, 4] as const;
 
-export function Heatmap({ cells }: { cells: HeatmapCell[] }) {
+export function Heatmap({ cells, year }: { cells: HeatmapCell[]; year?: number }) {
   const today = new Date();
   const lookup = new Map(cells.map((cell) => [cell.date, cell.count]));
   const days = cells.map((cell) => parseDate(cell.date));
   const weekCount = Math.ceil(days.length / 7);
   const weekColumns = `repeat(${weekCount}, minmax(0, 1fr))`;
 
+  function hidden(day: Date) {
+    if (year != null && day.getFullYear() !== year) return true;
+    return isFutureHeatmapDay(day, today);
+  }
+
   const monthLabels: { week: number; label: string }[] = [];
   let lastMonth = -1;
   let lastYear = -1;
   for (let week = 0; week < weekCount; week += 1) {
-    const sunday = days[week * 7];
-    if (!sunday || isFutureHeatmapDay(sunday, today)) continue;
-    const month = sunday.getMonth();
-    const year = sunday.getFullYear();
-    if (month === lastMonth && year === lastYear) continue;
+    const visible = days.slice(week * 7, week * 7 + 7).find((day) => day && !hidden(day));
+    if (!visible) continue;
+    const month = visible.getMonth();
+    const visibleYear = visible.getFullYear();
+    if (month === lastMonth && visibleYear === lastYear) continue;
     lastMonth = month;
-    lastYear = year;
-    monthLabels.push({ week, label: monthShort(sunday) });
+    lastYear = visibleYear;
+    monthLabels.push({ week, label: monthShort(visible) });
   }
 
   return (
@@ -68,8 +73,7 @@ export function Heatmap({ cells }: { cells: HeatmapCell[] }) {
         {days.map((day, index) => {
           const key = `${toISODate(day)}-${index}`;
           const dateKey = toISODate(day);
-          const future = isFutureHeatmapDay(day, today);
-          const visible = !future;
+          const visible = !hidden(day);
           const count = visible ? (lookup.get(dateKey) ?? 0) : 0;
           return (
             <span

@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowUpRight, SquarePen } from "lucide-react";
 import { Heatmap } from "@/components/insights/heatmap";
+import { YearFilter } from "@/components/insights/year-filter";
 import { MonthHighlights } from "@/components/opendata/month-highlights";
 import { TagChip } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatDay, parseDate } from "@/lib/dates";
-import { computeInsights } from "@/lib/insights";
+import { computeInsights, deliverySnapshot, deliveryYears } from "@/lib/insights";
 import { tasksLeavingThisWeek } from "@/lib/week-posts";
 import { useWorkspace } from "@/lib/workspace";
 import { ChatComposer } from "@/components/chat/chat-composer";
@@ -122,6 +123,13 @@ function Dashboard() {
     (person) => person.membershipStatus !== "pending",
   );
   const insights = computeInsights(tasks, projects, users);
+  const years = useMemo(() => deliveryYears(tasks), [tasks]);
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const selectedYear = years.includes(year) ? year : years[0];
+  const deliveries = useMemo(
+    () => deliverySnapshot(tasks, selectedYear),
+    [tasks, selectedYear],
+  );
   const tags = useWorkspace((state) => state.tags);
   const firstName = user?.name.split(" ")[0] ?? "equipe";
   const [showAllWeek, setShowAllWeek] = useState(false);
@@ -134,25 +142,26 @@ function Dashboard() {
   return (
     <div>
       <Card className="mb-6 border-none p-4 sm:p-5">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <p className="text-xs text-faint sm:text-sm">Todas as entregas</p>
             <p className="mt-0.5 text-2xl font-medium tracking-tight text-ink sm:text-[28px]">
-              {insights.totalCompleted.toLocaleString("pt-BR")}
+              {deliveries.totalCompleted.toLocaleString("pt-BR")}
             </p>
           </div>
+          <YearFilter years={years} value={selectedYear} onChange={setYear} />
         </div>
-        <Heatmap cells={insights.heatmap} />
+        <Heatmap cells={deliveries.heatmap} year={selectedYear} />
         <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-5">
-          <Stat label="Mês mais ativo" value={insights.mostActiveMonth} />
-          <Stat label="Dia mais ativo" value={insights.mostActiveWeekday} />
+          <Stat label="Mês mais ativo" value={deliveries.mostActiveMonth} />
+          <Stat label="Dia mais ativo" value={deliveries.mostActiveWeekday} />
           <Stat
             label="Maior sequência"
-            value={`${insights.longestStreak} dias`}
+            value={`${deliveries.longestStreak} dias`}
           />
           <Stat
             label="Sequência atual"
-            value={`${insights.currentStreak} dia`}
+            value={`${deliveries.currentStreak} dia`}
           />
         </div>
       </Card>
