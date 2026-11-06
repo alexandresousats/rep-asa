@@ -28,3 +28,21 @@ test("deliverySnapshot conta só o ano escolhido", () => {
   assert.ok(snapshot.heatmap.every((cell) => cell.date.startsWith("2024-") || cell.date.startsWith("2025-") || cell.date.startsWith("2026-")));
   assert.equal(snapshot.heatmap.find((cell) => cell.date === "2024-12-31")?.count, 0);
 });
+
+test("ano atual segue a janela rolante do GitHub", () => {
+  const tasks = [
+    done("old", "2025-11-03"),
+    done("before", "2025-10-01"),
+    done("now", "2026-11-05"),
+    done("later", "2026-12-01"),
+  ];
+  const snapshot = deliverySnapshot(tasks, 2026, new Date(2026, 10, 5));
+  assert.equal(snapshot.totalCompleted, 2);
+  assert.equal(snapshot.heatmap[0]?.date, "2025-11-02");
+  assert.equal(snapshot.heatmap.at(-1)?.date, "2026-11-07");
+  assert.equal(snapshot.heatmap.find((cell) => cell.date === "2025-11-03")?.count, 1);
+  assert.equal(snapshot.heatmap.find((cell) => cell.date === "2026-11-05")?.count, 1);
+  assert.equal(snapshot.heatmap.find((cell) => cell.date === "2026-11-07")?.count, 0);
+  assert.equal(snapshot.heatmap.find((cell) => cell.date === "2026-12-01"), undefined);
+  assert.equal(snapshot.mostActiveMonth, "novembro");
+});

@@ -4,7 +4,6 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/cn";
 import { parseDate, toISODate } from "@/lib/dates";
-import { isFutureHeatmapDay } from "@/lib/heatmap-window";
 import type { HeatmapCell } from "@/lib/types";
 
 function intensity(count: number) {
@@ -22,89 +21,72 @@ function monthShort(day: Date) {
 const LEGEND_LEVELS = [0, 1, 2, 3, 4] as const;
 
 export function Heatmap({ cells, year }: { cells: HeatmapCell[]; year?: number }) {
-  const today = new Date();
   const lookup = new Map(cells.map((cell) => [cell.date, cell.count]));
   const days = cells.map((cell) => parseDate(cell.date));
-  const weekCount = Math.ceil(days.length / 7);
+  const weekCount = Math.max(1, Math.ceil(days.length / 7));
   const weekColumns = `repeat(${weekCount}, minmax(0, 1fr))`;
-
-  function hidden(day: Date) {
-    if (year != null && day.getFullYear() !== year) return true;
-    return isFutureHeatmapDay(day, today);
-  }
 
   const monthLabels: { week: number; label: string }[] = [];
   let lastMonth = -1;
   let lastYear = -1;
   for (let week = 0; week < weekCount; week += 1) {
-    const visible = days.slice(week * 7, week * 7 + 7).find((day) => day && !hidden(day));
-    if (!visible) continue;
-    const month = visible.getMonth();
-    const visibleYear = visible.getFullYear();
+    const day = days[week * 7];
+    if (!day) continue;
+    if (year != null && day.getFullYear() !== year) continue;
+    const month = day.getMonth();
+    const visibleYear = day.getFullYear();
     if (month === lastMonth && visibleYear === lastYear) continue;
     lastMonth = month;
     lastYear = visibleYear;
-    monthLabels.push({ week, label: monthShort(visible) });
+    monthLabels.push({ week, label: monthShort(day) });
   }
 
   return (
     <div className="w-full min-w-0">
-      <div
-        className="mb-1.5 grid w-full gap-[2px] text-[10px] text-faint sm:gap-[3px] sm:text-[11px]"
-        style={{ gridTemplateColumns: weekColumns }}
-      >
-        {Array.from({ length: weekCount }, (_, week) => {
-          const marker = monthLabels.find((item) => item.week === week);
-          return (
-            <span key={week} className="leading-none capitalize">
-              {marker?.label ?? ""}
-            </span>
-          );
-        })}
-      </div>
-      <div
-        className="grid h-[88px] w-full gap-[2px] sm:h-[98px] sm:gap-[3px]"
-        style={{
-          gridTemplateColumns: weekColumns,
-          gridTemplateRows: "repeat(7, minmax(0, 1fr))",
-          gridAutoFlow: "column",
-        }}
-      >
-        {days.map((day, index) => {
-          const key = `${toISODate(day)}-${index}`;
-          const dateKey = toISODate(day);
-          const visible = !hidden(day);
-          const count = visible ? (lookup.get(dateKey) ?? 0) : 0;
-          return (
-            <span
-              key={key}
-              title={
-                visible
-                  ? `${format(day, "d MMM yyyy", { locale: ptBR })} · ${count} entrega${count === 1 ? "" : "s"}`
-                  : undefined
-              }
-              className={cn(
-                "block size-full min-h-0 min-w-0 rounded-[2px]",
-                visible ? intensity(count) : "bg-transparent",
-              )}
-            />
-          );
-        })}
-      </div>
-      <div className="mt-2 flex items-center gap-1 text-[10px] text-faint sm:text-[11px]">
-        <span>Menos</span>
-        <div className="flex items-center gap-[2px] sm:gap-[3px]">
-          {LEGEND_LEVELS.map((level) => (
-            <span
-              key={level}
-              className={cn(
-                "h-2 w-2 rounded-[2px] sm:h-[9px] sm:w-[9px]",
-                intensity(level),
-              )}
-            />
-          ))}
+      <div className="w-full">
+        <div
+          className="mb-1.5 grid w-full gap-[3px] text-[10px] text-faint sm:text-[11px]"
+          style={{ gridTemplateColumns: weekColumns }}
+        >
+          {Array.from({ length: weekCount }, (_, week) => {
+            const marker = monthLabels.find((item) => item.week === week);
+            return (
+              <span key={week} className="block min-w-0 whitespace-nowrap leading-none capitalize">
+                {marker?.label ?? ""}
+              </span>
+            );
+          })}
         </div>
-        <span>Mais</span>
+        <div
+          className="grid w-full gap-[3px]"
+          style={{
+            gridTemplateColumns: weekColumns,
+            gridTemplateRows: "repeat(7, minmax(0, 1fr))",
+            gridAutoFlow: "column",
+            aspectRatio: `${weekCount} / 7`,
+          }}
+        >
+          {days.map((day, index) => {
+            const dateKey = toISODate(day);
+            const count = lookup.get(dateKey) ?? 0;
+            return (
+              <span
+                key={`${dateKey}-${index}`}
+                title={`${format(day, "d MMM yyyy", { locale: ptBR })} · ${count} entrega${count === 1 ? "" : "s"}`}
+                className={cn("block size-full min-h-0 min-w-0 rounded-[2px]", intensity(count))}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-2 flex items-center gap-1 text-[10px] text-faint sm:text-[11px]">
+          <span>Menos</span>
+          <div className="flex items-center gap-[3px]">
+            {LEGEND_LEVELS.map((level) => (
+              <span key={level} className={cn("h-[11px] w-[11px] rounded-[2px]", intensity(level))} />
+            ))}
+          </div>
+          <span>Mais</span>
+        </div>
       </div>
     </div>
   );
