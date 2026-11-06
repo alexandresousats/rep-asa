@@ -151,7 +151,10 @@ function Dashboard() {
           </div>
           <YearFilter years={years} value={selectedYear} onChange={setYear} />
         </div>
-        <Heatmap cells={deliveries.heatmap} year={selectedYear} />
+        <Heatmap
+          cells={deliveries.heatmap}
+          year={selectedYear === new Date().getFullYear() ? undefined : selectedYear}
+        />
         <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-5">
           <Stat label="Mês mais ativo" value={deliveries.mostActiveMonth} />
           <Stat label="Dia mais ativo" value={deliveries.mostActiveWeekday} />
