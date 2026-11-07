@@ -392,7 +392,7 @@ export async function createSection(projectId: string, name: string) {
   if (current && !current.sections?.includes(data.name)) {
     useWorkspace.getState().upsertProject({
       ...current,
-      sections: [...(current.sections ?? []), data.name],
+      sections: [data.name, ...(current.sections ?? [])],
     });
   }
   return data.name;

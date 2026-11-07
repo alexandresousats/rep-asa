@@ -1074,7 +1074,8 @@ export async function createSection(actor: Actor, projectId: string, name: strin
     (section) => section.name.toLowerCase() === trimmed.toLowerCase(),
   );
   if (existing) return existing.name;
-  const position = project.sections.reduce((max, section) => Math.max(max, section.position), -1) + 1;
+  const position =
+    project.sections.reduce((lowest, section) => Math.min(lowest, section.position), 0) - 1;
   await prisma.section.create({
     data: { id: uid("sec"), projectId, name: trimmed, position },
   });
